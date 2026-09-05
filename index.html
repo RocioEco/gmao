@@ -1,0 +1,973 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GMAO - Sistema de Órdenes de Trabajo</title>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root { color-scheme: light dark; }
+        body.light-theme {
+            --surface-0: #f8f9fa;
+            --surface-1: #ffffff;
+            --surface-2: #f0f2f5;
+            --text-primary: #1a1d23;
+            --text-secondary: #4a4f57;
+            --text-muted: #8b92a0;
+            --border: #d0d5dd;
+            --fill-accent: #0066cc;
+            --fill-accent-dark: #0052a3;
+            --on-accent: #ffffff;
+            --fill-success: #1e7e34;
+            --on-success: #ffffff;
+            --fill-danger: #d1293a;
+            --on-danger: #ffffff;
+            --bg-accent: #e3f2fd;
+            --bg-success: #ecf5e9;
+            --bg-danger: #ffebee;
+            --bg-warning: #fff8e1;
+        }
+        body.dark-theme {
+            --surface-0: #0d1117;
+            --surface-1: #161b22;
+            --surface-2: #21262d;
+            --text-primary: #e6edf3;
+            --text-secondary: #8b949e;
+            --text-muted: #6e7681;
+            --border: #30363d;
+            --fill-accent: #1f6feb;
+            --fill-accent-dark: #1960e8;
+            --on-accent: #ffffff;
+            --fill-success: #238636;
+            --on-success: #ffffff;
+            --fill-danger: #da3633;
+            --on-danger: #ffffff;
+            --bg-accent: #0d47a1;
+            --bg-success: #1b4620;
+            --bg-danger: #3d2626;
+            --bg-warning: #3d3000;
+        }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--surface-0); color: var(--text-primary); line-height: 1.6; transition: background-color 0.3s, color 0.3s; }
+        .container { max-width: 100%; width: 100%; }
+        .login-screen { min-height: 100vh; padding: 2rem 1rem; background: linear-gradient(135deg, #2563eb 0%, #1e40af 100%); display: flex; align-items: center; justify-content: center; }
+        .login-card { background: var(--surface-1); border-radius: 12px; padding: 2rem; width: 100%; max-width: 420px; box-shadow: 0 10px 40px rgba(0,0,0,0.15); }
+        .login-card h1 { font-size: 28px; font-weight: 700; text-align: center; margin-bottom: 0.5rem; color: var(--fill-accent); }
+        .login-card p { text-align: center; color: var(--text-secondary); margin-bottom: 2rem; font-size: 14px; }
+        .form-group { margin-bottom: 14px; }
+        .form-group label { display: block; font-size: 13px; margin-bottom: 6px; color: var(--text-primary); font-weight: 500; }
+        input, select, textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; font-family: inherit; background: var(--surface-1); color: var(--text-primary); }
+        input:focus, select:focus, textarea:focus { outline: none; border-color: var(--fill-accent); box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1); }
+        .login-btn { width: 100%; padding: 12px; background: linear-gradient(135deg, #2563eb 0%, #1e40af 100%); color: white; border: none; border-radius: 8px; font-weight: 600; font-size: 15px; cursor: pointer; transition: opacity 0.2s; margin-top: 1rem; }
+        .login-btn:hover:not(:disabled) { opacity: 0.9; }
+        .login-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+        .error-message { color: var(--fill-danger); font-size: 12px; margin-bottom: 12px; }
+        .credentials-info { margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--border); }
+        .credentials-info p { font-size: 12px; color: var(--text-secondary); margin-bottom: 8px; }
+        .credentials-list { font-size: 11px; color: var(--text-muted); }
+        .credentials-list p { margin: 4px 0; }
+        .dashboard { min-height: 100vh; background: var(--surface-0); }
+        .header { background: var(--surface-1); border-bottom: 1px solid var(--border); padding: 1rem; position: sticky; top: 0; z-index: 100; }
+        .header-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
+        .header-left { display: flex; align-items: center; gap: 12px; }
+        .header-logo { width: 44px; height: 44px; border-radius: 8px; background: linear-gradient(135deg, #2563eb 0%, #1e40af 100%); display: flex; align-items: center; justify-content: center; color: white; font-weight: 700; font-size: 18px; flex-shrink: 0; }
+        .header-logo img { width: 100%; height: 100%; object-fit: contain; border-radius: 6px; }
+        .header-user { display: flex; flex-direction: column; }
+        .header-user h2 { font-size: 15px; font-weight: 600; margin: 0; }
+        .header-user p { font-size: 12px; color: var(--text-secondary); margin: 2px 0 0 0; }
+        .header-right { display: flex; gap: 8px; align-items: center; }
+        .theme-toggle { padding: 8px 12px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; cursor: pointer; font-size: 12px; color: var(--text-primary); transition: all 0.2s; }
+        .theme-toggle:hover { background: var(--bg-accent); }
+        .logout-btn { padding: 8px 12px; background: transparent; border: 1px solid var(--border); border-radius: 8px; cursor: pointer; font-size: 12px; color: var(--text-primary); transition: all 0.2s; }
+        .logout-btn:hover { background: var(--surface-2); }
+        .nav-tabs { display: grid; grid-template-columns: repeat(auto-fit, minmax(80px, 1fr)); gap: 8px; }
+        .nav-btn { padding: 8px 12px; background: transparent; border: 1px solid var(--border); border-radius: 8px; cursor: pointer; font-size: 12px; transition: all 0.2s; color: var(--text-primary); }
+        .nav-btn:hover { background: var(--surface-2); }
+        .nav-btn.active { background: var(--fill-accent); color: white; border-color: var(--fill-accent); }
+        .content { padding: 1rem; }
+        .section-title { font-size: 20px; font-weight: 600; margin-bottom: 1.5rem; color: var(--text-primary); }
+        .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 1rem; margin-bottom: 1rem; }
+        .card-title { font-size: 14px; font-weight: 600; color: var(--text-primary); }
+        .card-text { font-size: 12px; color: var(--text-secondary); margin: 4px 0; }
+        .metrics-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 1.5rem; }
+        .metric-card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; text-align: center; }
+        .metric-label { font-size: 12px; color: var(--text-secondary); margin-bottom: 8px; }
+        .metric-value { font-size: 24px; font-weight: 700; color: var(--fill-accent); }
+        textarea { resize: vertical; min-height: 80px; }
+        .btn { padding: 8px 12px; border: none; border-radius: 8px; cursor: pointer; font-size: 12px; font-weight: 500; transition: all 0.2s; }
+        .btn-primary { background: var(--fill-accent); color: white; }
+        .btn-primary:hover { background: var(--fill-accent-dark); }
+        .btn-success { background: var(--fill-success); color: white; }
+        .btn-success:hover { opacity: 0.9; }
+        .btn-danger { background: var(--fill-danger); color: white; }
+        .btn-secondary { background: transparent; border: 1px solid var(--border); color: var(--text-primary); }
+        .btn-secondary:hover { background: var(--surface-2); }
+        .btn-group { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 1rem; }
+        .list { display: grid; gap: 12px; }
+        .list-item { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 1rem; }
+        .list-item:hover { border-color: var(--fill-accent); }
+        .list-item-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; }
+        .empty-state { text-align: center; padding: 2rem; color: var(--text-secondary); }
+        .badge { font-size: 11px; padding: 4px 8px; border-radius: 6px; font-weight: 500; }
+        .badge.correctivo { background: var(--bg-danger); color: var(--fill-danger); }
+        .badge.preventivo { background: var(--bg-success); color: var(--fill-success); }
+        .badge.obra { background: var(--bg-warning); color: #b8860b; }
+        .badge.admin { background: var(--bg-accent); color: var(--fill-accent); }
+        .badge.supervisor { background: #e8f0ff; color: #0052a3; }
+        .badge.tecnico { background: #f0f0f0; color: #666; }
+        @media (max-width: 768px) { .metrics-grid { grid-template-columns: repeat(2, 1fr); } .nav-tabs { grid-template-columns: repeat(2, 1fr); } }
+    </style>
+</head>
+<body class="light-theme">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useContext, createContext } = React;
+        const API_URL = typeof window !== 'undefined' && window.location.hostname === 'localhost' 
+            ? 'http://localhost:3001'
+            : '';
+
+        const AppContext = createContext();
+
+        function LoginScreen({ onLogin }) {
+            const [email, setEmail] = useState('');
+            const [password, setPassword] = useState('');
+            const [loading, setLoading] = useState(false);
+            const [error, setError] = useState('');
+
+            const handleLogin = async (e) => {
+                e.preventDefault();
+                setError('');
+                setLoading(true);
+
+                try {
+                    const response = await fetch(`${API_URL}/api/auth/login`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ email, password })
+                    });
+
+                    if (response.ok) {
+                        const user = await response.json();
+                        onLogin(user);
+                    } else {
+                        setError('Email o contraseña inválida');
+                    }
+                } catch (err) {
+                    setError('Error al autenticarse');
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            return (
+                <div className="login-screen">
+                    <div className="login-card">
+                        <h1>GMAO</h1>
+                        <p>Sistema de Gestión de Órdenes de Trabajo</p>
+
+                        <form onSubmit={handleLogin}>
+                            <div className="form-group">
+                                <label>📧 Email</label>
+                                <input
+                                    type="email"
+                                    placeholder="usuario@empresa.com"
+                                    value={email}
+                                    onChange={(e) => setEmail(e.target.value)}
+                                    required
+                                    autoFocus
+                                />
+                            </div>
+
+                            <div className="form-group">
+                                <label>🔐 Contraseña</label>
+                                <input
+                                    type="password"
+                                    placeholder="Tu contraseña"
+                                    value={password}
+                                    onChange={(e) => setPassword(e.target.value)}
+                                    required
+                                />
+                            </div>
+
+                            {error && <div className="error-message">❌ {error}</div>}
+
+                            <button type="submit" className="login-btn" disabled={loading}>
+                                {loading ? 'Accediendo...' : 'Acceder'}
+                            </button>
+                        </form>
+
+                        <div className="credentials-info">
+                            <p><strong>Usuarios de prueba:</strong></p>
+                            <div className="credentials-list">
+                                <p>👤 admin@gmao.com / admin123</p>
+                                <p>👤 supervisor@gmao.com / supervisor123</p>
+                                <p>👤 tecnico@gmao.com / tecnico123</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        function Dashboard({ user, onLogout }) {
+            const [activeTab, setActiveTab] = useState('dashboard');
+            const [clientes, setClientes] = useState([]);
+            const [contratos, setContratos] = useState([]);
+            const [inventario, setInventario] = useState([]);
+            const [ordenes, setOrdenes] = useState([]);
+            const [usuarios, setUsuarios] = useState([]);
+            const [isDarkMode, setIsDarkMode] = useState(document.body.classList.contains('dark-theme'));
+
+            useEffect(() => {
+                cargarDatos();
+            }, []);
+
+            const cargarDatos = async () => {
+                try {
+                    const [clientesRes, contratosRes, inventarioRes, ordenesRes, usuariosRes] = await Promise.all([
+                        fetch(`${API_URL}/api/clientes`),
+                        fetch(`${API_URL}/api/contratos`),
+                        fetch(`${API_URL}/api/inventario`),
+                        fetch(`${API_URL}/api/ordenes`),
+                        fetch(`${API_URL}/api/usuarios`)
+                    ]);
+
+                    setClientes(await clientesRes.json());
+                    setContratos(await contratosRes.json());
+                    setInventario(await inventarioRes.json());
+                    setOrdenes(await ordenesRes.json());
+                    setUsuarios(await usuariosRes.json());
+                } catch (err) {
+                    console.error('Error cargando datos:', err);
+                }
+            };
+
+            const toggleTheme = () => {
+                const newDarkMode = !isDarkMode;
+                setIsDarkMode(newDarkMode);
+                document.body.classList.toggle('dark-theme', newDarkMode);
+                document.body.classList.toggle('light-theme', !newDarkMode);
+                localStorage.setItem('gmao-theme', newDarkMode ? 'dark' : 'light');
+            };
+
+            const getTabs = () => {
+                const common = [{ id: 'dashboard', label: 'Dashboard' }];
+
+                if (user.rol === 'admin') {
+                    return [
+                        ...common,
+                        { id: 'ordenes', label: 'Órdenes' },
+                        { id: 'inventario', label: 'Inventario' },
+                        { id: 'contratos', label: 'Contratos' },
+                        { id: 'clientes', label: 'Clientes' },
+                        { id: 'usuarios', label: 'Usuarios' }
+                    ];
+                } else if (user.rol === 'supervisor') {
+                    return [
+                        ...common,
+                        { id: 'ordenes', label: 'Órdenes' },
+                        { id: 'inventario', label: 'Inventario' },
+                        { id: 'contratos', label: 'Contratos' },
+                        { id: 'clientes', label: 'Clientes' },
+                        { id: 'usuarios', label: 'Usuarios' }
+                    ];
+                } else {
+                    return [{ id: 'ordenes', label: 'Mis Órdenes' }];
+                }
+            };
+
+            return (
+                <div className="dashboard">
+                    <div className="header">
+                        <div className="header-top">
+                            <div className="header-left">
+                                <div className="header-logo">G</div>
+                                <div className="header-user">
+                                    <h2>{user.nombre}</h2>
+                                    <p>📍 {user.rol}</p>
+                                </div>
+                            </div>
+
+                            <div className="header-right">
+                                <button className="theme-toggle" onClick={toggleTheme}>
+                                    {isDarkMode ? '☀️ Claro' : '🌙 Oscuro'}
+                                </button>
+                                <button className="logout-btn" onClick={onLogout}>Salir</button>
+                            </div>
+                        </div>
+
+                        <div className="nav-tabs">
+                            {getTabs().map(tab => (
+                                <button
+                                    key={tab.id}
+                                    className={`nav-btn ${activeTab === tab.id ? 'active' : ''}`}
+                                    onClick={() => setActiveTab(tab.id)}
+                                >
+                                    {tab.label}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
+                    <div className="content">
+                        {activeTab === 'dashboard' && <DashboardView ordenes={ordenes} clientes={clientes} inventario={inventario} contratos={contratos} />}
+                        {activeTab === 'ordenes' && <OrdenesView user={user} ordenes={ordenes} clientes={clientes} onRefresh={cargarDatos} />}
+                        {activeTab === 'inventario' && <InventarioView user={user} inventario={inventario} onRefresh={cargarDatos} />}
+                        {activeTab === 'contratos' && (user.rol === 'admin' || user.rol === 'supervisor') && <ContratosView user={user} contratos={contratos} clientes={clientes} onRefresh={cargarDatos} />}
+                        {activeTab === 'clientes' && (user.rol === 'admin' || user.rol === 'supervisor') && <ClientesView user={user} clientes={clientes} onRefresh={cargarDatos} />}
+                        {activeTab === 'usuarios' && (user.rol === 'admin' || user.rol === 'supervisor') && <UsuariosView user={user} usuarios={usuarios} onRefresh={cargarDatos} />}
+                    </div>
+                </div>
+            );
+        }
+
+        function DashboardView({ ordenes, clientes, inventario, contratos }) {
+            const stats = [
+                { label: 'Órdenes Totales', value: ordenes.length },
+                { label: 'Clientes', value: clientes.length },
+                { label: 'Equipos', value: inventario.length },
+                { label: 'Contratos', value: contratos.length }
+            ];
+
+            return (
+                <div>
+                    <h3 className="section-title">Dashboard</h3>
+                    <div className="metrics-grid">
+                        {stats.map((stat, i) => (
+                            <div key={i} className="metric-card">
+                                <div className="metric-label">{stat.label}</div>
+                                <div className="metric-value">{stat.value}</div>
+                            </div>
+                        ))}
+                    </div>
+
+                    <div className="card">
+                        <h4 className="card-title">📋 Últimas Órdenes</h4>
+                        {ordenes.slice(0, 3).length === 0 ? (
+                            <p className="card-text">No hay órdenes</p>
+                        ) : (
+                            ordenes.slice(0, 3).map(order => (
+                                <div key={order.id} style={{ paddingBottom: '8px', borderBottom: '1px solid var(--border)' }}>
+                                    <p style={{ margin: '0', fontSize: '13px', fontWeight: '600' }}>{order.id}</p>
+                                    <p className="card-text">{order.titulo}</p>
+                                </div>
+                            ))
+                        )}
+                    </div>
+                </div>
+            );
+        }
+
+        function OrdenesView({ user, ordenes, clientes, onRefresh }) {
+            const [showForm, setShowForm] = useState(false);
+            const [formData, setFormData] = useState({
+                titulo: '',
+                tipo: 'correctivo',
+                cliente_id: clientes.length > 0 ? clientes[0].id : 1,
+                estado: 'abierta'
+            });
+
+            const handleAddOrden = async () => {
+                if (!formData.titulo.trim()) return;
+
+                try {
+                    await fetch(`${API_URL}/api/ordenes`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            ...formData,
+                            asignado_a: user.id
+                        })
+                    });
+
+                    setFormData({ titulo: '', tipo: 'correctivo', cliente_id: clientes[0]?.id || 1, estado: 'abierta' });
+                    setShowForm(false);
+                    onRefresh();
+                } catch (err) {
+                    alert('Error al crear orden');
+                }
+            };
+
+            return (
+                <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                        <h3 className="section-title" style={{ margin: 0 }}>📋 Órdenes de Trabajo</h3>
+                        {(user.rol === 'admin' || user.rol === 'supervisor' || user.rol === 'tecnico') && (
+                            <button className="btn btn-primary" onClick={() => setShowForm(!showForm)}>
+                                + Nueva
+                            </button>
+                        )}
+                    </div>
+
+                    {showForm && (
+                        <div className="card" style={{ marginBottom: '1rem' }}>
+                            <div className="form-group">
+                                <label>Título</label>
+                                <input
+                                    type="text"
+                                    placeholder="Título de la orden"
+                                    value={formData.titulo}
+                                    onChange={(e) => setFormData({ ...formData, titulo: e.target.value })}
+                                />
+                            </div>
+
+                            <div className="form-group">
+                                <label>Tipo</label>
+                                <select
+                                    value={formData.tipo}
+                                    onChange={(e) => setFormData({ ...formData, tipo: e.target.value })}
+                                >
+                                    <option value="correctivo">Correctiva</option>
+                                    <option value="preventivo">Preventiva</option>
+                                    <option value="obra">Obra</option>
+                                </select>
+                            </div>
+
+                            <div className="form-group">
+                                <label>Cliente</label>
+                                <select
+                                    value={formData.cliente_id}
+                                    onChange={(e) => setFormData({ ...formData, cliente_id: parseInt(e.target.value) })}
+                                >
+                                    {clientes.map(c => (
+                                        <option key={c.id} value={c.id}>{c.nombre}</option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <div className="btn-group">
+                                <button className="btn btn-success" onClick={handleAddOrden}>Crear</button>
+                                <button className="btn btn-secondary" onClick={() => setShowForm(false)}>Cancelar</button>
+                            </div>
+                        </div>
+                    )}
+
+                    <div className="list">
+                        {ordenes.length === 0 ? (
+                            <div className="empty-state">No hay órdenes</div>
+                        ) : (
+                            ordenes.map(order => (
+                                <div key={order.id} className="list-item">
+                                    <div className="list-item-header">
+                                        <div>
+                                            <p className="card-title">{order.id}</p>
+                                            <p className="card-text">{order.titulo}</p>
+                                        </div>
+                                        <span className={`badge ${order.tipo}`}>{order.tipo}</span>
+                                    </div>
+                                    <p className="card-text">👤 Cliente: {order.cliente_nombre}</p>
+                                    <p className="card-text">✓ Estado: {order.estado}</p>
+                                </div>
+                            ))
+                        )}
+                    </div>
+                </div>
+            );
+        }
+
+        function InventarioView({ user, inventario, onRefresh }) {
+            const [showForm, setShowForm] = useState(false);
+            const [formData, setFormData] = useState({
+                contrato: '',
+                zona: '',
+                equipo: '',
+                tipo: '',
+                estado: 'Activo'
+            });
+
+            const handleAdd = async () => {
+                if (!formData.equipo.trim()) return;
+
+                try {
+                    await fetch(`${API_URL}/api/inventario`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(formData)
+                    });
+
+                    setFormData({ contrato: '', zona: '', equipo: '', tipo: '', estado: 'Activo' });
+                    setShowForm(false);
+                    onRefresh();
+                } catch (err) {
+                    alert('Error al agregar inventario');
+                }
+            };
+
+            return (
+                <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                        <h3 className="section-title" style={{ margin: 0 }}>📦 Inventario</h3>
+                        <button className="btn btn-primary" onClick={() => setShowForm(!showForm)}>
+                            + Agregar
+                        </button>
+                    </div>
+
+                    {showForm && (
+                        <div className="card" style={{ marginBottom: '1rem' }}>
+                            <div className="form-group">
+                                <label>Contrato</label>
+                                <input type="text" placeholder="Contrato" value={formData.contrato} onChange={(e) => setFormData({ ...formData, contrato: e.target.value })} />
+                            </div>
+                            <div className="form-group">
+                                <label>Zona</label>
+                                <input type="text" placeholder="Zona" value={formData.zona} onChange={(e) => setFormData({ ...formData, zona: e.target.value })} />
+                            </div>
+                            <div className="form-group">
+                                <label>Equipo</label>
+                                <input type="text" placeholder="Equipo" value={formData.equipo} onChange={(e) => setFormData({ ...formData, equipo: e.target.value })} />
+                            </div>
+                            <div className="form-group">
+                                <label>Tipo</label>
+                                <input type="text" placeholder="Tipo" value={formData.tipo} onChange={(e) => setFormData({ ...formData, tipo: e.target.value })} />
+                            </div>
+                            <div className="btn-group">
+                                <button className="btn btn-success" onClick={handleAdd}>Agregar</button>
+                                <button className="btn btn-secondary" onClick={() => setShowForm(false)}>Cancelar</button>
+                            </div>
+                        </div>
+                    )}
+
+                    <div className="list">
+                        {inventario.length === 0 ? (
+                            <div className="empty-state">No hay inventario</div>
+                        ) : (
+                            inventario.map(item => (
+                                <div key={item.id} className="list-item">
+                                    <p className="card-title">⚙️ {item.equipo}</p>
+                                    <p className="card-text">📋 Contrato: {item.contrato} | 📍 Zona: {item.zona}</p>
+                                    <p className="card-text">🏷️ Tipo: {item.tipo} | ✓ Estado: {item.estado}</p>
+                                </div>
+                            ))
+                        )}
+                    </div>
+                </div>
+            );
+        }
+
+        function ContratosView({ user, contratos, clientes, onRefresh }) {
+            const [showForm, setShowForm] = useState(false);
+            const [editingId, setEditingId] = useState(null);
+            const [formData, setFormData] = useState({
+                cliente_id: clientes.length > 0 ? clientes[0].id : 1,
+                nombre: '',
+                descripcion: '',
+                fecha_inicio: '',
+                fecha_fin: '',
+                estado: 'Activo'
+            });
+
+            const handleAdd = async () => {
+                if (!formData.nombre.trim()) return;
+
+                try {
+                    const url = editingId ? `${API_URL}/api/contratos/${editingId}` : `${API_URL}/api/contratos`;
+                    const method = editingId ? 'PUT' : 'POST';
+
+                    await fetch(url, {
+                        method,
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(formData)
+                    });
+
+                    setFormData({
+                        cliente_id: clientes[0]?.id || 1,
+                        nombre: '',
+                        descripcion: '',
+                        fecha_inicio: '',
+                        fecha_fin: '',
+                        estado: 'Activo'
+                    });
+                    setEditingId(null);
+                    setShowForm(false);
+                    onRefresh();
+                } catch (err) {
+                    alert('Error al guardar contrato');
+                }
+            };
+
+            const handleDelete = async (id) => {
+                if (!confirm('¿Eliminar este contrato?')) return;
+
+                try {
+                    await fetch(`${API_URL}/api/contratos/${id}`, { method: 'DELETE' });
+                    onRefresh();
+                } catch (err) {
+                    alert('Error al eliminar contrato');
+                }
+            };
+
+            const handleEdit = (contrato) => {
+                setFormData(contrato);
+                setEditingId(contrato.id);
+                setShowForm(true);
+            };
+
+            return (
+                <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                        <h3 className="section-title" style={{ margin: 0 }}>📋 Contratos</h3>
+                        <button className="btn btn-primary" onClick={() => { setShowForm(!showForm); setEditingId(null); }}>
+                            + Nuevo
+                        </button>
+                    </div>
+
+                    {showForm && (
+                        <div className="card" style={{ marginBottom: '1rem' }}>
+                            <div className="form-group">
+                                <label>Cliente</label>
+                                <select value={formData.cliente_id} onChange={(e) => setFormData({ ...formData, cliente_id: parseInt(e.target.value) })}>
+                                    {clientes.map(c => (
+                                        <option key={c.id} value={c.id}>{c.nombre}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div className="form-group">
+                                <label>Nombre del Contrato</label>
+                                <input type="text" placeholder="Nombre" value={formData.nombre} onChange={(e) => setFormData({ ...formData, nombre: e.target.value })} />
+                            </div>
+                            <div className="form-group">
+                                <label>Descripción</label>
+                                <textarea placeholder="Descripción" value={formData.descripcion} onChange={(e) => setFormData({ ...formData, descripcion: e.target.value })}></textarea>
+                            </div>
+                            <div className="form-group">
+                                <label>Fecha Inicio</label>
+                                <input type="date" value={formData.fecha_inicio} onChange={(e) => setFormData({ ...formData, fecha_inicio: e.target.value })} />
+                            </div>
+                            <div className="form-group">
+                                <label>Fecha Fin</label>
+                                <input type="date" value={formData.fecha_fin} onChange={(e) => setFormData({ ...formData, fecha_fin: e.target.value })} />
+                            </div>
+                            <div className="form-group">
+                                <label>Estado</label>
+                                <select value={formData.estado} onChange={(e) => setFormData({ ...formData, estado: e.target.value })}>
+                                    <option value="Activo">Activo</option>
+                                    <option value="Inactivo">Inactivo</option>
+                                    <option value="Pausado">Pausado</option>
+                                </select>
+                            </div>
+                            <div className="btn-group">
+                                <button className="btn btn-success" onClick={handleAdd}>{editingId ? 'Guardar' : 'Crear'}</button>
+                                <button className="btn btn-secondary" onClick={() => { setShowForm(false); setEditingId(null); }}>Cancelar</button>
+                            </div>
+                        </div>
+                    )}
+
+                    <div className="list">
+                        {contratos.length === 0 ? (
+                            <div className="empty-state">No hay contratos</div>
+                        ) : (
+                            contratos.map(contrato => (
+                                <div key={contrato.id} className="list-item">
+                                    <div className="list-item-header">
+                                        <div>
+                                            <p className="card-title">📄 {contrato.nombre}</p>
+                                            <p className="card-text">🏢 {contrato.cliente_nombre}</p>
+                                        </div>
+                                        <span className="badge" style={{ background: 'var(--bg-accent)', color: 'var(--fill-accent)' }}>{contrato.estado}</span>
+                                    </div>
+                                    <p className="card-text">{contrato.descripcion}</p>
+                                    <p className="card-text">📅 {contrato.fecha_inicio} a {contrato.fecha_fin}</p>
+                                    <div style={{ marginTop: '8px', display: 'flex', gap: '8px' }}>
+                                        <button className="btn btn-primary" onClick={() => handleEdit(contrato)}>Editar</button>
+                                        <button className="btn btn-danger" onClick={() => handleDelete(contrato.id)}>Eliminar</button>
+                                    </div>
+                                </div>
+                            ))
+                        )}
+                    </div>
+                </div>
+            );
+        }
+
+        function ClientesView({ user, clientes, onRefresh }) {
+            const [showForm, setShowForm] = useState(false);
+            const [editingId, setEditingId] = useState(null);
+            const [formData, setFormData] = useState({
+                nombre: '',
+                contacto: '',
+                telefono: ''
+            });
+
+            const handleAdd = async () => {
+                if (!formData.nombre.trim()) return;
+
+                try {
+                    const url = editingId ? `${API_URL}/api/clientes/${editingId}` : `${API_URL}/api/clientes`;
+                    const method = editingId ? 'PUT' : 'POST';
+
+                    await fetch(url, {
+                        method,
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(formData)
+                    });
+
+                    setFormData({ nombre: '', contacto: '', telefono: '' });
+                    setEditingId(null);
+                    setShowForm(false);
+                    onRefresh();
+                } catch (err) {
+                    alert('Error al guardar cliente');
+                }
+            };
+
+            const handleDelete = async (id) => {
+                if (!confirm('¿Eliminar este cliente?')) return;
+
+                try {
+                    await fetch(`${API_URL}/api/clientes/${id}`, { method: 'DELETE' });
+                    onRefresh();
+                } catch (err) {
+                    alert('Error al eliminar cliente');
+                }
+            };
+
+            const handleEdit = (cliente) => {
+                setFormData(cliente);
+                setEditingId(cliente.id);
+                setShowForm(true);
+            };
+
+            return (
+                <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                        <h3 className="section-title" style={{ margin: 0 }}>👥 Clientes</h3>
+                        <button className="btn btn-primary" onClick={() => { setShowForm(!showForm); setEditingId(null); }}>
+                            + Nuevo
+                        </button>
+                    </div>
+
+                    {showForm && (
+                        <div className="card" style={{ marginBottom: '1rem' }}>
+                            <div className="form-group">
+                                <label>Nombre</label>
+                                <input type="text" placeholder="Nombre" value={formData.nombre} onChange={(e) => setFormData({ ...formData, nombre: e.target.value })} />
+                            </div>
+                            <div className="form-group">
+                                <label>Contacto</label>
+                                <input type="email" placeholder="email@ejemplo.com" value={formData.contacto} onChange={(e) => setFormData({ ...formData, contacto: e.target.value })} />
+                            </div>
+                            <div className="form-group">
+                                <label>Teléfono</label>
+                                <input type="tel" placeholder="Teléfono" value={formData.telefono} onChange={(e) => setFormData({ ...formData, telefono: e.target.value })} />
+                            </div>
+                            <div className="btn-group">
+                                <button className="btn btn-success" onClick={handleAdd}>{editingId ? 'Guardar' : 'Agregar'}</button>
+                                <button className="btn btn-secondary" onClick={() => { setShowForm(false); setEditingId(null); }}>Cancelar</button>
+                            </div>
+                        </div>
+                    )}
+
+                    <div className="list">
+                        {clientes.length === 0 ? (
+                            <div className="empty-state">No hay clientes</div>
+                        ) : (
+                            clientes.map(cliente => (
+                                <div key={cliente.id} className="list-item">
+                                    <p className="card-title">🏢 {cliente.nombre}</p>
+                                    <p className="card-text">📧 {cliente.contacto}</p>
+                                    <p className="card-text">📱 {cliente.telefono}</p>
+                                    <div style={{ marginTop: '8px', display: 'flex', gap: '8px' }}>
+                                        <button className="btn btn-primary" onClick={() => handleEdit(cliente)}>Editar</button>
+                                        <button className="btn btn-danger" onClick={() => handleDelete(cliente.id)}>Eliminar</button>
+                                    </div>
+                                </div>
+                            ))
+                        )}
+                    </div>
+                </div>
+            );
+        }
+
+        function UsuariosView({ user, usuarios, onRefresh }) {
+            const [showForm, setShowForm] = useState(false);
+            const [editingId, setEditingId] = useState(null);
+            const [formData, setFormData] = useState({
+                nombre: '',
+                email: '',
+                password: '',
+                rol: 'tecnico',
+                activo: 1
+            });
+            const [error, setError] = useState('');
+
+            const handleAdd = async () => {
+                setError('');
+                
+                if (!formData.nombre.trim() || !formData.email.trim()) {
+                    setError('Nombre y email requeridos');
+                    return;
+                }
+
+                if (!editingId && !formData.password.trim()) {
+                    setError('Contraseña requerida para nuevo usuario');
+                    return;
+                }
+
+                if (formData.password && formData.password.length < 6) {
+                    setError('La contraseña debe tener al menos 6 caracteres');
+                    return;
+                }
+
+                // Supervisor no puede crear admin
+                if (user.rol === 'supervisor' && formData.rol === 'admin') {
+                    setError('Supervisor no puede crear administradores');
+                    return;
+                }
+
+                try {
+                    const url = editingId ? `${API_URL}/api/usuarios/${editingId}` : `${API_URL}/api/usuarios`;
+                    const method = editingId ? 'PUT' : 'POST';
+
+                    const response = await fetch(url, {
+                        method,
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(formData)
+                    });
+
+                    if (response.ok) {
+                        setFormData({ nombre: '', email: '', password: '', rol: 'tecnico', activo: 1 });
+                        setEditingId(null);
+                        setShowForm(false);
+                        onRefresh();
+                    } else {
+                        const data = await response.json();
+                        setError(data.error || 'Error al guardar usuario');
+                    }
+                } catch (err) {
+                    setError('Error al guardar usuario');
+                }
+            };
+
+            const handleDelete = async (id) => {
+                if (!confirm('¿Eliminar este usuario?')) return;
+
+                try {
+                    await fetch(`${API_URL}/api/usuarios/${id}`, { method: 'DELETE' });
+                    onRefresh();
+                } catch (err) {
+                    alert('Error al eliminar usuario');
+                }
+            };
+
+            const handleEdit = (u) => {
+                setFormData({ ...u, password: '' });
+                setEditingId(u.id);
+                setShowForm(true);
+            };
+
+            const handleDisable = async (id) => {
+                try {
+                    await fetch(`${API_URL}/api/usuarios/${id}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ ...usuarios.find(u => u.id === id), activo: 0 })
+                    });
+                    onRefresh();
+                } catch (err) {
+                    alert('Error al inhabilitar usuario');
+                }
+            };
+
+            return (
+                <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                        <h3 className="section-title" style={{ margin: 0 }}>👥 Usuarios</h3>
+                        <button className="btn btn-primary" onClick={() => { setShowForm(!showForm); setEditingId(null); setError(''); }}>
+                            + Nuevo
+                        </button>
+                    </div>
+
+                    {showForm && (
+                        <div className="card" style={{ marginBottom: '1rem' }}>
+                            <div className="form-group">
+                                <label>Nombre</label>
+                                <input type="text" placeholder="Nombre completo" value={formData.nombre} onChange={(e) => setFormData({ ...formData, nombre: e.target.value })} />
+                            </div>
+
+                            <div className="form-group">
+                                <label>Email</label>
+                                <input type="email" placeholder="usuario@ejemplo.com" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} />
+                            </div>
+
+                            {!editingId && (
+                                <div className="form-group">
+                                    <label>Contraseña</label>
+                                    <input type="password" placeholder="Mínimo 6 caracteres" value={formData.password} onChange={(e) => setFormData({ ...formData, password: e.target.value })} />
+                                </div>
+                            )}
+
+                            {editingId && (
+                                <div className="form-group">
+                                    <label>Nueva Contraseña (dejar vacío para no cambiar)</label>
+                                    <input type="password" placeholder="Dejar vacío para no cambiar" value={formData.password} onChange={(e) => setFormData({ ...formData, password: e.target.value })} />
+                                </div>
+                            )}
+
+                            <div className="form-group">
+                                <label>Rol</label>
+                                <select value={formData.rol} onChange={(e) => setFormData({ ...formData, rol: e.target.value })}>
+                                    {user.rol === 'admin' && <option value="admin">Administrador</option>}
+                                    <option value="supervisor">Supervisor</option>
+                                    <option value="tecnico">Técnico</option>
+                                </select>
+                            </div>
+
+                            {error && <p style={{ color: 'var(--fill-danger)', fontSize: '12px', marginBottom: '12px' }}>❌ {error}</p>}
+
+                            <div className="btn-group">
+                                <button className="btn btn-success" onClick={handleAdd}>{editingId ? 'Guardar' : 'Crear'}</button>
+                                <button className="btn btn-secondary" onClick={() => { setShowForm(false); setEditingId(null); setError(''); }}>Cancelar</button>
+                            </div>
+                        </div>
+                    )}
+
+                    <div className="list">
+                        {usuarios.length === 0 ? (
+                            <div className="empty-state">No hay usuarios</div>
+                        ) : (
+                            usuarios.map(u => (
+                                <div key={u.id} className="list-item" style={{ opacity: u.activo ? 1 : 0.5 }}>
+                                    <div className="list-item-header">
+                                        <div>
+                                            <p className="card-title">👤 {u.nombre}</p>
+                                            <p className="card-text">📧 {u.email}</p>
+                                        </div>
+                                        <span className={`badge ${u.rol}`}>{u.rol}</span>
+                                    </div>
+                                    <p className="card-text">✓ Estado: {u.activo ? 'Activo' : 'Inactivo'}</p>
+                                    <div style={{ marginTop: '8px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                                        <button className="btn btn-primary" onClick={() => handleEdit(u)}>Editar</button>
+                                        {u.activo && <button className="btn btn-secondary" onClick={() => handleDisable(u.id)}>Inhabilitar</button>}
+                                        <button className="btn btn-danger" onClick={() => handleDelete(u.id)}>Eliminar</button>
+                                    </div>
+                                </div>
+                            ))
+                        )}
+                    </div>
+                </div>
+            );
+        }
+
+        function App() {
+            const [user, setUser] = useState(null);
+
+            useEffect(() => {
+                const savedTheme = localStorage.getItem('gmao-theme') || 'light';
+                document.body.classList.add(savedTheme + '-theme');
+            }, []);
+
+            return user ? (
+                <Dashboard user={user} onLogout={() => setUser(null)} />
+            ) : (
+                <LoginScreen onLogin={setUser} />
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>

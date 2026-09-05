@@ -72,6 +72,18 @@ db.serialize(() => {
     FOREIGN KEY(tecnico_id) REFERENCES usuarios(id)
   )`);
 
+  db.run(`CREATE TABLE IF NOT EXISTS contratos (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    cliente_id INTEGER NOT NULL,
+    nombre TEXT NOT NULL,
+    descripcion TEXT,
+    fecha_inicio DATE,
+    fecha_fin DATE,
+    estado TEXT DEFAULT 'Activo',
+    creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(cliente_id) REFERENCES clientes(id)
+  )`);
+
   // Insertar datos iniciales (contraseñas encriptadas)
   const adminPass = bcrypt.hashSync('admin123', 10);
   const supervisorPass = bcrypt.hashSync('supervisor123', 10);
@@ -137,20 +149,30 @@ app.put('/api/usuarios/:id', (req, res) => {
     const passwordHash = bcrypt.hashSync(password, 10);
     db.run('UPDATE usuarios SET nombre = ?, email = ?, password_hash = ?, rol = ?, activo = ? WHERE id = ?',
       [nombre, email, passwordHash, rol, activo, req.params.id], (err) => {
-        if (err) return res.status(500).json({ error: err.message });
+        if (err) {
+          if (err.message.includes('UNIQUE')) {
+            return res.status(400).json({ error: 'El email ya está registrado' });
+          }
+          return res.status(500).json({ error: err.message });
+        }
         res.json({ id: req.params.id, nombre, email, rol, activo });
       });
   } else {
     db.run('UPDATE usuarios SET nombre = ?, email = ?, rol = ?, activo = ? WHERE id = ?',
       [nombre, email, rol, activo, req.params.id], (err) => {
-        if (err) return res.status(500).json({ error: err.message });
+        if (err) {
+          if (err.message.includes('UNIQUE')) {
+            return res.status(400).json({ error: 'El email ya está registrado' });
+          }
+          return res.status(500).json({ error: err.message });
+        }
         res.json({ id: req.params.id, nombre, email, rol, activo });
       });
   }
 });
 
 app.delete('/api/usuarios/:id', (req, res) => {
-  db.run('UPDATE usuarios SET activo = 0 WHERE id = ?', [req.params.id], (err) => {
+  db.run('DELETE FROM usuarios WHERE id = ?', [req.params.id], (err) => {
     if (err) return res.status(500).json({ error: err.message });
     res.json({ success: true });
   });
@@ -184,6 +206,42 @@ app.put('/api/clientes/:id', (req, res) => {
 
 app.delete('/api/clientes/:id', (req, res) => {
   db.run('DELETE FROM clientes WHERE id = ?', [req.params.id], (err) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ success: true });
+  });
+});
+
+// CONTRATOS
+app.get('/api/contratos', (req, res) => {
+  db.all(`SELECT c.*, cl.nombre as cliente_nombre 
+          FROM contratos c 
+          LEFT JOIN clientes cl ON c.cliente_id = cl.id
+          ORDER BY c.creado_en DESC`, (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows);
+  });
+});
+
+app.post('/api/contratos', (req, res) => {
+  const { cliente_id, nombre, descripcion, fecha_inicio, fecha_fin, estado } = req.body;
+  db.run('INSERT INTO contratos (cliente_id, nombre, descripcion, fecha_inicio, fecha_fin, estado) VALUES (?, ?, ?, ?, ?, ?)',
+    [cliente_id, nombre, descripcion, fecha_inicio, fecha_fin, estado || 'Activo'], function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ id: this.lastID, cliente_id, nombre, descripcion, fecha_inicio, fecha_fin, estado: estado || 'Activo' });
+    });
+});
+
+app.put('/api/contratos/:id', (req, res) => {
+  const { cliente_id, nombre, descripcion, fecha_inicio, fecha_fin, estado } = req.body;
+  db.run('UPDATE contratos SET cliente_id = ?, nombre = ?, descripcion = ?, fecha_inicio = ?, fecha_fin = ?, estado = ? WHERE id = ?',
+    [cliente_id, nombre, descripcion, fecha_inicio, fecha_fin, estado, req.params.id], (err) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ id: req.params.id, cliente_id, nombre, descripcion, fecha_inicio, fecha_fin, estado });
+    });
+});
+
+app.delete('/api/contratos/:id', (req, res) => {
+  db.run('DELETE FROM contratos WHERE id = ?', [req.params.id], (err) => {
     if (err) return res.status(500).json({ error: err.message });
     res.json({ success: true });
   });
