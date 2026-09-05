@@ -1,0 +1,21 @@
+{
+  "name": "gmao-work-order-app",
+  "version": "1.0.0",
+  "description": "Sistema de Gestión de Órdenes de Trabajo",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "keywords": ["gmao", "work-orders", "maintenance"],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^4.18.2",
+    "sqlite3": "^5.1.6",
+    "cors": "^2.8.5",
+    "body-parser": "^1.20.2",
+    "bcryptjs": "^2.4.3"
+  }
+}
