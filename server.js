@@ -96,6 +96,7 @@ db.serialize(() => {
     checklist_json TEXT,
     materiales_json TEXT,
     fotos_json TEXT,
+    videos_json TEXT,
     medio_ambiente_json TEXT,
     seguridad_json TEXT,
     desplazamientos_json TEXT,
@@ -106,6 +107,8 @@ db.serialize(() => {
     FOREIGN KEY(orden_id) REFERENCES ordenes_trabajo(id),
     FOREIGN KEY(tecnico_id) REFERENCES usuarios(id)
   )`);
+
+  db.run(`ALTER TABLE visitas ADD COLUMN videos_json TEXT`, () => {});
 
   db.run(`CREATE TABLE IF NOT EXISTS materiales (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -783,16 +786,16 @@ app.get('/api/visitas', (req, res) => {
 
 app.post('/api/visitas', (req, res) => {
   const { orden_id, fecha, tecnico_id, hora_inicio, hora_fin, id_mantis, proyecto, descripcion,
-          checklist_tipo, checklist_json, materiales_json, fotos_json, medio_ambiente_json,
+          checklist_tipo, checklist_json, materiales_json, fotos_json, videos_json, medio_ambiente_json,
           seguridad_json, desplazamientos_json, firma, firma_nombre, finalizado } = req.body;
   if (!orden_id) return res.status(400).json({ error: 'orden_id requerido' });
   const id = `VIS-${Date.now()}`;
   db.run(`INSERT INTO visitas (id, orden_id, fecha, tecnico_id, hora_inicio, hora_fin, id_mantis, proyecto, 
-          descripcion, checklist_tipo, checklist_json, materiales_json, fotos_json, medio_ambiente_json, 
+          descripcion, checklist_tipo, checklist_json, materiales_json, fotos_json, videos_json, medio_ambiente_json, 
           seguridad_json, desplazamientos_json, firma, firma_nombre, finalizado) 
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [id, orden_id, fecha, tecnico_id, hora_inicio, hora_fin, id_mantis, proyecto, descripcion,
-     checklist_tipo, checklist_json, materiales_json, fotos_json, medio_ambiente_json,
+     checklist_tipo, checklist_json, materiales_json, fotos_json, videos_json, medio_ambiente_json,
      seguridad_json, desplazamientos_json, firma, firma_nombre, finalizado ? 1 : 0],
     function(err) {
       if (err) return res.status(500).json({ error: err.message });
@@ -803,21 +806,21 @@ app.post('/api/visitas', (req, res) => {
         db.run(`UPDATE ordenes_trabajo SET estado = 'en_curso' WHERE id = ? AND estado = 'abierta'`, [orden_id]);
       }
       res.json({ id, orden_id, fecha, tecnico_id, hora_inicio, hora_fin, id_mantis, proyecto, descripcion,
-        checklist_tipo, checklist_json, materiales_json, fotos_json, medio_ambiente_json,
+        checklist_tipo, checklist_json, materiales_json, fotos_json, videos_json, medio_ambiente_json,
         seguridad_json, desplazamientos_json, firma, firma_nombre, finalizado: finalizado ? 1 : 0 });
     });
 });
 
 app.put('/api/visitas/:id', (req, res) => {
   const { fecha, tecnico_id, hora_inicio, hora_fin, id_mantis, proyecto, descripcion,
-          checklist_tipo, checklist_json, materiales_json, fotos_json, medio_ambiente_json,
+          checklist_tipo, checklist_json, materiales_json, fotos_json, videos_json, medio_ambiente_json,
           seguridad_json, desplazamientos_json, firma, firma_nombre, finalizado, orden_id } = req.body;
   db.run(`UPDATE visitas SET fecha = ?, tecnico_id = ?, hora_inicio = ?, hora_fin = ?, id_mantis = ?, 
           proyecto = ?, descripcion = ?, checklist_tipo = ?, checklist_json = ?, materiales_json = ?, 
-          fotos_json = ?, medio_ambiente_json = ?, seguridad_json = ?, desplazamientos_json = ?, 
+          fotos_json = ?, videos_json = ?, medio_ambiente_json = ?, seguridad_json = ?, desplazamientos_json = ?, 
           firma = ?, firma_nombre = ?, finalizado = ? WHERE id = ?`,
     [fecha, tecnico_id, hora_inicio, hora_fin, id_mantis, proyecto, descripcion, checklist_tipo,
-     checklist_json, materiales_json, fotos_json, medio_ambiente_json, seguridad_json,
+     checklist_json, materiales_json, fotos_json, videos_json, medio_ambiente_json, seguridad_json,
      desplazamientos_json, firma, firma_nombre, finalizado ? 1 : 0, req.params.id],
     (err) => {
       if (err) return res.status(500).json({ error: err.message });
