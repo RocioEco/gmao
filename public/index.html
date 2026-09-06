@@ -26,10 +26,15 @@
             --on-success: #ffffff;
             --fill-danger: #d1293a;
             --on-danger: #ffffff;
+            --fill-orange: #f5820a;
+            --fill-orange-dark: #d96f00;
             --bg-accent: #e3f2fd;
             --bg-success: #ecf5e9;
             --bg-danger: #ffebee;
             --bg-warning: #fff8e1;
+            --header-bg: #1a56db;
+            --header-bg-dark: #14409e;
+            --header-text: #ffffff;
         }
         body.dark-theme {
             --surface-0: #0d1117;
@@ -46,23 +51,30 @@
             --on-success: #ffffff;
             --fill-danger: #da3633;
             --on-danger: #ffffff;
+            --fill-orange: #f5820a;
+            --fill-orange-dark: #d96f00;
             --bg-accent: #0d47a1;
             --bg-success: #1b4620;
             --bg-danger: #3d2626;
             --bg-warning: #3d3000;
+            --header-bg: #0f2f6b;
+            --header-bg-dark: #0a2050;
+            --header-text: #ffffff;
         }
         html, body { max-width: 100%; overflow-x: hidden; }
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--surface-0); color: var(--text-primary); line-height: 1.6; transition: background-color 0.3s, color 0.3s; }
         .container { max-width: 100%; width: 100%; }
-        .login-screen { min-height: 100vh; padding: 2rem 1rem; background: linear-gradient(135deg, #2563eb 0%, #1e40af 100%); display: flex; align-items: center; justify-content: center; }
+        .login-screen { min-height: 100vh; padding: 2rem 1rem; background: linear-gradient(135deg, var(--header-bg) 0%, var(--header-bg-dark) 100%); display: flex; align-items: center; justify-content: center; }
         .login-card { background: var(--surface-1); border-radius: 12px; padding: 2rem; width: 100%; max-width: 420px; box-shadow: 0 10px 40px rgba(0,0,0,0.15); }
+        .login-logo { display: flex; justify-content: center; margin-bottom: 1rem; }
+        .login-logo img { max-width: 220px; height: auto; }
         .login-card h1 { font-size: 28px; font-weight: 700; text-align: center; margin-bottom: 0.5rem; color: var(--fill-accent); }
         .login-card p { text-align: center; color: var(--text-secondary); margin-bottom: 2rem; font-size: 14px; }
         .form-group { margin-bottom: 14px; }
         .form-group label { display: block; font-size: 13px; margin-bottom: 6px; color: var(--text-primary); font-weight: 500; }
         input, select, textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; font-family: inherit; background: var(--surface-1); color: var(--text-primary); }
         input:focus, select:focus, textarea:focus { outline: none; border-color: var(--fill-accent); box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1); }
-        .login-btn { width: 100%; padding: 12px; background: linear-gradient(135deg, #2563eb 0%, #1e40af 100%); color: white; border: none; border-radius: 8px; font-weight: 600; font-size: 15px; cursor: pointer; transition: opacity 0.2s; margin-top: 1rem; }
+        .login-btn { width: 100%; padding: 12px; background: linear-gradient(135deg, var(--header-bg) 0%, var(--header-bg-dark) 100%); color: white; border: none; border-radius: 8px; font-weight: 600; font-size: 15px; cursor: pointer; transition: opacity 0.2s; margin-top: 1rem; }
         .login-btn:hover:not(:disabled) { opacity: 0.9; }
         .login-btn:disabled { opacity: 0.6; cursor: not-allowed; }
         .error-message { color: var(--fill-danger); font-size: 12px; margin-bottom: 12px; }
@@ -71,23 +83,23 @@
         .credentials-list { font-size: 11px; color: var(--text-muted); }
         .credentials-list p { margin: 4px 0; }
         .dashboard { min-height: 100vh; background: var(--surface-0); overflow-x: hidden; max-width: 100%; }
-        .header { background: var(--surface-1); border-bottom: 1px solid var(--border); padding: 1rem; position: sticky; top: 0; z-index: 100; }
+        .header { background: var(--header-bg); border-bottom: 1px solid var(--header-bg-dark); padding: 1rem; position: sticky; top: 0; z-index: 100; }
         .header-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
         .header-left { display: flex; align-items: center; gap: 12px; }
-        .header-logo { width: 44px; height: 44px; border-radius: 8px; background: linear-gradient(135deg, #2563eb 0%, #1e40af 100%); display: flex; align-items: center; justify-content: center; color: white; font-weight: 700; font-size: 18px; flex-shrink: 0; }
-        .header-logo img { width: 100%; height: 100%; object-fit: contain; border-radius: 6px; }
+        .header-logo { width: 130px; height: 40px; border-radius: 8px; background: #ffffff; display: flex; align-items: center; justify-content: center; flex-shrink: 0; padding: 4px 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.15); }
+        .header-logo img { width: 100%; height: 100%; object-fit: contain; }
         .header-user { display: flex; flex-direction: column; }
-        .header-user h2 { font-size: 15px; font-weight: 600; margin: 0; }
-        .header-user p { font-size: 12px; color: var(--text-secondary); margin: 2px 0 0 0; }
+        .header-user h2 { font-size: 15px; font-weight: 600; margin: 0; color: var(--header-text); }
+        .header-user p { font-size: 12px; color: rgba(255,255,255,0.8); margin: 2px 0 0 0; }
         .header-right { display: flex; gap: 8px; align-items: center; }
-        .theme-toggle { padding: 8px 12px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; cursor: pointer; font-size: 12px; color: var(--text-primary); transition: all 0.2s; }
-        .theme-toggle:hover { background: var(--bg-accent); }
-        .logout-btn { padding: 8px 12px; background: transparent; border: 1px solid var(--border); border-radius: 8px; cursor: pointer; font-size: 12px; color: var(--text-primary); transition: all 0.2s; }
-        .logout-btn:hover { background: var(--surface-2); }
-        .nav-tabs { display: flex; overflow-x: auto; -webkit-overflow-scrolling: touch; gap: 8px; scrollbar-width: thin; padding-bottom: 2px; }
-        .nav-btn { padding: 8px 12px; background: transparent; border: 1px solid var(--border); border-radius: 8px; cursor: pointer; font-size: 12px; transition: all 0.2s; color: var(--text-primary); flex: 0 0 auto; white-space: nowrap; }
-        .nav-btn:hover { background: var(--surface-2); }
-        .nav-btn.active { background: var(--fill-accent); color: white; border-color: var(--fill-accent); }
+        .theme-toggle { padding: 8px 12px; background: #ffffff; border: 1px solid #ffffff; border-radius: 8px; cursor: pointer; font-size: 12px; color: var(--header-bg); font-weight: 600; transition: all 0.2s; }
+        .theme-toggle:hover { background: rgba(255,255,255,0.9); }
+        .logout-btn { padding: 8px 12px; background: #ffffff; border: 1px solid #ffffff; border-radius: 8px; cursor: pointer; font-size: 12px; color: var(--header-bg); font-weight: 600; transition: all 0.2s; }
+        .logout-btn:hover { background: rgba(255,255,255,0.9); }
+        .nav-tabs { display: flex; overflow-x: auto; -webkit-overflow-scrolling: touch; gap: 4px; scrollbar-width: thin; padding-bottom: 2px; }
+        .nav-btn { padding: 8px 14px; background: transparent; border: none; border-radius: 8px; cursor: pointer; font-size: 12px; font-weight: 500; transition: all 0.2s; color: rgba(255,255,255,0.85); flex: 0 0 auto; white-space: nowrap; }
+        .nav-btn:hover { background: rgba(255,255,255,0.12); color: #ffffff; }
+        .nav-btn.active { background: #ffffff; color: var(--header-bg); font-weight: 700; }
         .content { padding: 1rem; }
         .section-title { font-size: 20px; font-weight: 600; margin-bottom: 1.5rem; color: var(--text-primary); }
         .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 1rem; margin-bottom: 1rem; }
@@ -101,10 +113,12 @@
         .btn { padding: 8px 12px; border: none; border-radius: 8px; cursor: pointer; font-size: 12px; font-weight: 500; transition: all 0.2s; }
         .btn-primary { background: var(--fill-accent); color: white; }
         .btn-primary:hover { background: var(--fill-accent-dark); }
-        .btn-success { background: var(--fill-success); color: white; }
-        .btn-success:hover { opacity: 0.9; }
+        .btn-success { background: var(--fill-accent); color: white; }
+        .btn-success:hover { background: var(--fill-accent-dark); }
+        .btn-crear { background: var(--fill-orange); color: white; }
+        .btn-crear:hover { background: var(--fill-orange-dark); }
         .btn-danger { background: var(--fill-danger); color: white; }
-        .btn-secondary { background: transparent; border: 1px solid var(--border); color: var(--text-primary); }
+        .btn-secondary { background: var(--surface-1); border: 1px solid var(--border); color: var(--text-primary); }
         .btn-secondary:hover { background: var(--surface-2); }
         .btn-group { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 1rem; }
         .list { display: grid; gap: 12px; }
@@ -121,9 +135,9 @@
         .badge.tecnico { background: #f0f0f0; color: #666; }
         @media (max-width: 768px) { .metrics-grid { grid-template-columns: repeat(2, 1fr); } }
         .toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-        .btn-excel { background: #1e7e34; color: white; display: inline-flex; align-items: center; gap: 4px; }
-        .btn-excel:hover { opacity: 0.9; }
-        .btn-import { background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary); }
+        .btn-excel { background: var(--surface-1); border: 1px solid var(--border); color: var(--text-primary); display: inline-flex; align-items: center; gap: 4px; }
+        .btn-excel:hover { background: var(--surface-2); }
+        .btn-import { background: var(--surface-1); border: 1px solid var(--border); color: var(--text-primary); }
         .file-input-hidden { display: none; }
         .breadcrumb-path { font-size: 11px; color: var(--text-muted); margin: 2px 0; }
         .select-disabled { opacity: 0.5; cursor: not-allowed; }
@@ -198,6 +212,13 @@
         .finalizar-banner-title { font-weight: 700; font-size: 14px; margin: 0; }
         .finalizar-banner.activo .finalizar-banner-title { color: var(--fill-success); }
         .finalizar-banner-sub { font-size: 12px; color: var(--text-secondary); margin: 2px 0 0; }
+        .notif-toggle { padding: 8px 10px; background: #ffffff; border: 1px solid #ffffff; border-radius: 8px; cursor: pointer; font-size: 12px; color: var(--header-bg); font-weight: 600; }
+        .notif-toggle.on { background: var(--fill-orange); border-color: var(--fill-orange); color: white; }
+        .toast-wrap { position: fixed; top: 16px; right: 16px; left: 16px; z-index: 1000; display: flex; flex-direction: column; gap: 8px; align-items: flex-end; pointer-events: none; }
+        .toast-card { pointer-events: auto; background: var(--surface-1); border: 1px solid var(--fill-orange); border-left: 5px solid var(--fill-orange); border-radius: 10px; padding: 12px 14px; max-width: 360px; width: 100%; box-shadow: 0 8px 24px rgba(0,0,0,0.2); cursor: pointer; animation: toast-in 0.25s ease-out; }
+        @keyframes toast-in { from { transform: translateY(-12px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+        .toast-title { font-weight: 700; font-size: 13px; margin: 0 0 2px; color: var(--fill-orange); }
+        .toast-body { font-size: 12px; color: var(--text-primary); margin: 0; }
         .field-with-add { display: flex; gap: 6px; align-items: stretch; }
         .field-with-add select, .field-with-add input { flex: 1; }
         .btn-quickadd { flex-shrink: 0; padding: 0 12px; background: var(--bg-accent); color: var(--fill-accent); border: 1px solid var(--fill-accent); border-radius: 8px; cursor: pointer; font-size: 16px; font-weight: 700; line-height: 1; }
@@ -255,6 +276,7 @@
             return (
                 <div className="login-screen">
                     <div className="login-card">
+                        <div className="login-logo"><img src="/assets/logo.jpeg" alt="eco computer Facilities" /></div>
                         <h1>GMAO</h1>
                         <p>Sistema de Gestión de Órdenes de Trabajo</p>
 
@@ -302,6 +324,23 @@
             );
         }
 
+        function playBeep() {
+            try {
+                const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(880, ctx.currentTime);
+                gain.gain.setValueAtTime(0.15, ctx.currentTime);
+                osc.start();
+                osc.frequency.setValueAtTime(660, ctx.currentTime + 0.15);
+                gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
+                osc.stop(ctx.currentTime + 0.5);
+            } catch (e) { /* audio no soportado, se ignora */ }
+        }
+
         function Dashboard({ user, onLogout }) {
             const [activeTab, setActiveTab] = useState('dashboard');
             const [clientes, setClientes] = useState([]);
@@ -314,10 +353,69 @@
             const [usuarios, setUsuarios] = useState([]);
             const [materiales, setMateriales] = useState([]);
             const [isDarkMode, setIsDarkMode] = useState(document.body.classList.contains('dark-theme'));
+            const [notifPermission, setNotifPermission] = useState(typeof Notification !== 'undefined' ? Notification.permission : 'unsupported');
+            const [toasts, setToasts] = useState([]);
+            const seenGuardiaIds = React.useRef(null);
+            const esGestorGlobal = user.rol === 'admin' || user.rol === 'supervisor';
 
             useEffect(() => {
                 cargarDatos();
             }, []);
+
+            // ===== VIGÍA DE GUARDIAS NUEVAS (mientras la app está abierta) =====
+            useEffect(() => {
+                if (!esGestorGlobal) return;
+
+                const revisarGuardias = async () => {
+                    try {
+                        const res = await fetch(`${API_URL}/api/guardias-pendientes`);
+                        const lista = await res.json();
+                        const idsActuales = new Set(lista.map(g => g.id));
+
+                        if (seenGuardiaIds.current === null) {
+                            // Primera comprobación: solo establece la base, sin avisar de las ya existentes
+                            seenGuardiaIds.current = idsActuales;
+                            return;
+                        }
+
+                        const nuevas = lista.filter(g => !seenGuardiaIds.current.has(g.id));
+                        if (nuevas.length > 0) {
+                            playBeep();
+                            nuevas.forEach(g => {
+                                if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+                                    try {
+                                        new Notification('🔔 Nueva Guardia', {
+                                            body: `${g.titulo}${g.tecnico_nombre ? ' — ' + g.tecnico_nombre : ''}`,
+                                            tag: g.id
+                                        });
+                                    } catch (e) {}
+                                }
+                            });
+                            setToasts(prev => [...prev, ...nuevas.map(g => ({ id: g.id, titulo: g.titulo, tecnico: g.tecnico_nombre }))]);
+                            cargarDatos();
+                        }
+                        seenGuardiaIds.current = idsActuales;
+                    } catch (e) { /* fallo de red puntual, se reintenta en el próximo ciclo */ }
+                };
+
+                revisarGuardias();
+                const intervalo = setInterval(revisarGuardias, 15000);
+                return () => clearInterval(intervalo);
+            }, [esGestorGlobal]);
+
+            const dismissToast = (id) => setToasts(prev => prev.filter(t => t.id !== id));
+
+            useEffect(() => {
+                if (toasts.length === 0) return;
+                const timers = toasts.map(t => setTimeout(() => dismissToast(t.id), 8000));
+                return () => timers.forEach(clearTimeout);
+            }, [toasts]);
+
+            const solicitarNotificaciones = async () => {
+                if (typeof Notification === 'undefined') return;
+                const permiso = await Notification.requestPermission();
+                setNotifPermission(permiso);
+            };
 
             const cargarDatos = async () => {
                 try {
@@ -376,10 +474,19 @@
 
             return (
                 <div className="dashboard">
-                    <div className="header">
+                    {toasts.length > 0 && (
+                        <div className="toast-wrap">
+                            {toasts.map(t => (
+                                <div key={t.id} className="toast-card" onClick={() => { setActiveTab('guardias'); dismissToast(t.id); }}>
+                                    <p className="toast-title">🔔 Nueva Guardia</p>
+                                    <p className="toast-body">{t.titulo}{t.tecnico ? ` — ${t.tecnico}` : ''}</p>
+                                </div>
+                            ))}
+                        </div>
+                    )}                    <div className="header">
                         <div className="header-top">
                             <div className="header-left">
-                                <div className="header-logo">G</div>
+                                <div className="header-logo"><img src="/assets/logo.jpeg" alt="eco computer Facilities" /></div>
                                 <div className="header-user">
                                     <h2>{user.nombre}</h2>
                                     <p>📍 {user.rol}</p>
@@ -387,6 +494,12 @@
                             </div>
 
                             <div className="header-right">
+                                {esGestorGlobal && typeof Notification !== 'undefined' && notifPermission !== 'granted' && (
+                                    <button className="notif-toggle" onClick={solicitarNotificaciones}>🔔 Activar avisos</button>
+                                )}
+                                {esGestorGlobal && notifPermission === 'granted' && (
+                                    <span className="notif-toggle on" title="Avisos activados">🔔 Avisos ON</span>
+                                )}
                                 <button className="theme-toggle" onClick={toggleTheme}>
                                     {isDarkMode ? '☀️ Claro' : '🌙 Oscuro'}
                                 </button>
@@ -1156,7 +1269,7 @@
                     <div>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '8px' }}>
                             <h3 className="section-title" style={{ margin: 0 }}>📋 {esGestor ? 'Órdenes de Trabajo' : 'Mis Órdenes'}</h3>
-                            <button className="btn btn-primary" onClick={abrirNuevaOt}>+ Nueva {!esGestor && 'Guardia'}</button>
+                            <button className="btn btn-crear" onClick={abrirNuevaOt}>+ Nueva {!esGestor && 'Guardia'}</button>
                         </div>
 
                         <div className="tipo-filter-bar">
@@ -1384,7 +1497,7 @@
 
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '14px 0 8px' }}>
                             <h4 className="card-title" style={{ margin: 0 }}>📋 Visitas ({visitas.length})</h4>
-                            <button className="btn btn-primary" onClick={abrirNuevaVisita}>+ Nueva Visita</button>
+                            <button className="btn btn-crear" onClick={abrirNuevaVisita}>+ Nueva Visita</button>
                         </div>
 
                         <div className="list">
@@ -1679,7 +1792,7 @@
                                 { key: 'nombre', label: 'Zona' }
                             ])}>📤 Exportar</button>
                             <ExcelImportButton onRows={handleImportRows} />
-                            <button className="btn btn-primary" onClick={() => { setShowForm(!showForm); setEditingId(null); }}>+ Nueva</button>
+                            <button className="btn btn-crear" onClick={() => { setShowForm(!showForm); setEditingId(null); }}>+ Nueva</button>
                         </div>
                     </div>
 
@@ -1798,7 +1911,7 @@
                                 { key: 'direccion', label: 'Dirección' }
                             ])}>📤 Exportar</button>
                             <ExcelImportButton onRows={handleImportRows} />
-                            <button className="btn btn-primary" onClick={() => { setShowForm(!showForm); setEditingId(null); }}>+ Nuevo</button>
+                            <button className="btn btn-crear" onClick={() => { setShowForm(!showForm); setEditingId(null); }}>+ Nuevo</button>
                         </div>
                     </div>
 
@@ -2250,7 +2363,7 @@
                             ])}>📤 Exportar</button>
                             <ExcelImportButton onRows={handleImportRows} />
                             <button className="btn btn-secondary" onClick={() => setShowTiposManager(!showTiposManager)}>⚙️ Tipos de Activo</button>
-                            <button className="btn btn-primary" onClick={() => {
+                            <button className="btn btn-crear" onClick={() => {
                                 if (!showForm) { setFormData({ emplazamiento_id: '', contrato_id: '', tipo: '', nombre: '', fabricante: '', modelo: '', estado: 'Activo', observaciones: '' }); setSelectedCliente(''); setSelectedZona(''); }
                                 setShowForm(!showForm); setEditingId(null);
                             }}>+ Nuevo</button>
@@ -2496,7 +2609,7 @@
                                 { key: 'estado', label: 'Estado' }
                             ])}>📤 Exportar</button>
                             <ExcelImportButton onRows={handleImportRows} />
-                            <button className="btn btn-primary" onClick={() => { setShowForm(!showForm); setEditingId(null); }}>
+                            <button className="btn btn-crear" onClick={() => { setShowForm(!showForm); setEditingId(null); }}>
                                 + Nuevo
                             </button>
                         </div>
@@ -2653,7 +2766,7 @@
                                 { key: 'telefono', label: 'Teléfono' }
                             ])}>📤 Exportar</button>
                             <ExcelImportButton onRows={handleImportRows} />
-                            <button className="btn btn-primary" onClick={() => { setShowForm(!showForm); setEditingId(null); }}>
+                            <button className="btn btn-crear" onClick={() => { setShowForm(!showForm); setEditingId(null); }}>
                                 + Nuevo
                             </button>
                         </div>
@@ -2797,7 +2910,7 @@
                 <div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
                         <h3 className="section-title" style={{ margin: 0 }}>👥 Usuarios</h3>
-                        <button className="btn btn-primary" onClick={() => { setShowForm(!showForm); setEditingId(null); setError(''); }}>
+                        <button className="btn btn-crear" onClick={() => { setShowForm(!showForm); setEditingId(null); setError(''); }}>
                             + Nuevo
                         </button>
                     </div>
@@ -3110,7 +3223,7 @@
                                 { key: 'unidad', label: 'Unidad' }, { key: 'precio_actual', label: 'Precio Actual' }
                             ])}>📤 Exportar</button>
                             <ExcelImportButton onRows={handleImportRows} />
-                            <button className="btn btn-primary" onClick={() => setShowForm(!showForm)}>+ Nuevo</button>
+                            <button className="btn btn-crear" onClick={() => setShowForm(!showForm)}>+ Nuevo</button>
                         </div>
                     </div>
 
