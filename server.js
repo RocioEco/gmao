@@ -172,6 +172,177 @@ db.serialize(() => {
     FOREIGN KEY(contrato_id) REFERENCES contratos(id)
   )`);
 
+  db.run(`CREATE TABLE IF NOT EXISTS tipos_activo (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    nombre TEXT UNIQUE NOT NULL,
+    checklist_json TEXT DEFAULT '[]',
+    creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  )`);
+
+  // Checklists por defecto (idénticos a los que venían predefinidos en la app)
+  const CHECKLIST_PUERTA = [
+    { type: 'fields', title: 'Datos del Equipo', fields: [
+      { key: 'fabricante', label: 'Fabricante', type: 'text' },
+      { key: 'modelo', label: 'Modelo', type: 'text' },
+      { key: 'cuadro_control', label: 'Cuadro de control', type: 'text' },
+      { key: 'telemando', label: 'Telemando', type: 'select', options: ['Sí', 'No'] },
+      { key: 'tipo_telemando', label: 'Tipo de telemando', type: 'text' },
+      { key: 'ref_ubicacion', label: 'Referencia de ubicación', type: 'text' },
+      { key: 'fecha_instalacion', label: 'Fecha instalación', type: 'date' },
+      { key: 'anio_fabricacion', label: 'Año fabricación', type: 'text' },
+      { key: 'dispositivos_seguridad', label: 'Dispositivos de seguridad', type: 'select', options: ['Sí', 'No'] },
+      { key: 'tipo_dispositivo_seguridad', label: 'Tipo de dispositivo', type: 'text' },
+      { key: 'finales_carrera', label: 'Finales de carrera', type: 'select', options: ['Sí', 'No'] },
+      { key: 'tipo_finales_carrera', label: 'Tipo finales de carrera', type: 'text' }
+    ]},
+    { type: 'inspection', title: 'Inspección', grupos: [
+      { titulo: 'Inspección', items: [
+        'Comprobación visual', 'Control de estructura y fijaciones', 'Verificación de correcta apertura y cierre',
+        'Comprobación de elementos de seguridad', 'Comprobación de finales de carrera',
+        'Verificación de mecanismo de mando de emergencia', 'Lubricación de partes mecánicas'
+      ]},
+      { titulo: 'Limpieza y ajuste general de los mecanismos', items: [
+        'Limpieza interior cajón mecanismo y revisión de sistema de fijación operador',
+        'Limpieza y verificación estado perfil de rodadura',
+        'Ajuste y revisión correa de tracción, piñones motor y poleas de transmisión',
+        'Carros desplazamiento. Revisión tornillería y suspensiones hojas. Ajuste ruedas concéntricas/excéntricas. Revisión gomas.',
+        'Repaso y ajuste tornillería de todos los elementos del operador. Revisión topes final de carrera.',
+        'Inspección y sustitución de topes goma final carrera (si requiere)',
+        'Inspección de grupo motor',
+        'Inspección y cambio de ruedas concéntricas y excéntricas (si requiere)',
+        'Inspección de carril de rodadura', 'Verificación, ajuste y ensayo'
+      ]},
+      { titulo: 'Ajuste y verificación de hojas y guías', items: [
+        'Revisión y ajuste de hojas móviles. Verificación desplazamiento.',
+        'Revisión, limpieza, engrase y fijación de guiadores, guías SOS y guías de seguridad.',
+        'Cambio de guías (si requiere)'
+      ]},
+      { titulo: 'Verificación de conexiones eléctricas, elementos de seguridad y mando', items: [
+        'Detectores magnéticos', 'Revisión y ensayo cerrojo interior. Comprobación de la holgura del cerrojo con pletinas cierre.',
+        'Revisión y ensayo fotocélulas seguridad y/o apertura.', 'Revisión y ensayo selector de mando.',
+        'Revisión y ensayo llave exterior/pulsadores/avisadores acústicos y conexiones a elementos externos',
+        'Comprobación de automáticos diferenciales'
+      ]},
+      { titulo: 'Reglaje de parámetros y ensayo. Sistemas antipánico', items: [
+        'Reglaje de rádares', 'Verificar y ajustar parámetros + autoajuste de la puerta',
+        'Batería antipánico 24V. Comprobar carga. Ensayo y maniobra. (Si aplica)',
+        'Cambio de la batería (si requiere)',
+        'Antipánico puerta SOS. Ensayo de maniobra. Comprobar fuerza a aplicar abatibilidad de hojas.',
+        'Antipánico mecánico CO-48. Revisión conexiones, poleas y caucho tracción. Ensayo de maniobra.'
+      ]},
+      { titulo: 'Telemando', items: [
+        'Comprobación de apertura y cierre telemandado',
+        'Comprobación de señales de estado (puerta abierta, cerrada, en tránsito)',
+        'Verificación de cuadro de control de telemando', 'Conexión con autómata y test',
+        'Comprobación de modos de funcionamiento (paso libre, bloqueo, sólo salida)',
+        'Comprobación de interruptor de mando local de puerta'
+      ]}
+    ]}
+  ];
+
+  const CHECKLIST_PERSIANA = [
+    { type: 'fields', title: 'Datos del Equipo', fields: [
+      { key: 'tipo_lamas', label: 'Tipo de lamas', type: 'text' },
+      { key: 'motor', label: 'Motor', type: 'text' },
+      { key: 'telemando', label: 'Telemando', type: 'select', options: ['Sí', 'No'] },
+      { key: 'tipo_telemando', label: 'Tipo de telemando', type: 'text' },
+      { key: 'ref_ubicacion', label: 'Referencia de ubicación', type: 'text' },
+      { key: 'fecha_instalacion', label: 'Fecha instalación', type: 'date' },
+      { key: 'anio_fabricacion', label: 'Año fabricación', type: 'text' },
+      { key: 'finales_carrera_adicionales', label: 'Finales de carrera adicionales', type: 'select', options: ['Sí', 'No'] },
+      { key: 'tipo_finales_carrera_ad', label: 'Tipo (finales adicionales)', type: 'text' },
+      { key: 'detectores_presencia', label: 'Detectores de presencia', type: 'select', options: ['Sí', 'No'] },
+      { key: 'tipo_detectores', label: 'Tipo detectores', type: 'text' },
+      { key: 'mecanismo_desbloqueo', label: 'Mecanismo desbloqueo emergencia', type: 'select', options: ['Sí', 'No'] },
+      { key: 'tipo_mec_desbloqueo', label: 'Tipo mecanismo desbloqueo', type: 'text' }
+    ]},
+    { type: 'inspection', title: 'Inspección', grupos: [
+      { titulo: 'Inspección', items: [
+        'Comprobación visual', 'Control de estructura y fijaciones', 'Verificación de correcta apertura y cierre',
+        'Comprobación de elementos de seguridad', 'Comprobación de finales de carrera',
+        'Verificación de mecanismo de desbloqueo de emergencia', 'Revisión de cerradura, lubricación y limpieza'
+      ]},
+      { titulo: 'Limpieza y ajuste del cajón de la persiana', items: [
+        'Limpieza interior cajón de la persiana y revisión del motor.',
+        'Ajuste y revisión del eje del motor de la persiana.',
+        'Revisión del estado del cojinete del eje de la persiana.',
+        'Repaso y ajuste tornillería de todos los elementos del grupo motor.',
+        'Estado de las tapas y chapas del exterior del cajón de la persiana.',
+        'Revisión del cable del mecanismo de apertura manual de emergencia.',
+        'Verificación de la existencia de manivela de apertura de emergencia.'
+      ]},
+      { titulo: 'Ajuste y verificación de las lamas', items: [
+        'Revisión de los topes de las lamas de la persiana.',
+        'Revisión del estado de la goma de la lama inferior de la persiana.',
+        'Revisión de las lamas de la persiana.',
+        'Revisión de los flejes de sujeción de las lamas al eje del motor.',
+        'Limpieza, lubricación y verificación del estado de las guías y gomas.'
+      ]},
+      { titulo: 'Verificación de conexiones eléctricas, elementos de seguridad y mando', items: [
+        'Revisión y ensayo del sistema de desbloqueo manual de emergencia.',
+        'Revisión y ensayo del funcionamiento de los finales de carrera del motor.',
+        'Revisión y ensayo del funcionamiento del motor (subir/bajar persiana).',
+        'Revisión y ensayo del pulsador de la cerradura de la persiana.',
+        'Revisión y ensayo de los pulsadores de subida y bajada del cuadro de control.',
+        'Revisión y ensayo de los detectores de presencia de seguridad.'
+      ]},
+      { titulo: 'Telemando', items: [
+        'Comprobación de apertura y cierre telemandado.',
+        'Comprobación de señales de estado (abierta, cerrada, en tránsito).',
+        'Verificación de cuadro de control de telemando.', 'Conexión con autómata y test.',
+        'Comprobación del funcionamiento de los detectores de presencia.',
+        'Comprobación de interruptor de mando local de la persiana.', 'Comprobación de relés.'
+      ]}
+    ]}
+  ];
+
+  const CHECKLIST_CCAA_VEHICULAR = [
+    { type: 'grid', title: 'Barreras', rows: ['Entrada Ext', 'Entrada Int', 'Salida Ext', 'Salida Int'],
+      columns: ['E. Físico', 'Motor/Red', 'Muelle', 'Engrase', 'Semáforo', 'Mástil', 'Fotocélulas', 'Leds', 'Detectores', 'Lazos', 'Conexiones'],
+      options: ['ok', 'no ok', 'N/A'] },
+    { type: 'grid', title: 'Rack', rows: ['Rack'],
+      columns: ['E. Físico', 'Controlador', 'Diferenciales', 'SAI', 'Interfonía E', 'Interfonía S', 'Conexiones'],
+      options: ['ok', 'no ok', 'N/A'] },
+    { type: 'grid', title: 'Cámara OCR', rows: ['Entrada Ext', 'Salida Int'],
+      columns: ['E. Físico', 'Fijación', 'Lectura', 'Conexiones'],
+      options: ['ok', 'no ok', 'N/A'] },
+    { type: 'textarea', title: 'Observaciones Generales', key: 'observaciones_generales' }
+  ];
+
+  const CHECKLIST_CCAA_PEATONAL = [
+    { type: 'grid', title: 'Torno', rows: ['Torno'],
+      columns: ['E. Físico', 'Controlador', 'Lector RFID', 'Lector QR', 'Engrase', 'Conexiones'],
+      options: ['ok', 'no ok', 'N/A'] },
+    { type: 'grid', title: 'Rack', rows: ['Rack'],
+      columns: ['E. Físico', 'Controlador', 'Diferenciales', 'SAI', 'Interfonía E', 'Interfonía S', 'Conexiones'],
+      options: ['ok', 'no ok', 'N/A'] },
+    { type: 'grid', title: 'Portón', rows: ['Portón'],
+      columns: ['E. Físico', 'Motor', 'Engrase'],
+      options: ['ok', 'no ok', 'N/A'] },
+    { type: 'textarea', title: 'Observaciones Generales', key: 'observaciones_generales' }
+  ];
+
+  const CHECKLIST_CCTV = [
+    { type: 'fields', title: 'Datos de la Cámara', fields: [
+      { key: 'estado_camara', label: 'Estado general cámara', type: 'select', options: ['OK', 'NO OK'] },
+      { key: 'estado_cableado', label: 'Estado general cableado', type: 'select', options: ['OK', 'NO OK'] },
+      { key: 'estado_soporte', label: 'Estado general soporte', type: 'select', options: ['OK', 'NO OK'] },
+      { key: 'limpieza_camara', label: 'Limpieza de cámara realizada', type: 'select', options: ['SI', 'NO'] },
+      { key: 'tratamiento_insectos', label: 'Tratamiento insectos realizado', type: 'select', options: ['SI', 'NO'] }
+    ]},
+    { type: 'textarea', title: 'Observaciones', key: 'observaciones' }
+  ];
+
+  const seedTipo = (nombre, checklist) => {
+    db.run(`INSERT OR IGNORE INTO tipos_activo (nombre, checklist_json) VALUES (?, ?)`, [nombre, JSON.stringify(checklist)]);
+  };
+  seedTipo('Puerta Automática', CHECKLIST_PUERTA);
+  seedTipo('Persiana Motorizada', CHECKLIST_PERSIANA);
+  seedTipo('Control Acceso Vehicular', CHECKLIST_CCAA_VEHICULAR);
+  seedTipo('Control Acceso Peatonal', CHECKLIST_CCAA_PEATONAL);
+  seedTipo('CCTV', CHECKLIST_CCTV);
+  seedTipo('Otro', []);
+
   // Insertar datos iniciales (contraseñas encriptadas)
   const adminPass = bcrypt.hashSync('admin123', 10);
   const supervisorPass = bcrypt.hashSync('supervisor123', 10);
@@ -456,6 +627,46 @@ app.put('/api/activos/:id', (req, res) => {
 
 app.delete('/api/activos/:id', (req, res) => {
   db.run('DELETE FROM activos WHERE id = ?', [req.params.id], (err) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ success: true });
+  });
+});
+
+// TIPOS DE ACTIVO Y SUS CHECKLISTS
+app.get('/api/tipos-activo', (req, res) => {
+  db.all('SELECT * FROM tipos_activo ORDER BY nombre', (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows);
+  });
+});
+
+app.post('/api/tipos-activo', (req, res) => {
+  const { nombre, checklist_json } = req.body;
+  if (!nombre || !nombre.trim()) return res.status(400).json({ error: 'El nombre es obligatorio' });
+  db.run('INSERT INTO tipos_activo (nombre, checklist_json) VALUES (?, ?)',
+    [nombre.trim(), checklist_json || '[]'], function(err) {
+      if (err) {
+        if (err.message.includes('UNIQUE')) return res.status(400).json({ error: 'Ya existe un tipo con ese nombre' });
+        return res.status(500).json({ error: err.message });
+      }
+      res.json({ id: this.lastID, nombre: nombre.trim(), checklist_json: checklist_json || '[]' });
+    });
+});
+
+app.put('/api/tipos-activo/:id', (req, res) => {
+  const { nombre, checklist_json } = req.body;
+  db.run('UPDATE tipos_activo SET nombre = ?, checklist_json = ? WHERE id = ?',
+    [nombre, checklist_json, req.params.id], (err) => {
+      if (err) {
+        if (err.message.includes('UNIQUE')) return res.status(400).json({ error: 'Ya existe un tipo con ese nombre' });
+        return res.status(500).json({ error: err.message });
+      }
+      res.json({ id: req.params.id, nombre, checklist_json });
+    });
+});
+
+app.delete('/api/tipos-activo/:id', (req, res) => {
+  db.run('DELETE FROM tipos_activo WHERE id = ?', [req.params.id], (err) => {
     if (err) return res.status(500).json({ error: err.message });
     res.json({ success: true });
   });
