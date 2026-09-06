@@ -1728,23 +1728,19 @@
         }
 
         // ===== ZONAS =====
-        function ZonasView({ user, zonas, clientes, contratos, onRefresh }) {
+        function ZonasView({ user, zonas, onRefresh }) {
             const [showForm, setShowForm] = useState(false);
             const [editingId, setEditingId] = useState(null);
-            const [selectedCliente, setSelectedCliente] = useState('');
-            const [formData, setFormData] = useState({ contrato_id: '', nombre: '' });
+            const [formData, setFormData] = useState({ nombre: '' });
             const [importMsg, setImportMsg] = useState('');
 
-            const contratosFiltrados = selectedCliente ? contratos.filter(c => c.cliente_id === parseInt(selectedCliente)) : contratos;
-
             const handleAdd = async () => {
-                if (!formData.nombre.trim() || !formData.contrato_id) { alert('Selecciona contrato y nombre'); return; }
+                if (!formData.nombre.trim()) { alert('Escribe un nombre para la zona'); return; }
                 try {
                     const url = editingId ? `${API_URL}/api/zonas/${editingId}` : `${API_URL}/api/zonas`;
                     const method = editingId ? 'PUT' : 'POST';
                     await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(formData) });
-                    setFormData({ contrato_id: '', nombre: '' });
-                    setSelectedCliente('');
+                    setFormData({ nombre: '' });
                     setEditingId(null);
                     setShowForm(false);
                     onRefresh();
@@ -1758,8 +1754,7 @@
             };
 
             const handleEdit = (z) => {
-                setFormData({ contrato_id: z.contrato_id, nombre: z.nombre });
-                setSelectedCliente(String(z.cliente_id || ''));
+                setFormData({ nombre: z.nombre });
                 setEditingId(z.id);
                 setShowForm(true);
             };
@@ -1767,13 +1762,10 @@
             const handleImportRows = async (rows) => {
                 let ok = 0, fail = 0;
                 for (const row of rows) {
-                    const contratoNombre = row['Contrato'] || row['contrato'];
-                    const clienteNombre = row['Cliente'] || row['cliente'];
                     const nombre = row['Zona'] || row['nombre'] || row['Nombre'];
-                    const contrato = contratos.find(c => c.nombre === contratoNombre && (!clienteNombre || c.cliente_nombre === clienteNombre));
-                    if (!contrato || !nombre) { fail++; continue; }
+                    if (!nombre) { fail++; continue; }
                     try {
-                        await fetch(`${API_URL}/api/zonas`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contrato_id: contrato.id, nombre }) });
+                        await fetch(`${API_URL}/api/zonas`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nombre }) });
                         ok++;
                     } catch { fail++; }
                 }
@@ -1787,8 +1779,6 @@
                         <h3 className="section-title" style={{ margin: 0 }}>🗺️ Zonas</h3>
                         <div className="toolbar">
                             <button className="btn btn-excel" onClick={() => exportToExcel(zonas, 'zonas', [
-                                { key: 'cliente_nombre', label: 'Cliente' },
-                                { key: 'contrato_nombre', label: 'Contrato' },
                                 { key: 'nombre', label: 'Zona' }
                             ])}>📤 Exportar</button>
                             <ExcelImportButton onRows={handleImportRows} />
@@ -1797,23 +1787,10 @@
                     </div>
 
                     {importMsg && <div className="import-summary">{importMsg}</div>}
+                    <p className="lock-note">Una zona es un lugar físico (ej: "Asturias"). Puede contener activos de cualquier cliente o contrato.</p>
 
                     {showForm && (
                         <div className="card" style={{ marginBottom: '1rem' }}>
-                            <div className="form-group">
-                                <label>Cliente</label>
-                                <select value={selectedCliente} onChange={(e) => { setSelectedCliente(e.target.value); setFormData({ ...formData, contrato_id: '' }); }}>
-                                    <option value="">-- Selecciona un cliente --</option>
-                                    {clientes.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-                                </select>
-                            </div>
-                            <div className="form-group">
-                                <label>Contrato</label>
-                                <select value={formData.contrato_id} disabled={!selectedCliente} className={!selectedCliente ? 'select-disabled' : ''} onChange={(e) => setFormData({ ...formData, contrato_id: e.target.value })}>
-                                    <option value="">-- Selecciona un contrato --</option>
-                                    {contratosFiltrados.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-                                </select>
-                            </div>
                             <div className="form-group">
                                 <label>Nombre de la Zona</label>
                                 <input type="text" placeholder="Ej: Asturias, Andalucía..." value={formData.nombre} onChange={(e) => setFormData({ ...formData, nombre: e.target.value })} />
@@ -1829,7 +1806,6 @@
                         {zonas.length === 0 ? <div className="empty-state">No hay zonas</div> : zonas.map(z => (
                             <div key={z.id} className="list-item">
                                 <p className="card-title">🗺️ {z.nombre}</p>
-                                <p className="breadcrumb-path">{z.cliente_nombre} › {z.contrato_nombre}</p>
                                 <div style={{ marginTop: '8px', display: 'flex', gap: '8px' }}>
                                     <button className="btn btn-primary" onClick={() => handleEdit(z)}>Editar</button>
                                     <button className="btn btn-danger" onClick={() => handleDelete(z.id)}>Eliminar</button>
@@ -1842,16 +1818,11 @@
         }
 
         // ===== EMPLAZAMIENTOS =====
-        function EmplazamientosView({ user, emplazamientos, zonas, clientes, contratos, onRefresh }) {
+        function EmplazamientosView({ user, emplazamientos, zonas, onRefresh }) {
             const [showForm, setShowForm] = useState(false);
             const [editingId, setEditingId] = useState(null);
-            const [selectedCliente, setSelectedCliente] = useState('');
-            const [selectedContrato, setSelectedContrato] = useState('');
             const [formData, setFormData] = useState({ zona_id: '', nombre: '', direccion: '' });
             const [importMsg, setImportMsg] = useState('');
-
-            const contratosFiltrados = selectedCliente ? contratos.filter(c => c.cliente_id === parseInt(selectedCliente)) : contratos;
-            const zonasFiltradas = selectedContrato ? zonas.filter(z => z.contrato_id === parseInt(selectedContrato)) : zonas;
 
             const handleAdd = async () => {
                 if (!formData.nombre.trim() || !formData.zona_id) { alert('Selecciona zona y nombre'); return; }
@@ -1860,7 +1831,6 @@
                     const method = editingId ? 'PUT' : 'POST';
                     await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(formData) });
                     setFormData({ zona_id: '', nombre: '', direccion: '' });
-                    setSelectedCliente(''); setSelectedContrato('');
                     setEditingId(null);
                     setShowForm(false);
                     onRefresh();
@@ -1875,8 +1845,6 @@
 
             const handleEdit = (e) => {
                 setFormData({ zona_id: e.zona_id, nombre: e.nombre, direccion: e.direccion || '' });
-                setSelectedCliente(String(e.cliente_id || ''));
-                setSelectedContrato(String(e.contrato_id || ''));
                 setEditingId(e.id);
                 setShowForm(true);
             };
@@ -1904,8 +1872,6 @@
                         <h3 className="section-title" style={{ margin: 0 }}>📍 Emplazamientos</h3>
                         <div className="toolbar">
                             <button className="btn btn-excel" onClick={() => exportToExcel(emplazamientos, 'emplazamientos', [
-                                { key: 'cliente_nombre', label: 'Cliente' },
-                                { key: 'contrato_nombre', label: 'Contrato' },
                                 { key: 'zona_nombre', label: 'Zona' },
                                 { key: 'nombre', label: 'Emplazamiento' },
                                 { key: 'direccion', label: 'Dirección' }
@@ -1916,28 +1882,15 @@
                     </div>
 
                     {importMsg && <div className="import-summary">{importMsg}</div>}
+                    <p className="lock-note">Un emplazamiento (ej: "Estación Avilés") es un lugar físico dentro de una zona. Puede contener activos de cualquier cliente o contrato.</p>
 
                     {showForm && (
                         <div className="card" style={{ marginBottom: '1rem' }}>
                             <div className="form-group">
-                                <label>Cliente</label>
-                                <select value={selectedCliente} onChange={(e) => { setSelectedCliente(e.target.value); setSelectedContrato(''); setFormData({ ...formData, zona_id: '' }); }}>
-                                    <option value="">-- Selecciona un cliente --</option>
-                                    {clientes.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-                                </select>
-                            </div>
-                            <div className="form-group">
-                                <label>Contrato</label>
-                                <select value={selectedContrato} disabled={!selectedCliente} className={!selectedCliente ? 'select-disabled' : ''} onChange={(e) => { setSelectedContrato(e.target.value); setFormData({ ...formData, zona_id: '' }); }}>
-                                    <option value="">-- Selecciona un contrato --</option>
-                                    {contratosFiltrados.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-                                </select>
-                            </div>
-                            <div className="form-group">
                                 <label>Zona</label>
-                                <select value={formData.zona_id} disabled={!selectedContrato} className={!selectedContrato ? 'select-disabled' : ''} onChange={(e) => setFormData({ ...formData, zona_id: e.target.value })}>
+                                <select value={formData.zona_id} onChange={(e) => setFormData({ ...formData, zona_id: e.target.value })}>
                                     <option value="">-- Selecciona una zona --</option>
-                                    {zonasFiltradas.map(z => <option key={z.id} value={z.id}>{z.nombre}</option>)}
+                                    {zonas.map(z => <option key={z.id} value={z.id}>{z.nombre}</option>)}
                                 </select>
                             </div>
                             <div className="form-group">
@@ -1959,7 +1912,7 @@
                         {emplazamientos.length === 0 ? <div className="empty-state">No hay emplazamientos</div> : emplazamientos.map(e => (
                             <div key={e.id} className="list-item">
                                 <p className="card-title">📍 {e.nombre}</p>
-                                <p className="breadcrumb-path">{e.cliente_nombre} › {e.contrato_nombre} › {e.zona_nombre}</p>
+                                <p className="breadcrumb-path">{e.zona_nombre}</p>
                                 {e.direccion && <p className="card-text">🏠 {e.direccion}</p>}
                                 <div style={{ marginTop: '8px', display: 'flex', gap: '8px' }}>
                                     <button className="btn btn-primary" onClick={() => handleEdit(e)}>Editar</button>
@@ -2246,7 +2199,6 @@
             const [importMsg, setImportMsg] = useState('');
 
             const contratosFiltrados = selectedCliente ? contratos.filter(c => c.cliente_id === parseInt(selectedCliente)) : contratos;
-            const zonasFiltradas = formData.contrato_id ? zonas.filter(z => z.contrato_id === parseInt(formData.contrato_id)) : [];
             const emplazamientosFiltrados = selectedZona ? emplazamientos.filter(e => e.zona_id === parseInt(selectedZona)) : emplazamientos;
 
             const [showTiposManager, setShowTiposManager] = useState(false);
@@ -2269,7 +2221,7 @@
             };
 
             const crearZonaRapida = async (values) => {
-                const res = await fetch(`${API_URL}/api/zonas`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contrato_id: parseInt(formData.contrato_id), nombre: values.nombre }) });
+                const res = await fetch(`${API_URL}/api/zonas`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nombre: values.nombre }) });
                 const creada = await res.json();
                 await onRefresh();
                 setSelectedZona(String(creada.id));
@@ -2412,20 +2364,19 @@
                                 {!selectedCliente && <p className="lock-note">Selecciona primero un cliente.</p>}
                             </div>
 
+                            <p className="lock-note">📍 La zona y el emplazamiento son lugares físicos, independientes del cliente/contrato de arriba (un mismo lugar puede tener activos de varios clientes).</p>
+
                             <div className="form-group">
                                 <label>Zona</label>
                                 <div className="field-with-add">
-                                    <select value={selectedZona} disabled={!formData.contrato_id} className={!formData.contrato_id ? 'select-disabled' : ''} onChange={(e) => { setSelectedZona(e.target.value); setFormData({ ...formData, emplazamiento_id: '' }); }}>
+                                    <select value={selectedZona} onChange={(e) => { setSelectedZona(e.target.value); setFormData({ ...formData, emplazamiento_id: '' }); }}>
                                         <option value="">-- Selecciona una zona --</option>
-                                        {zonasFiltradas.map(z => <option key={z.id} value={z.id}>{z.nombre}</option>)}
+                                        {zonas.map(z => <option key={z.id} value={z.id}>{z.nombre}</option>)}
                                     </select>
-                                    {formData.contrato_id && (
-                                        <QuickAddInline label="Zona" onCreate={crearZonaRapida} fields={[
-                                            { key: 'nombre', placeholder: 'Nombre de la zona *' }
-                                        ]} />
-                                    )}
+                                    <QuickAddInline label="Zona" onCreate={crearZonaRapida} fields={[
+                                        { key: 'nombre', placeholder: 'Nombre de la zona *' }
+                                    ]} />
                                 </div>
-                                {!formData.contrato_id && <p className="lock-note">Selecciona primero un contrato.</p>}
                             </div>
 
                             <div className="form-group">
