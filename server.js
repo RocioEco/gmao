@@ -45,8 +45,43 @@ db.serialize(() => {
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     nombre TEXT NOT NULL,
     contacto TEXT,
-    telefono TEXT
+    telefono TEXT,
+    campos_extra TEXT DEFAULT '{}'
   )`);
+  db.run(`ALTER TABLE clientes ADD COLUMN campos_extra TEXT DEFAULT '{}'`, () => {});
+
+  // ===== CAMPOS PERSONALIZABLES (Cliente / Contrato / Activo) =====
+  db.run(`CREATE TABLE IF NOT EXISTS campos_config (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    entidad TEXT NOT NULL,
+    clave TEXT NOT NULL,
+    etiqueta TEXT NOT NULL,
+    tipo TEXT DEFAULT 'text',
+    opciones TEXT DEFAULT '[]',
+    es_sistema INTEGER DEFAULT 0,
+    visible INTEGER DEFAULT 1,
+    orden INTEGER DEFAULT 0,
+    creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(entidad, clave)
+  )`);
+
+  const seedCampo = (entidad, clave, etiqueta, tipo, orden, opciones) => {
+    db.run(`INSERT OR IGNORE INTO campos_config (entidad, clave, etiqueta, tipo, opciones, es_sistema, visible, orden) VALUES (?, ?, ?, ?, ?, 1, 1, ?)`,
+      [entidad, clave, etiqueta, tipo, JSON.stringify(opciones || []), orden]);
+  };
+  // Cliente
+  seedCampo('cliente', 'contacto', 'Contacto (email)', 'text', 1);
+  seedCampo('cliente', 'telefono', 'Teléfono', 'text', 2);
+  // Contrato
+  seedCampo('contrato', 'descripcion', 'Descripción', 'textarea', 1);
+  seedCampo('contrato', 'fecha_inicio', 'Fecha Inicio', 'date', 2);
+  seedCampo('contrato', 'fecha_fin', 'Fecha Fin', 'date', 3);
+  seedCampo('contrato', 'estado', 'Estado', 'select', 4, ['Activo', 'Inactivo', 'Pausado']);
+  // Activo (nota: "Tipo de Activo" no es configurable aquí porque determina el checklist de preventivo)
+  seedCampo('activo', 'fabricante', 'Fabricante', 'text', 1);
+  seedCampo('activo', 'modelo', 'Modelo', 'text', 2);
+  seedCampo('activo', 'estado', 'Estado', 'select', 3, ['Activo', 'Inactivo', 'En reparación', 'Dado de baja']);
+  seedCampo('activo', 'observaciones', 'Observaciones', 'textarea', 4);
 
   db.run(`CREATE TABLE IF NOT EXISTS inventario (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -148,9 +183,11 @@ db.serialize(() => {
     fecha_inicio DATE,
     fecha_fin DATE,
     estado TEXT DEFAULT 'Activo',
+    campos_extra TEXT DEFAULT '{}',
     creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(cliente_id) REFERENCES clientes(id)
   )`);
+  db.run(`ALTER TABLE contratos ADD COLUMN campos_extra TEXT DEFAULT '{}'`, () => {});
 
   db.run(`CREATE TABLE IF NOT EXISTS zonas (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -201,10 +238,12 @@ db.serialize(() => {
     modelo TEXT,
     estado TEXT DEFAULT 'Activo',
     observaciones TEXT,
+    campos_extra TEXT DEFAULT '{}',
     creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(emplazamiento_id) REFERENCES emplazamientos(id),
     FOREIGN KEY(contrato_id) REFERENCES contratos(id)
   )`);
+  db.run(`ALTER TABLE activos ADD COLUMN campos_extra TEXT DEFAULT '{}'`, () => {});
 
   db.run(`CREATE TABLE IF NOT EXISTS tipos_activo (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -480,20 +519,20 @@ app.get('/api/clientes', (req, res) => {
 });
 
 app.post('/api/clientes', (req, res) => {
-  const { nombre, contacto, telefono } = req.body;
-  db.run('INSERT INTO clientes (nombre, contacto, telefono) VALUES (?, ?, ?)',
-    [nombre, contacto, telefono], function(err) {
+  const { nombre, contacto, telefono, campos_extra } = req.body;
+  db.run('INSERT INTO clientes (nombre, contacto, telefono, campos_extra) VALUES (?, ?, ?, ?)',
+    [nombre, contacto, telefono, campos_extra || '{}'], function(err) {
       if (err) return res.status(500).json({ error: err.message });
-      res.json({ id: this.lastID, nombre, contacto, telefono });
+      res.json({ id: this.lastID, nombre, contacto, telefono, campos_extra: campos_extra || '{}' });
     });
 });
 
 app.put('/api/clientes/:id', (req, res) => {
-  const { nombre, contacto, telefono } = req.body;
-  db.run('UPDATE clientes SET nombre = ?, contacto = ?, telefono = ? WHERE id = ?',
-    [nombre, contacto, telefono, req.params.id], (err) => {
+  const { nombre, contacto, telefono, campos_extra } = req.body;
+  db.run('UPDATE clientes SET nombre = ?, contacto = ?, telefono = ?, campos_extra = ? WHERE id = ?',
+    [nombre, contacto, telefono, campos_extra || '{}', req.params.id], (err) => {
       if (err) return res.status(500).json({ error: err.message });
-      res.json({ id: req.params.id, nombre, contacto, telefono });
+      res.json({ id: req.params.id, nombre, contacto, telefono, campos_extra: campos_extra || '{}' });
     });
 });
 
@@ -516,20 +555,20 @@ app.get('/api/contratos', (req, res) => {
 });
 
 app.post('/api/contratos', (req, res) => {
-  const { cliente_id, nombre, descripcion, fecha_inicio, fecha_fin, estado } = req.body;
-  db.run('INSERT INTO contratos (cliente_id, nombre, descripcion, fecha_inicio, fecha_fin, estado) VALUES (?, ?, ?, ?, ?, ?)',
-    [cliente_id, nombre, descripcion, fecha_inicio, fecha_fin, estado || 'Activo'], function(err) {
+  const { cliente_id, nombre, descripcion, fecha_inicio, fecha_fin, estado, campos_extra } = req.body;
+  db.run('INSERT INTO contratos (cliente_id, nombre, descripcion, fecha_inicio, fecha_fin, estado, campos_extra) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    [cliente_id, nombre, descripcion, fecha_inicio, fecha_fin, estado || 'Activo', campos_extra || '{}'], function(err) {
       if (err) return res.status(500).json({ error: err.message });
-      res.json({ id: this.lastID, cliente_id, nombre, descripcion, fecha_inicio, fecha_fin, estado: estado || 'Activo' });
+      res.json({ id: this.lastID, cliente_id, nombre, descripcion, fecha_inicio, fecha_fin, estado: estado || 'Activo', campos_extra: campos_extra || '{}' });
     });
 });
 
 app.put('/api/contratos/:id', (req, res) => {
-  const { cliente_id, nombre, descripcion, fecha_inicio, fecha_fin, estado } = req.body;
-  db.run('UPDATE contratos SET cliente_id = ?, nombre = ?, descripcion = ?, fecha_inicio = ?, fecha_fin = ?, estado = ? WHERE id = ?',
-    [cliente_id, nombre, descripcion, fecha_inicio, fecha_fin, estado, req.params.id], (err) => {
+  const { cliente_id, nombre, descripcion, fecha_inicio, fecha_fin, estado, campos_extra } = req.body;
+  db.run('UPDATE contratos SET cliente_id = ?, nombre = ?, descripcion = ?, fecha_inicio = ?, fecha_fin = ?, estado = ?, campos_extra = ? WHERE id = ?',
+    [cliente_id, nombre, descripcion, fecha_inicio, fecha_fin, estado, campos_extra || '{}', req.params.id], (err) => {
       if (err) return res.status(500).json({ error: err.message });
-      res.json({ id: req.params.id, cliente_id, nombre, descripcion, fecha_inicio, fecha_fin, estado });
+      res.json({ id: req.params.id, cliente_id, nombre, descripcion, fecha_inicio, fecha_fin, estado, campos_extra: campos_extra || '{}' });
     });
 });
 
@@ -630,25 +669,25 @@ app.get('/api/activos', (req, res) => {
 });
 
 app.post('/api/activos', (req, res) => {
-  const { emplazamiento_id, contrato_id, tipo, nombre, fabricante, modelo, estado, observaciones } = req.body;
+  const { emplazamiento_id, contrato_id, tipo, nombre, fabricante, modelo, estado, observaciones, campos_extra } = req.body;
   if (!emplazamiento_id || !contrato_id || !nombre) {
     return res.status(400).json({ error: 'Emplazamiento, contrato y nombre requeridos' });
   }
-  db.run(`INSERT INTO activos (emplazamiento_id, contrato_id, tipo, nombre, fabricante, modelo, estado, observaciones) 
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    [emplazamiento_id, contrato_id, tipo, nombre, fabricante, modelo, estado || 'Activo', observaciones], function(err) {
+  db.run(`INSERT INTO activos (emplazamiento_id, contrato_id, tipo, nombre, fabricante, modelo, estado, observaciones, campos_extra) 
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [emplazamiento_id, contrato_id, tipo, nombre, fabricante, modelo, estado || 'Activo', observaciones, campos_extra || '{}'], function(err) {
       if (err) return res.status(500).json({ error: err.message });
-      res.json({ id: this.lastID, emplazamiento_id, contrato_id, tipo, nombre, fabricante, modelo, estado: estado || 'Activo', observaciones });
+      res.json({ id: this.lastID, emplazamiento_id, contrato_id, tipo, nombre, fabricante, modelo, estado: estado || 'Activo', observaciones, campos_extra: campos_extra || '{}' });
     });
 });
 
 app.put('/api/activos/:id', (req, res) => {
-  const { emplazamiento_id, contrato_id, tipo, nombre, fabricante, modelo, estado, observaciones } = req.body;
+  const { emplazamiento_id, contrato_id, tipo, nombre, fabricante, modelo, estado, observaciones, campos_extra } = req.body;
   db.run(`UPDATE activos SET emplazamiento_id = ?, contrato_id = ?, tipo = ?, nombre = ?, fabricante = ?, 
-          modelo = ?, estado = ?, observaciones = ? WHERE id = ?`,
-    [emplazamiento_id, contrato_id, tipo, nombre, fabricante, modelo, estado, observaciones, req.params.id], (err) => {
+          modelo = ?, estado = ?, observaciones = ?, campos_extra = ? WHERE id = ?`,
+    [emplazamiento_id, contrato_id, tipo, nombre, fabricante, modelo, estado, observaciones, campos_extra || '{}', req.params.id], (err) => {
       if (err) return res.status(500).json({ error: err.message });
-      res.json({ id: req.params.id, emplazamiento_id, contrato_id, tipo, nombre, fabricante, modelo, estado, observaciones });
+      res.json({ id: req.params.id, emplazamiento_id, contrato_id, tipo, nombre, fabricante, modelo, estado, observaciones, campos_extra: campos_extra || '{}' });
     });
 });
 
@@ -656,6 +695,57 @@ app.delete('/api/activos/:id', (req, res) => {
   db.run('DELETE FROM activos WHERE id = ?', [req.params.id], (err) => {
     if (err) return res.status(500).json({ error: err.message });
     res.json({ success: true });
+  });
+});
+
+// CAMPOS PERSONALIZABLES (Cliente / Contrato / Activo)
+app.get('/api/campos-config', (req, res) => {
+  const { entidad } = req.query;
+  let sql = 'SELECT * FROM campos_config';
+  const params = [];
+  if (entidad) { sql += ' WHERE entidad = ?'; params.push(entidad); }
+  sql += ' ORDER BY entidad, orden, id';
+  db.all(sql, params, (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows);
+  });
+});
+
+app.post('/api/campos-config', (req, res) => {
+  const { entidad, etiqueta, tipo, opciones } = req.body;
+  if (!entidad || !etiqueta) return res.status(400).json({ error: 'Entidad y etiqueta requeridos' });
+  const clave = 'custom_' + etiqueta.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') + '_' + Date.now();
+  db.run(`INSERT INTO campos_config (entidad, clave, etiqueta, tipo, opciones, es_sistema, visible, orden) VALUES (?, ?, ?, ?, ?, 0, 1, 999)`,
+    [entidad, clave, etiqueta, tipo || 'text', JSON.stringify(opciones || [])], function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ id: this.lastID, entidad, clave, etiqueta, tipo: tipo || 'text', opciones: JSON.stringify(opciones || []), es_sistema: 0, visible: 1 });
+    });
+});
+
+app.put('/api/campos-config/:id', (req, res) => {
+  const { etiqueta, tipo, opciones, visible, orden } = req.body;
+  db.get('SELECT * FROM campos_config WHERE id = ?', [req.params.id], (err, campo) => {
+    if (err || !campo) return res.status(404).json({ error: 'Campo no encontrado' });
+    // Los campos de sistema solo permiten cambiar etiqueta/visible/orden (no tipo/opciones, para no romper el resto de la app)
+    const nuevoTipo = campo.es_sistema ? campo.tipo : (tipo || campo.tipo);
+    const nuevasOpciones = campo.es_sistema ? campo.opciones : JSON.stringify(opciones || []);
+    db.run(`UPDATE campos_config SET etiqueta = ?, tipo = ?, opciones = ?, visible = ?, orden = ? WHERE id = ?`,
+      [etiqueta ?? campo.etiqueta, nuevoTipo, nuevasOpciones, visible !== undefined ? (visible ? 1 : 0) : campo.visible, orden !== undefined ? orden : campo.orden, req.params.id],
+      (err2) => {
+        if (err2) return res.status(500).json({ error: err2.message });
+        res.json({ success: true });
+      });
+  });
+});
+
+app.delete('/api/campos-config/:id', (req, res) => {
+  db.get('SELECT * FROM campos_config WHERE id = ?', [req.params.id], (err, campo) => {
+    if (err || !campo) return res.status(404).json({ error: 'Campo no encontrado' });
+    if (campo.es_sistema) return res.status(400).json({ error: 'Los campos de sistema no se pueden eliminar, solo ocultar' });
+    db.run('DELETE FROM campos_config WHERE id = ?', [req.params.id], (err2) => {
+      if (err2) return res.status(500).json({ error: err2.message });
+      res.json({ success: true });
+    });
   });
 });
 
