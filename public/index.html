@@ -178,6 +178,19 @@
         .cal-legend { display: flex; gap: 12px; font-size: 11px; margin-bottom: 8px; color: var(--text-secondary); }
         .cal-legend i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 4px; }
         .price-history-row { display: flex; justify-content: space-between; font-size: 12px; padding: 4px 0; border-bottom: 1px dashed var(--border); }
+        .grid-row-card { margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+        .grid-row-title { font-weight: 600; font-size: 13px; margin-bottom: 6px; }
+        .grid-radio-wrap { display: flex; flex-wrap: wrap; gap: 10px; }
+        .grid-radio-col { min-width: 100px; }
+        .grid-radio-label { font-size: 11px; color: var(--text-secondary); margin-bottom: 4px; }
+        .grid-radio-options { display: flex; flex-direction: column; gap: 2px; }
+        .grid-radio-option { display: flex; align-items: center; gap: 4px; font-size: 11px; white-space: nowrap; }
+        .grid-row-obs { margin-top: 8px; }
+        .video-list { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+        .video-item { position: relative; background: var(--surface-2); border-radius: 8px; padding: 6px; }
+        .video-item video { width: 100%; border-radius: 6px; display: block; }
+        .video-remove { margin-top: 4px; }
+        .btn-video-add { display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; border: 2px dashed var(--border); border-radius: 8px; cursor: pointer; color: var(--text-secondary); background: var(--surface-2); font-size: 12px; }
         .field-with-add { display: flex; gap: 6px; align-items: stretch; }
         .field-with-add select, .field-with-add input { flex: 1; }
         .btn-quickadd { flex-shrink: 0; padding: 0 12px; background: var(--bg-accent); color: var(--fill-accent); border: 1px solid var(--fill-accent); border-radius: 8px; cursor: pointer; font-size: 16px; font-weight: 700; line-height: 1; }
@@ -484,8 +497,12 @@
                                                         )}
                                                     </td>
                                                     <td>
-                                                        {readOnly ? (row.observaciones || '—') : (
-                                                            <input className="insp-obs-input" type="text" placeholder="Observaciones" value={row.observaciones || ''} onChange={(e) => setItem(rowKey, 'observaciones', e.target.value)} />
+                                                        {row.resultado === 'Incorrecto' ? (
+                                                            readOnly ? (row.observaciones || '—') : (
+                                                                <input className="insp-obs-input" type="text" placeholder="Describe el problema..." value={row.observaciones || ''} onChange={(e) => setItem(rowKey, 'observaciones', e.target.value)} />
+                                                            )
+                                                        ) : (
+                                                            <span className="card-text">—</span>
                                                         )}
                                                     </td>
                                                 </tr>
@@ -505,33 +522,55 @@
             const setCell = (row, col, val) => {
                 onChange({ ...data, [row]: { ...(data[row] || {}), [col]: val } });
             };
+            const setObs = (row, val) => {
+                onChange({ ...data, [row]: { ...(data[row] || {}), __obs: val } });
+            };
+            const filaTieneProblema = (row) => {
+                const rowData = data[row] || {};
+                return columns.some(col => rowData[col] && rowData[col] !== options[0]);
+            };
+
             return (
-                <div className="grid-table-wrap">
-                    <table className="grid-table">
-                        <thead>
-                            <tr><th></th>{columns.map(c => <th key={c}>{c}</th>)}</tr>
-                        </thead>
-                        <tbody>
-                            {rows.map(row => (
-                                <tr key={row}>
-                                    <td style={{ fontWeight: 600, textAlign: 'left' }}>{row}</td>
+                <div>
+                    {rows.map(row => {
+                        const rowData = data[row] || {};
+                        const mostrarObs = filaTieneProblema(row) || !!rowData.__obs;
+                        return (
+                            <div key={row} className="grid-row-card">
+                                <p className="grid-row-title">{row}</p>
+                                <div className="grid-radio-wrap">
                                     {columns.map(col => {
-                                        const val = (data[row] || {})[col] || '';
+                                        const val = rowData[col] || '';
                                         return (
-                                            <td key={col}>
-                                                {readOnly ? (val || '—') : (
-                                                    <select value={val} onChange={(e) => setCell(row, col, e.target.value)}>
-                                                        <option value="">-</option>
-                                                        {options.map(o => <option key={o} value={o}>{o}</option>)}
-                                                    </select>
+                                            <div key={col} className="grid-radio-col">
+                                                <p className="grid-radio-label">{col}</p>
+                                                {readOnly ? (
+                                                    <p className="card-text">{val || '—'}</p>
+                                                ) : (
+                                                    <div className="grid-radio-options">
+                                                        {options.map(o => (
+                                                            <label key={o} className="grid-radio-option">
+                                                                <input type="radio" name={`${row}__${col}`} checked={val === o} onChange={() => setCell(row, col, o)} /> {o}
+                                                            </label>
+                                                        ))}
+                                                    </div>
                                                 )}
-                                            </td>
+                                            </div>
                                         );
                                     })}
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
+                                </div>
+                                {mostrarObs && (
+                                    <div className="grid-row-obs">
+                                        {readOnly ? (
+                                            <p className="card-text">📝 {rowData.__obs || 'Sin observaciones'}</p>
+                                        ) : (
+                                            <input type="text" placeholder={`Observaciones de "${row}"`} value={rowData.__obs || ''} onChange={(e) => setObs(row, e.target.value)} />
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })}
                 </div>
             );
         }
@@ -649,6 +688,63 @@
                         </label>
                     )}
                     {fotos.length === 0 && readOnly && <p className="card-text">Sin fotos.</p>}
+                </div>
+            );
+        }
+
+        // ===== CAPTURA DE VÍDEOS (base64, con límite de tamaño) =====
+        function fileToDataUrl(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = (e) => resolve(e.target.result);
+                reader.onerror = reject;
+                reader.readAsDataURL(file);
+            });
+        }
+
+        function VideoCapture({ value, onChange, readOnly }) {
+            const videos = value || [];
+            const MAX_MB = 25;
+
+            const handleFiles = async (e) => {
+                const files = Array.from(e.target.files || []);
+                const validos = [];
+                for (const f of files) {
+                    if (f.size > MAX_MB * 1024 * 1024) {
+                        alert(`El vídeo "${f.name}" pesa más de ${MAX_MB}MB y no se puede adjuntar. Graba clips más cortos.`);
+                        continue;
+                    }
+                    const dataUrl = await fileToDataUrl(f);
+                    validos.push({ nombre: f.name, dataUrl, tamanoMB: (f.size / (1024 * 1024)).toFixed(1) });
+                }
+                onChange([...videos, ...validos]);
+                e.target.value = '';
+            };
+
+            const removeVideo = (idx) => {
+                const copy = [...videos];
+                copy.splice(idx, 1);
+                onChange(copy);
+            };
+
+            return (
+                <div>
+                    <div className="video-list">
+                        {videos.map((v, i) => (
+                            <div key={i} className="video-item">
+                                <video src={v.dataUrl} controls></video>
+                                <p className="card-text">{v.nombre} ({v.tamanoMB} MB)</p>
+                                {!readOnly && <button className="btn btn-danger video-remove" onClick={() => removeVideo(i)}>Eliminar vídeo</button>}
+                            </div>
+                        ))}
+                    </div>
+                    {!readOnly && (
+                        <label className="btn-video-add" style={{ marginTop: '8px' }}>
+                            🎥 Añadir vídeo (máx. {MAX_MB}MB)
+                            <input type="file" accept="video/*" capture="environment" multiple className="file-input-hidden" onChange={handleFiles} />
+                        </label>
+                    )}
+                    {videos.length === 0 && readOnly && <p className="card-text">Sin vídeos.</p>}
                 </div>
             );
         }
@@ -863,11 +959,6 @@
                             </>
                         )}
                     </div>
-
-                    <div className="checklist-section">
-                        <div className="checklist-section-title">🚗 Desplazamientos</div>
-                        <DesplazamientosForm value={desplazamientos} onChange={(v) => updateArray('desplazamientos', v)} readOnly={readOnly} />
-                    </div>
                 </div>
             );
         }
@@ -907,7 +998,7 @@
 
             const blankVisita = () => ({
                 fecha: new Date().toISOString().slice(0, 10), tecnico_id: user.id, hora_inicio: '', hora_fin: '',
-                id_mantis: '', proyecto: '', descripcion: '', checklist_json: {}, materiales_json: [], fotos_json: [],
+                id_mantis: '', proyecto: '', descripcion: '', checklist_json: {}, materiales_json: [], fotos_json: [], videos_json: [],
                 medio_ambiente_json: {}, seguridad_json: {}, desplazamientos_json: [], firma: '', firma_nombre: '', finalizado: false
             });
             const [visitaForm, setVisitaForm] = useState(blankVisita());
@@ -990,17 +1081,18 @@
             };
 
             const abrirEditarVisita = (v) => {
-                let checklist = {}, mats = [], fotos = [], medio = {}, seg = {}, desp = [];
+                let checklist = {}, mats = [], fotos = [], videos = [], medio = {}, seg = {}, desp = [];
                 try { checklist = v.checklist_json ? JSON.parse(v.checklist_json) : {}; } catch {}
                 try { mats = v.materiales_json ? JSON.parse(v.materiales_json) : []; } catch {}
                 try { fotos = v.fotos_json ? JSON.parse(v.fotos_json) : []; } catch {}
+                try { videos = v.videos_json ? JSON.parse(v.videos_json) : []; } catch {}
                 try { medio = v.medio_ambiente_json ? JSON.parse(v.medio_ambiente_json) : {}; } catch {}
                 try { seg = v.seguridad_json ? JSON.parse(v.seguridad_json) : {}; } catch {}
                 try { desp = v.desplazamientos_json ? JSON.parse(v.desplazamientos_json) : []; } catch {}
                 setVisitaForm({
                     fecha: v.fecha || '', tecnico_id: v.tecnico_id || user.id, hora_inicio: v.hora_inicio || '', hora_fin: v.hora_fin || '',
                     id_mantis: v.id_mantis || '', proyecto: v.proyecto || '', descripcion: v.descripcion || '',
-                    checklist_json: checklist, materiales_json: mats, fotos_json: fotos,
+                    checklist_json: checklist, materiales_json: mats, fotos_json: fotos, videos_json: videos,
                     medio_ambiente_json: medio, seguridad_json: seg, desplazamientos_json: desp,
                     firma: v.firma || '', firma_nombre: v.firma_nombre || '', finalizado: !!v.finalizado
                 });
@@ -1018,6 +1110,7 @@
                     checklist_json: JSON.stringify(visitaForm.checklist_json || {}),
                     materiales_json: JSON.stringify(visitaForm.materiales_json || []),
                     fotos_json: JSON.stringify(visitaForm.fotos_json || []),
+                    videos_json: JSON.stringify(visitaForm.videos_json || []),
                     medio_ambiente_json: JSON.stringify(visitaForm.medio_ambiente_json || {}),
                     seguridad_json: JSON.stringify(visitaForm.seguridad_json || {}),
                     desplazamientos_json: JSON.stringify(visitaForm.desplazamientos_json || []),
@@ -1359,8 +1452,8 @@
                                 <div className="checklist-section">
                                     <div className="checklist-section-title">📝 Parte de Trabajo</div>
                                     <ParteTrabajoForm
-                                        value={{ medioAmbiente: visitaForm.medio_ambiente_json, seguridad: visitaForm.seguridad_json, desplazamientos: visitaForm.desplazamientos_json }}
-                                        onChange={(v) => setVisitaForm({ ...visitaForm, medio_ambiente_json: v.medioAmbiente || [], seguridad_json: v.seguridad || {}, desplazamientos_json: v.desplazamientos || [] })}
+                                        value={{ medioAmbiente: visitaForm.medio_ambiente_json, seguridad: visitaForm.seguridad_json }}
+                                        onChange={(v) => setVisitaForm({ ...visitaForm, medio_ambiente_json: v.medioAmbiente || [], seguridad_json: v.seguridad || {} })}
                                     />
                                     <div className="checklist-section-title" style={{ marginTop: '10px' }}>✍️ Firma</div>
                                     <div className="form-group"><label>Firmado por</label><input type="text" value={visitaForm.firma_nombre} onChange={(e) => setVisitaForm({ ...visitaForm, firma_nombre: e.target.value })} /></div>
@@ -1368,12 +1461,10 @@
                                 </div>
                             )}
 
-                            {otSeleccionada && otSeleccionada.tipo === 'guardia' && (
-                                <div className="checklist-section">
-                                    <div className="checklist-section-title">🚗 Desplazamientos</div>
-                                    <DesplazamientosForm value={visitaForm.desplazamientos_json} onChange={(v) => setVisitaForm({ ...visitaForm, desplazamientos_json: v })} />
-                                </div>
-                            )}
+                            <div className="checklist-section">
+                                <div className="checklist-section-title">🚗 Vehículo y Kilómetros</div>
+                                <DesplazamientosForm value={visitaForm.desplazamientos_json} onChange={(v) => setVisitaForm({ ...visitaForm, desplazamientos_json: v })} />
+                            </div>
 
                             <div className="checklist-section">
                                 <div className="checklist-section-title">📦 Materiales Utilizados</div>
@@ -1383,6 +1474,11 @@
                             <div className="checklist-section">
                                 <div className="checklist-section-title">📷 Fotos</div>
                                 <PhotoCapture value={visitaForm.fotos_json} onChange={(v) => setVisitaForm({ ...visitaForm, fotos_json: v })} />
+                            </div>
+
+                            <div className="checklist-section">
+                                <div className="checklist-section-title">🎥 Vídeos</div>
+                                <VideoCapture value={visitaForm.videos_json} onChange={(v) => setVisitaForm({ ...visitaForm, videos_json: v })} />
                             </div>
 
                             <div className="form-group" style={{ marginTop: '10px' }}>
@@ -1404,10 +1500,11 @@
             // ============ RENDER: VIEW VISITA (solo lectura) ============
             if (mode === 'view-visita') {
                 if (!visitaViendo) return <div className="empty-state">Visita no encontrada</div>;
-                let checklist = {}, mats = [], fotos = [], medio = {}, seg = {}, desp = [];
+                let checklist = {}, mats = [], fotos = [], videos = [], medio = {}, seg = {}, desp = [];
                 try { checklist = visitaViendo.checklist_json ? JSON.parse(visitaViendo.checklist_json) : {}; } catch {}
                 try { mats = visitaViendo.materiales_json ? JSON.parse(visitaViendo.materiales_json) : []; } catch {}
                 try { fotos = visitaViendo.fotos_json ? JSON.parse(visitaViendo.fotos_json) : []; } catch {}
+                try { videos = visitaViendo.videos_json ? JSON.parse(visitaViendo.videos_json) : []; } catch {}
                 try { medio = visitaViendo.medio_ambiente_json ? JSON.parse(visitaViendo.medio_ambiente_json) : {}; } catch {}
                 try { seg = visitaViendo.seguridad_json ? JSON.parse(visitaViendo.seguridad_json) : {}; } catch {}
                 try { desp = visitaViendo.desplazamientos_json ? JSON.parse(visitaViendo.desplazamientos_json) : []; } catch {}
@@ -1435,19 +1532,17 @@
                             {otSeleccionada && otSeleccionada.tipo === 'obra' && (
                                 <div className="checklist-section">
                                     <div className="checklist-section-title">📝 Parte de Trabajo</div>
-                                    <ParteTrabajoForm value={{ medioAmbiente: medio, seguridad: seg, desplazamientos: desp }} onChange={() => {}} readOnly={true} />
+                                    <ParteTrabajoForm value={{ medioAmbiente: medio, seguridad: seg }} onChange={() => {}} readOnly={true} />
                                     <div className="checklist-section-title" style={{ marginTop: '10px' }}>✍️ Firma</div>
                                     {visitaViendo.firma_nombre && <p className="card-text">Firmado por: {visitaViendo.firma_nombre}</p>}
                                     <SignaturePad value={visitaViendo.firma} onChange={() => {}} readOnly={true} />
                                 </div>
                             )}
 
-                            {otSeleccionada && otSeleccionada.tipo === 'guardia' && (
-                                <div className="checklist-section">
-                                    <div className="checklist-section-title">🚗 Desplazamientos</div>
-                                    <DesplazamientosForm value={desp} onChange={() => {}} readOnly={true} />
-                                </div>
-                            )}
+                            <div className="checklist-section">
+                                <div className="checklist-section-title">🚗 Vehículo y Kilómetros</div>
+                                <DesplazamientosForm value={desp} onChange={() => {}} readOnly={true} />
+                            </div>
 
                             <div className="checklist-section">
                                 <div className="checklist-section-title">📦 Materiales Utilizados</div>
@@ -1457,6 +1552,11 @@
                             <div className="checklist-section">
                                 <div className="checklist-section-title">📷 Fotos</div>
                                 <PhotoCapture value={fotos} onChange={() => {}} readOnly={true} />
+                            </div>
+
+                            <div className="checklist-section">
+                                <div className="checklist-section-title">🎥 Vídeos</div>
+                                <VideoCapture value={videos} onChange={() => {}} readOnly={true} />
                             </div>
 
                             <p className="card-text" style={{ marginTop: '10px' }}>
