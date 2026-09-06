@@ -289,6 +289,7 @@
             const [zonas, setZonas] = useState([]);
             const [emplazamientos, setEmplazamientos] = useState([]);
             const [activos, setActivos] = useState([]);
+            const [tiposActivo, setTiposActivo] = useState([]);
             const [ordenes, setOrdenes] = useState([]);
             const [usuarios, setUsuarios] = useState([]);
             const [materiales, setMateriales] = useState([]);
@@ -300,12 +301,13 @@
 
             const cargarDatos = async () => {
                 try {
-                    const [clientesRes, contratosRes, zonasRes, emplazamientosRes, activosRes, ordenesRes, usuariosRes, materialesRes] = await Promise.all([
+                    const [clientesRes, contratosRes, zonasRes, emplazamientosRes, activosRes, tiposActivoRes, ordenesRes, usuariosRes, materialesRes] = await Promise.all([
                         fetch(`${API_URL}/api/clientes`),
                         fetch(`${API_URL}/api/contratos`),
                         fetch(`${API_URL}/api/zonas`),
                         fetch(`${API_URL}/api/emplazamientos`),
                         fetch(`${API_URL}/api/activos`),
+                        fetch(`${API_URL}/api/tipos-activo`),
                         fetch(`${API_URL}/api/ordenes`),
                         fetch(`${API_URL}/api/usuarios`),
                         fetch(`${API_URL}/api/materiales`)
@@ -316,6 +318,7 @@
                     setZonas(await zonasRes.json());
                     setEmplazamientos(await emplazamientosRes.json());
                     setActivos(await activosRes.json());
+                    setTiposActivo(await tiposActivoRes.json());
                     setOrdenes(await ordenesRes.json());
                     setUsuarios(await usuariosRes.json());
                     setMateriales(await materialesRes.json());
@@ -388,10 +391,10 @@
 
                     <div className="content">
                         {activeTab === 'dashboard' && <DashboardView ordenes={ordenes} clientes={clientes} activos={activos} contratos={contratos} />}
-                        {activeTab === 'ordenes' && <OrdenesView user={user} ordenes={ordenes} clientes={clientes} contratos={contratos} activos={activos} usuarios={usuarios} materiales={materiales} onRefresh={cargarDatos} />}
-                        {activeTab === 'guardias' && (user.rol === 'admin' || user.rol === 'supervisor') && <OrdenesView user={user} ordenes={ordenes} clientes={clientes} contratos={contratos} activos={activos} usuarios={usuarios} materiales={materiales} onRefresh={cargarDatos} filtroInicialTipo="guardia" />}
+                        {activeTab === 'ordenes' && <OrdenesView user={user} ordenes={ordenes} clientes={clientes} contratos={contratos} activos={activos} tiposActivo={tiposActivo} usuarios={usuarios} materiales={materiales} onRefresh={cargarDatos} />}
+                        {activeTab === 'guardias' && (user.rol === 'admin' || user.rol === 'supervisor') && <OrdenesView user={user} ordenes={ordenes} clientes={clientes} contratos={contratos} activos={activos} tiposActivo={tiposActivo} usuarios={usuarios} materiales={materiales} onRefresh={cargarDatos} filtroInicialTipo="guardia" />}
                         {activeTab === 'calendario' && (user.rol === 'admin' || user.rol === 'supervisor') && <CalendarView user={user} ordenes={ordenes} usuarios={usuarios} activos={activos} onRefresh={cargarDatos} />}
-                        {activeTab === 'inventario' && (user.rol === 'admin' || user.rol === 'supervisor') && <InventarioView user={user} activos={activos} emplazamientos={emplazamientos} zonas={zonas} clientes={clientes} contratos={contratos} onRefresh={cargarDatos} />}
+                        {activeTab === 'inventario' && (user.rol === 'admin' || user.rol === 'supervisor') && <InventarioView user={user} activos={activos} emplazamientos={emplazamientos} zonas={zonas} clientes={clientes} contratos={contratos} tiposActivo={tiposActivo} onRefresh={cargarDatos} />}
                         {activeTab === 'preciario' && (user.rol === 'admin' || user.rol === 'supervisor') && <PreciarioView user={user} materiales={materiales} clientes={clientes} onRefresh={cargarDatos} />}
                         {activeTab === 'usuarios' && (user.rol === 'admin' || user.rol === 'supervisor') && <UsuariosView user={user} usuarios={usuarios} onRefresh={cargarDatos} />}
                     </div>
@@ -436,167 +439,6 @@
             );
         }
 
-        // ===== SCHEMAS DE CHECKLISTS PREVENTIVO (según tipo de Activo) =====
-        const CHECKLIST_SCHEMAS = {
-            'Puerta Automática': {
-                sections: [
-                    { type: 'fields', title: 'Datos del Equipo', fields: [
-                        { key: 'fabricante', label: 'Fabricante', type: 'text' },
-                        { key: 'modelo', label: 'Modelo', type: 'text' },
-                        { key: 'cuadro_control', label: 'Cuadro de control', type: 'text' },
-                        { key: 'telemando', label: 'Telemando', type: 'select', options: ['Sí', 'No'] },
-                        { key: 'tipo_telemando', label: 'Tipo de telemando', type: 'text' },
-                        { key: 'ref_ubicacion', label: 'Referencia de ubicación', type: 'text' },
-                        { key: 'fecha_instalacion', label: 'Fecha instalación', type: 'date' },
-                        { key: 'anio_fabricacion', label: 'Año fabricación', type: 'text' },
-                        { key: 'dispositivos_seguridad', label: 'Dispositivos de seguridad', type: 'select', options: ['Sí', 'No'] },
-                        { key: 'tipo_dispositivo_seguridad', label: 'Tipo de dispositivo', type: 'text' },
-                        { key: 'finales_carrera', label: 'Finales de carrera', type: 'select', options: ['Sí', 'No'] },
-                        { key: 'tipo_finales_carrera', label: 'Tipo finales de carrera', type: 'text' }
-                    ]},
-                    { type: 'inspection', title: 'Inspección', grupos: [
-                        { titulo: 'Inspección', items: [
-                            'Comprobación visual', 'Control de estructura y fijaciones', 'Verificación de correcta apertura y cierre',
-                            'Comprobación de elementos de seguridad', 'Comprobación de finales de carrera',
-                            'Verificación de mecanismo de mando de emergencia', 'Lubricación de partes mecánicas'
-                        ]},
-                        { titulo: 'Limpieza y ajuste general de los mecanismos', items: [
-                            'Limpieza interior cajón mecanismo y revisión de sistema de fijación operador',
-                            'Limpieza y verificación estado perfil de rodadura',
-                            'Ajuste y revisión correa de tracción, piñones motor y poleas de transmisión',
-                            'Carros desplazamiento. Revisión tornillería y suspensiones hojas. Ajuste ruedas concéntricas/excéntricas. Revisión gomas.',
-                            'Repaso y ajuste tornillería de todos los elementos del operador. Revisión topes final de carrera.',
-                            'Inspección y sustitución de topes goma final carrera (si requiere)',
-                            'Inspección de grupo motor',
-                            'Inspección y cambio de ruedas concéntricas y excéntricas (si requiere)',
-                            'Inspección de carril de rodadura', 'Verificación, ajuste y ensayo'
-                        ]},
-                        { titulo: 'Ajuste y verificación de hojas y guías', items: [
-                            'Revisión y ajuste de hojas móviles. Verificación desplazamiento.',
-                            'Revisión, limpieza, engrase y fijación de guiadores, guías SOS y guías de seguridad.',
-                            'Cambio de guías (si requiere)'
-                        ]},
-                        { titulo: 'Verificación de conexiones eléctricas, elementos de seguridad y mando', items: [
-                            'Detectores magnéticos', 'Revisión y ensayo cerrojo interior. Comprobación de la holgura del cerrojo con pletinas cierre.',
-                            'Revisión y ensayo fotocélulas seguridad y/o apertura.', 'Revisión y ensayo selector de mando.',
-                            'Revisión y ensayo llave exterior/pulsadores/avisadores acústicos y conexiones a elementos externos',
-                            'Comprobación de automáticos diferenciales'
-                        ]},
-                        { titulo: 'Reglaje de parámetros y ensayo. Sistemas antipánico', items: [
-                            'Reglaje de rádares', 'Verificar y ajustar parámetros + autoajuste de la puerta',
-                            'Batería antipánico 24V. Comprobar carga. Ensayo y maniobra. (Si aplica)',
-                            'Cambio de la batería (si requiere)',
-                            'Antipánico puerta SOS. Ensayo de maniobra. Comprobar fuerza a aplicar abatibilidad de hojas.',
-                            'Antipánico mecánico CO-48. Revisión conexiones, poleas y caucho tracción. Ensayo de maniobra.'
-                        ]},
-                        { titulo: 'Telemando', items: [
-                            'Comprobación de apertura y cierre telemandado',
-                            'Comprobación de señales de estado (puerta abierta, cerrada, en tránsito)',
-                            'Verificación de cuadro de control de telemando', 'Conexión con autómata y test',
-                            'Comprobación de modos de funcionamiento (paso libre, bloqueo, sólo salida)',
-                            'Comprobación de interruptor de mando local de puerta'
-                        ]}
-                    ]}
-                ]
-            },
-            'Persiana Motorizada': {
-                sections: [
-                    { type: 'fields', title: 'Datos del Equipo', fields: [
-                        { key: 'tipo_lamas', label: 'Tipo de lamas', type: 'text' },
-                        { key: 'motor', label: 'Motor', type: 'text' },
-                        { key: 'telemando', label: 'Telemando', type: 'select', options: ['Sí', 'No'] },
-                        { key: 'tipo_telemando', label: 'Tipo de telemando', type: 'text' },
-                        { key: 'ref_ubicacion', label: 'Referencia de ubicación', type: 'text' },
-                        { key: 'fecha_instalacion', label: 'Fecha instalación', type: 'date' },
-                        { key: 'anio_fabricacion', label: 'Año fabricación', type: 'text' },
-                        { key: 'finales_carrera_adicionales', label: 'Finales de carrera adicionales', type: 'select', options: ['Sí', 'No'] },
-                        { key: 'tipo_finales_carrera_ad', label: 'Tipo (finales adicionales)', type: 'text' },
-                        { key: 'detectores_presencia', label: 'Detectores de presencia', type: 'select', options: ['Sí', 'No'] },
-                        { key: 'tipo_detectores', label: 'Tipo detectores', type: 'text' },
-                        { key: 'mecanismo_desbloqueo', label: 'Mecanismo desbloqueo emergencia', type: 'select', options: ['Sí', 'No'] },
-                        { key: 'tipo_mec_desbloqueo', label: 'Tipo mecanismo desbloqueo', type: 'text' }
-                    ]},
-                    { type: 'inspection', title: 'Inspección', grupos: [
-                        { titulo: 'Inspección', items: [
-                            'Comprobación visual', 'Control de estructura y fijaciones', 'Verificación de correcta apertura y cierre',
-                            'Comprobación de elementos de seguridad', 'Comprobación de finales de carrera',
-                            'Verificación de mecanismo de desbloqueo de emergencia', 'Revisión de cerradura, lubricación y limpieza'
-                        ]},
-                        { titulo: 'Limpieza y ajuste del cajón de la persiana', items: [
-                            'Limpieza interior cajón de la persiana y revisión del motor.',
-                            'Ajuste y revisión del eje del motor de la persiana.',
-                            'Revisión del estado del cojinete del eje de la persiana.',
-                            'Repaso y ajuste tornillería de todos los elementos del grupo motor.',
-                            'Estado de las tapas y chapas del exterior del cajón de la persiana.',
-                            'Revisión del cable del mecanismo de apertura manual de emergencia.',
-                            'Verificación de la existencia de manivela de apertura de emergencia.'
-                        ]},
-                        { titulo: 'Ajuste y verificación de las lamas', items: [
-                            'Revisión de los topes de las lamas de la persiana.',
-                            'Revisión del estado de la goma de la lama inferior de la persiana.',
-                            'Revisión de las lamas de la persiana.',
-                            'Revisión de los flejes de sujeción de las lamas al eje del motor.',
-                            'Limpieza, lubricación y verificación del estado de las guías y gomas.'
-                        ]},
-                        { titulo: 'Verificación de conexiones eléctricas, elementos de seguridad y mando', items: [
-                            'Revisión y ensayo del sistema de desbloqueo manual de emergencia.',
-                            'Revisión y ensayo del funcionamiento de los finales de carrera del motor.',
-                            'Revisión y ensayo del funcionamiento del motor (subir/bajar persiana).',
-                            'Revisión y ensayo del pulsador de la cerradura de la persiana.',
-                            'Revisión y ensayo de los pulsadores de subida y bajada del cuadro de control.',
-                            'Revisión y ensayo de los detectores de presencia de seguridad.'
-                        ]},
-                        { titulo: 'Telemando', items: [
-                            'Comprobación de apertura y cierre telemandado.',
-                            'Comprobación de señales de estado (abierta, cerrada, en tránsito).',
-                            'Verificación de cuadro de control de telemando.', 'Conexión con autómata y test.',
-                            'Comprobación del funcionamiento de los detectores de presencia.',
-                            'Comprobación de interruptor de mando local de la persiana.', 'Comprobación de relés.'
-                        ]}
-                    ]}
-                ]
-            },
-            'Control Acceso Vehicular': {
-                sections: [
-                    { type: 'grid', title: 'Barreras', rows: ['Entrada Ext', 'Entrada Int', 'Salida Ext', 'Salida Int'],
-                      columns: ['E. Físico', 'Motor/Red', 'Muelle', 'Engrase', 'Semáforo', 'Mástil', 'Fotocélulas', 'Leds', 'Detectores', 'Lazos', 'Conexiones'],
-                      options: ['ok', 'no ok', 'N/A'] },
-                    { type: 'grid', title: 'Rack', rows: ['Rack'],
-                      columns: ['E. Físico', 'Controlador', 'Diferenciales', 'SAI', 'Interfonía E', 'Interfonía S', 'Conexiones'],
-                      options: ['ok', 'no ok', 'N/A'] },
-                    { type: 'grid', title: 'Cámara OCR', rows: ['Entrada Ext', 'Salida Int'],
-                      columns: ['E. Físico', 'Fijación', 'Lectura', 'Conexiones'],
-                      options: ['ok', 'no ok', 'N/A'] },
-                    { type: 'textarea', title: 'Observaciones Generales', key: 'observaciones_generales' }
-                ]
-            },
-            'Control Acceso Peatonal': {
-                sections: [
-                    { type: 'grid', title: 'Torno', rows: ['Torno'],
-                      columns: ['E. Físico', 'Controlador', 'Lector RFID', 'Lector QR', 'Engrase', 'Conexiones'],
-                      options: ['ok', 'no ok', 'N/A'] },
-                    { type: 'grid', title: 'Rack', rows: ['Rack'],
-                      columns: ['E. Físico', 'Controlador', 'Diferenciales', 'SAI', 'Interfonía E', 'Interfonía S', 'Conexiones'],
-                      options: ['ok', 'no ok', 'N/A'] },
-                    { type: 'grid', title: 'Portón', rows: ['Portón'],
-                      columns: ['E. Físico', 'Motor', 'Engrase'],
-                      options: ['ok', 'no ok', 'N/A'] },
-                    { type: 'textarea', title: 'Observaciones Generales', key: 'observaciones_generales' }
-                ]
-            },
-            'CCTV': {
-                sections: [
-                    { type: 'fields', title: 'Datos de la Cámara', fields: [
-                        { key: 'estado_camara', label: 'Estado general cámara', type: 'select', options: ['OK', 'NO OK'] },
-                        { key: 'estado_cableado', label: 'Estado general cableado', type: 'select', options: ['OK', 'NO OK'] },
-                        { key: 'estado_soporte', label: 'Estado general soporte', type: 'select', options: ['OK', 'NO OK'] },
-                        { key: 'limpieza_camara', label: 'Limpieza de cámara realizada', type: 'select', options: ['SI', 'NO'] },
-                        { key: 'tratamiento_insectos', label: 'Tratamiento insectos realizado', type: 'select', options: ['SI', 'NO'] }
-                    ]},
-                    { type: 'textarea', title: 'Observaciones', key: 'observaciones' }
-                ]
-            }
-        };
 
         // ===== COMPONENTES GENÉRICOS DE CHECKLIST =====
         function InspectionTable({ items, grupos, value, onChange, readOnly }) {
@@ -694,12 +536,11 @@
             );
         }
 
-        function DynamicChecklistForm({ tipoActivo, value, onChange, readOnly }) {
-            const schema = CHECKLIST_SCHEMAS[tipoActivo];
+        function DynamicChecklistForm({ sections, value, onChange, readOnly }) {
             const data = value || {};
 
-            if (!schema) {
-                return <p className="card-text">⚠️ No hay checklist definido para el tipo de activo "{tipoActivo}".</p>;
+            if (!sections || sections.length === 0) {
+                return <p className="card-text">⚠️ Este tipo de activo no tiene checklist configurado todavía.</p>;
             }
 
             const updateSection = (sectionKey, sectionValue) => {
@@ -708,7 +549,7 @@
 
             return (
                 <div>
-                    {schema.sections.map((section, idx) => {
+                    {sections.map((section, idx) => {
                         const sectionKey = section.key || `section_${idx}`;
                         return (
                             <div key={idx} className="checklist-section">
@@ -1032,7 +873,7 @@
         }
 
 
-        function OrdenesView({ user, ordenes, clientes, contratos, activos, usuarios, materiales, onRefresh, filtroInicialTipo }) {
+        function OrdenesView({ user, ordenes, clientes, contratos, activos, tiposActivo, usuarios, materiales, onRefresh, filtroInicialTipo }) {
             const esGestor = user.rol === 'admin' || user.rol === 'supervisor';
             const [mode, setMode] = useState('list'); // list | form-ot | detail | form-visita | view-visita
             const [filtroTipo, setFiltroTipo] = useState(filtroInicialTipo || 'todas');
@@ -1047,6 +888,12 @@
 
             const tecnicosDisponibles = usuarios.filter(u => u.activo);
             const responsablesDisponibles = usuarios.filter(u => u.activo && (u.rol === 'admin' || u.rol === 'supervisor'));
+
+            const getSeccionesTipo = (nombreTipo) => {
+                const tipo = tiposActivo.find(t => t.nombre === nombreTipo);
+                if (!tipo) return [];
+                try { return JSON.parse(tipo.checklist_json || '[]'); } catch { return []; }
+            };
 
             const initialOtForm = {
                 titulo: '', tipo: esGestor ? 'correctivo' : 'guardia', ticket: '', id_cliente: '',
@@ -1504,7 +1351,7 @@
                             {otSeleccionada && otSeleccionada.tipo === 'preventivo' && otSeleccionada.activo_tipo && (
                                 <div className="checklist-section">
                                     <div className="checklist-section-title">✅ Checklist: {otSeleccionada.activo_tipo}</div>
-                                    <DynamicChecklistForm tipoActivo={otSeleccionada.activo_tipo} value={visitaForm.checklist_json} onChange={(v) => setVisitaForm({ ...visitaForm, checklist_json: v })} />
+                                    <DynamicChecklistForm sections={getSeccionesTipo(otSeleccionada.activo_tipo)} value={visitaForm.checklist_json} onChange={(v) => setVisitaForm({ ...visitaForm, checklist_json: v })} />
                                 </div>
                             )}
 
@@ -1581,7 +1428,7 @@
                             {otSeleccionada && otSeleccionada.tipo === 'preventivo' && visitaViendo.checklist_tipo && (
                                 <div className="checklist-section">
                                     <div className="checklist-section-title">✅ Checklist: {visitaViendo.checklist_tipo}</div>
-                                    <DynamicChecklistForm tipoActivo={visitaViendo.checklist_tipo} value={checklist} onChange={() => {}} readOnly={true} />
+                                    <DynamicChecklistForm sections={getSeccionesTipo(visitaViendo.checklist_tipo)} value={checklist} onChange={() => {}} readOnly={true} />
                                 </div>
                             )}
 
@@ -1982,22 +1829,217 @@
             );
         }
 
-        function ActivosView({ user, activos, emplazamientos, zonas, clientes, contratos, onRefresh }) {
+        // ===== GESTIÓN DE TIPOS DE ACTIVO Y SUS CHECKLISTS =====
+        function FieldsEditor({ fields, onChange }) {
+            const updateField = (i, patch) => { const copy = [...fields]; copy[i] = { ...copy[i], ...patch }; onChange(copy); };
+            const addField = () => onChange([...fields, { key: 'campo_' + Date.now(), label: '', type: 'text', options: [] }]);
+            const removeField = (i) => { const copy = [...fields]; copy.splice(i, 1); onChange(copy); };
+            return (
+                <div>
+                    {fields.map((f, i) => (
+                        <div key={i} className="dyn-row">
+                            <input placeholder="Etiqueta del campo" value={f.label} onChange={(e) => updateField(i, { label: e.target.value })} />
+                            <select value={f.type} onChange={(e) => updateField(i, { type: e.target.value })}>
+                                <option value="text">Texto</option>
+                                <option value="select">Lista desplegable</option>
+                                <option value="date">Fecha</option>
+                            </select>
+                            {f.type === 'select' && (
+                                <input placeholder="Opciones separadas por coma" value={(f.options || []).join(', ')} onChange={(e) => updateField(i, { options: e.target.value.split(',').map(s => s.trim()).filter(Boolean) })} />
+                            )}
+                            <div className="dyn-row-actions"><button className="btn-remove-row" onClick={() => removeField(i)}>Quitar campo</button></div>
+                        </div>
+                    ))}
+                    <button className="btn-add-row" onClick={addField}>+ Añadir campo</button>
+                </div>
+            );
+        }
+
+        function InspectionEditor({ grupos, onChange }) {
+            const updateGrupo = (i, patch) => { const copy = [...grupos]; copy[i] = { ...copy[i], ...patch }; onChange(copy); };
+            const addGrupo = () => onChange([...grupos, { titulo: 'Nuevo grupo', items: [] }]);
+            const removeGrupo = (i) => { const copy = [...grupos]; copy.splice(i, 1); onChange(copy); };
+            return (
+                <div>
+                    {grupos.map((g, i) => (
+                        <div key={i} className="dyn-row">
+                            <input placeholder="Título del grupo" value={g.titulo} onChange={(e) => updateGrupo(i, { titulo: e.target.value })} />
+                            <textarea placeholder="Un ítem de inspección por línea" value={(g.items || []).join('\n')} onChange={(e) => updateGrupo(i, { items: e.target.value.split('\n').map(s => s.trim()).filter(Boolean) })}></textarea>
+                            <div className="dyn-row-actions"><button className="btn-remove-row" onClick={() => removeGrupo(i)}>Quitar grupo</button></div>
+                        </div>
+                    ))}
+                    <button className="btn-add-row" onClick={addGrupo}>+ Añadir grupo de inspección</button>
+                </div>
+            );
+        }
+
+        function GridEditor({ seccion, onChange }) {
+            const rows = seccion.rows || []; const columns = seccion.columns || []; const options = seccion.options || [];
+            return (
+                <div>
+                    <div className="form-group">
+                        <label>Filas / componentes (uno por línea)</label>
+                        <textarea placeholder="Ej: Entrada Ext&#10;Salida Ext" value={rows.join('\n')} onChange={(e) => onChange({ rows: e.target.value.split('\n').map(s => s.trim()).filter(Boolean) })}></textarea>
+                    </div>
+                    <div className="form-group">
+                        <label>Columnas / aspectos a revisar (separadas por coma)</label>
+                        <input placeholder="Ej: E. Físico, Motor, Conexiones" value={columns.join(', ')} onChange={(e) => onChange({ columns: e.target.value.split(',').map(s => s.trim()).filter(Boolean) })} />
+                    </div>
+                    <div className="form-group">
+                        <label>Valores posibles (separados por coma)</label>
+                        <input placeholder="Ej: ok, no ok, N/A" value={options.join(', ')} onChange={(e) => onChange({ options: e.target.value.split(',').map(s => s.trim()).filter(Boolean) })} />
+                    </div>
+                </div>
+            );
+        }
+
+        function SeccionEditor({ seccion, onChange, onRemove }) {
+            const update = (patch) => onChange({ ...seccion, ...patch });
+            const nombresTipo = { fields: 'Campos de datos', inspection: 'Inspección', grid: 'Cuadro', textarea: 'Texto libre' };
+            return (
+                <div className="quickadd-box" style={{ borderStyle: 'solid', marginBottom: '10px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+                        <input type="text" value={seccion.title} onChange={(e) => update({ title: e.target.value })} placeholder="Título de la sección" style={{ fontWeight: 600 }} />
+                        <button className="btn-remove-row" onClick={onRemove}>Eliminar</button>
+                    </div>
+                    <p className="lock-note">Tipo de sección: {nombresTipo[seccion.type] || seccion.type}</p>
+
+                    {seccion.type === 'fields' && <FieldsEditor fields={seccion.fields || []} onChange={(f) => update({ fields: f })} />}
+                    {seccion.type === 'inspection' && <InspectionEditor grupos={seccion.grupos || []} onChange={(g) => update({ grupos: g })} />}
+                    {seccion.type === 'grid' && <GridEditor seccion={seccion} onChange={update} />}
+                    {seccion.type === 'textarea' && <p className="card-text">Solo muestra un cuadro de texto libre para observaciones, sin más configuración.</p>}
+                </div>
+            );
+        }
+
+        function TiposActivoManager({ tiposActivo, onRefresh, onClose }) {
+            const [nuevoNombre, setNuevoNombre] = useState('');
+            const [editingId, setEditingId] = useState(null);
+            const [secciones, setSecciones] = useState([]);
+            const [nuevoTipoSeccion, setNuevoTipoSeccion] = useState('fields');
+
+            const crearTipo = async () => {
+                if (!nuevoNombre.trim()) return;
+                const res = await fetch(`${API_URL}/api/tipos-activo`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nombre: nuevoNombre.trim(), checklist_json: '[]' }) });
+                const data = await res.json();
+                if (!res.ok) { alert(data.error || 'Error al crear el tipo'); return; }
+                setNuevoNombre('');
+                onRefresh();
+            };
+
+            const eliminarTipo = async (id) => {
+                if (!confirm('¿Eliminar este tipo de activo? Los activos que ya lo usan mantendrán el nombre como texto, pero perderán su checklist configurado.')) return;
+                await fetch(`${API_URL}/api/tipos-activo/${id}`, { method: 'DELETE' });
+                onRefresh();
+            };
+
+            const abrirEditorChecklist = (tipo) => {
+                let secs = [];
+                try { secs = JSON.parse(tipo.checklist_json || '[]'); } catch { secs = []; }
+                setSecciones(secs);
+                setEditingId(tipo.id);
+            };
+
+            const guardarChecklist = async () => {
+                const tipo = tiposActivo.find(t => t.id === editingId);
+                await fetch(`${API_URL}/api/tipos-activo/${editingId}`, {
+                    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ nombre: tipo.nombre, checklist_json: JSON.stringify(secciones) })
+                });
+                setEditingId(null);
+                onRefresh();
+            };
+
+            const addSeccion = () => {
+                let nueva;
+                if (nuevoTipoSeccion === 'fields') nueva = { type: 'fields', title: 'Nueva sección de datos', fields: [] };
+                else if (nuevoTipoSeccion === 'inspection') nueva = { type: 'inspection', title: 'Nueva inspección', grupos: [{ titulo: 'Grupo 1', items: [] }] };
+                else if (nuevoTipoSeccion === 'grid') nueva = { type: 'grid', title: 'Nuevo cuadro', rows: [], columns: [], options: ['ok', 'no ok', 'N/A'] };
+                else nueva = { type: 'textarea', title: 'Observaciones', key: 'obs_' + Date.now() };
+                setSecciones([...secciones, nueva]);
+            };
+            const updateSeccion = (idx, nueva) => { const copy = [...secciones]; copy[idx] = nueva; setSecciones(copy); };
+            const removeSeccion = (idx) => { const copy = [...secciones]; copy.splice(idx, 1); setSecciones(copy); };
+
+            if (editingId) {
+                const tipo = tiposActivo.find(t => t.id === editingId);
+                return (
+                    <div className="card" style={{ marginBottom: '1rem' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                            <h4 className="card-title">📝 Checklist: {tipo ? tipo.nombre : ''}</h4>
+                            <button className="btn btn-secondary" onClick={() => setEditingId(null)}>← Volver</button>
+                        </div>
+
+                        {secciones.length === 0 && <p className="card-text" style={{ marginBottom: '10px' }}>Este tipo aún no tiene ninguna sección. Añade la primera abajo.</p>}
+
+                        {secciones.map((s, idx) => (
+                            <SeccionEditor key={idx} seccion={s} onChange={(v) => updateSeccion(idx, v)} onRemove={() => removeSeccion(idx)} />
+                        ))}
+
+                        <div className="quickadd-box">
+                            <p className="card-text" style={{ fontWeight: 600, marginBottom: '6px' }}>+ Añadir nueva sección</p>
+                            <select value={nuevoTipoSeccion} onChange={(e) => setNuevoTipoSeccion(e.target.value)}>
+                                <option value="fields">Campos de datos (ej: fabricante, modelo...)</option>
+                                <option value="inspection">Inspección (grupos de ítems Correcto/Incorrecto/N-A)</option>
+                                <option value="grid">Cuadro (filas × columnas, ej: barreras, racks...)</option>
+                                <option value="textarea">Texto libre / Observaciones</option>
+                            </select>
+                            <button className="btn-add-row" onClick={addSeccion}>+ Añadir sección</button>
+                        </div>
+
+                        <div className="btn-group">
+                            <button className="btn btn-success" onClick={guardarChecklist}>Guardar Checklist</button>
+                            <button className="btn btn-secondary" onClick={() => setEditingId(null)}>Cancelar</button>
+                        </div>
+                    </div>
+                );
+            }
+
+            return (
+                <div className="card" style={{ marginBottom: '1rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                        <h4 className="card-title">⚙️ Tipos de Activo</h4>
+                        <button className="btn btn-secondary" onClick={onClose}>Cerrar</button>
+                    </div>
+
+                    <div className="field-with-add" style={{ marginBottom: '10px' }}>
+                        <input type="text" placeholder="Nombre del nuevo tipo (ej: Torniquete)" value={nuevoNombre} onChange={(e) => setNuevoNombre(e.target.value)} />
+                        <button className="btn-quickadd" onClick={crearTipo}>＋</button>
+                    </div>
+
+                    <div className="list">
+                        {tiposActivo.map(t => {
+                            let secs = [];
+                            try { secs = JSON.parse(t.checklist_json || '[]'); } catch { secs = []; }
+                            return (
+                                <div key={t.id} className="list-item">
+                                    <p className="card-title">{t.nombre}</p>
+                                    <p className="card-text">{secs.length} sección(es) de checklist configuradas</p>
+                                    <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                                        <button className="btn btn-primary" onClick={() => abrirEditorChecklist(t)}>Editar Checklist</button>
+                                        <button className="btn btn-danger" onClick={() => eliminarTipo(t.id)}>Eliminar</button>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            );
+        }
+
+        function ActivosView({ user, activos, emplazamientos, zonas, clientes, contratos, tiposActivo, onRefresh }) {
             const [showForm, setShowForm] = useState(false);
             const [editingId, setEditingId] = useState(null);
             const [selectedCliente, setSelectedCliente] = useState('');
             const [selectedZona, setSelectedZona] = useState('');
-            const [emplazamientoSearch, setEmplazamientoSearch] = useState('');
             const [formData, setFormData] = useState({ emplazamiento_id: '', contrato_id: '', tipo: '', nombre: '', fabricante: '', modelo: '', estado: 'Activo', observaciones: '' });
             const [importMsg, setImportMsg] = useState('');
 
             const contratosFiltrados = selectedCliente ? contratos.filter(c => c.cliente_id === parseInt(selectedCliente)) : contratos;
             const zonasFiltradas = formData.contrato_id ? zonas.filter(z => z.contrato_id === parseInt(formData.contrato_id)) : [];
-            const emplazamientosFiltrados = emplazamientoSearch
-                ? emplazamientos.filter(e => e.nombre.toLowerCase().includes(emplazamientoSearch.toLowerCase()))
-                : (selectedZona ? emplazamientos.filter(e => e.zona_id === parseInt(selectedZona)) : emplazamientos);
+            const emplazamientosFiltrados = selectedZona ? emplazamientos.filter(e => e.zona_id === parseInt(selectedZona)) : emplazamientos;
 
-            const tiposActivo = ['Puerta Automática', 'Persiana Motorizada', 'CCTV', 'Control Acceso Peatonal', 'Control Acceso Vehicular', 'Otro'];
+            const [showTiposManager, setShowTiposManager] = useState(false);
 
             // ---- Creación rápida de dependencias (sin salir de este formulario) ----
             const crearClienteRapido = async (values) => {
@@ -2039,7 +2081,7 @@
                     const method = editingId ? 'PUT' : 'POST';
                     await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(formData) });
                     setFormData({ emplazamiento_id: '', contrato_id: '', tipo: '', nombre: '', fabricante: '', modelo: '', estado: 'Activo', observaciones: '' });
-                    setSelectedCliente(''); setSelectedZona(''); setEmplazamientoSearch('');
+                    setSelectedCliente(''); setSelectedZona('');
                     setEditingId(null);
                     setShowForm(false);
                     onRefresh();
@@ -2110,12 +2152,15 @@
                                 { key: 'observaciones', label: 'Observaciones' }
                             ])}>📤 Exportar</button>
                             <ExcelImportButton onRows={handleImportRows} />
+                            <button className="btn btn-secondary" onClick={() => setShowTiposManager(!showTiposManager)}>⚙️ Tipos de Activo</button>
                             <button className="btn btn-primary" onClick={() => {
-                                if (!showForm) { setFormData({ emplazamiento_id: '', contrato_id: '', tipo: '', nombre: '', fabricante: '', modelo: '', estado: 'Activo', observaciones: '' }); setSelectedCliente(''); setSelectedZona(''); setEmplazamientoSearch(''); }
+                                if (!showForm) { setFormData({ emplazamiento_id: '', contrato_id: '', tipo: '', nombre: '', fabricante: '', modelo: '', estado: 'Activo', observaciones: '' }); setSelectedCliente(''); setSelectedZona(''); }
                                 setShowForm(!showForm); setEditingId(null);
                             }}>+ Nuevo</button>
                         </div>
                     </div>
+
+                    {showTiposManager && <TiposActivoManager tiposActivo={tiposActivo} onRefresh={onRefresh} onClose={() => setShowTiposManager(false)} />}
 
                     {importMsg && <div className="import-summary">{importMsg}</div>}
 
@@ -2189,16 +2234,15 @@
                                         ]} />
                                     )}
                                 </div>
-                                <p className="card-text" style={{ marginTop: '6px' }}>O busca entre todos los emplazamientos existentes:</p>
-                                <input type="text" placeholder="Escribe para filtrar..." value={emplazamientoSearch} onChange={(e) => setEmplazamientoSearch(e.target.value)} />
                             </div>
 
                             <div className="form-group">
                                 <label>Tipo de Activo</label>
                                 <select value={formData.tipo} onChange={(e) => setFormData({ ...formData, tipo: e.target.value })}>
                                     <option value="">-- Selecciona tipo --</option>
-                                    {tiposActivo.map(t => <option key={t} value={t}>{t}</option>)}
+                                    {tiposActivo.map(t => <option key={t.id} value={t.nombre}>{t.nombre}</option>)}
                                 </select>
+                                <p className="lock-note">¿No está el tipo que buscas? Gestiónalos con el botón "⚙️ Tipos de Activo" arriba.</p>
                             </div>
                             <div className="form-group">
                                 <label>Nombre / Identificador</label>
