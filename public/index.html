@@ -152,6 +152,31 @@
         .readonly-view .rv-row { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed var(--border); }
         .readonly-view .rv-label { color: var(--text-secondary); }
         .readonly-view .rv-value { font-weight: 600; text-align: right; }
+        .photo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); gap: 8px; margin-top: 8px; }
+        .photo-thumb { position: relative; aspect-ratio: 1; border-radius: 8px; overflow: hidden; border: 1px solid var(--border); }
+        .photo-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .photo-thumb .photo-remove { position: absolute; top: 2px; right: 2px; background: rgba(0,0,0,0.6); color: white; border: none; border-radius: 50%; width: 20px; height: 20px; font-size: 12px; cursor: pointer; line-height: 1; }
+        .photo-add-btn { display: flex; align-items: center; justify-content: center; aspect-ratio: 1; border: 2px dashed var(--border); border-radius: 8px; cursor: pointer; color: var(--text-secondary); font-size: 24px; background: var(--surface-2); }
+        .signature-pad-wrap { border: 1px solid var(--border); border-radius: 8px; background: white; touch-action: none; }
+        .signature-pad-wrap canvas { display: block; width: 100%; height: 150px; }
+        .material-picker-row { display: grid; grid-template-columns: 2fr 1fr; gap: 6px; margin-bottom: 6px; }
+        .prioridad-badge { font-size: 10px; padding: 2px 6px; border-radius: 4px; font-weight: 600; margin-left: 6px; }
+        .prioridad-badge.baja { background: #e8f0ff; color: #0052a3; }
+        .prioridad-badge.media { background: var(--bg-warning); color: #b8860b; }
+        .prioridad-badge.alta { background: var(--bg-danger); color: var(--fill-danger); }
+        .prioridad-badge.urgente { background: var(--fill-danger); color: white; }
+        .visita-card { background: var(--surface-2); border-radius: 8px; padding: 10px; margin-bottom: 8px; }
+        .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+        .cal-weekday { text-align: center; font-size: 10px; color: var(--text-muted); font-weight: 600; padding: 4px 0; }
+        .cal-cell { aspect-ratio: 1; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-1); display: flex; flex-direction: column; align-items: center; justify-content: center; cursor: pointer; padding: 2px; }
+        .cal-cell.empty { border: none; background: transparent; cursor: default; }
+        .cal-cell.today { border-color: var(--fill-accent); border-width: 2px; }
+        .cal-daynum { font-size: 12px; font-weight: 600; }
+        .cal-dots { display: flex; gap: 2px; margin-top: 2px; }
+        .cal-dots i { width: 5px; height: 5px; border-radius: 50%; display: inline-block; }
+        .cal-legend { display: flex; gap: 12px; font-size: 11px; margin-bottom: 8px; color: var(--text-secondary); }
+        .cal-legend i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 4px; }
+        .price-history-row { display: flex; justify-content: space-between; font-size: 12px; padding: 4px 0; border-bottom: 1px dashed var(--border); }
     </style>
 </head>
 <body class="light-theme">
@@ -255,6 +280,7 @@
             const [activos, setActivos] = useState([]);
             const [ordenes, setOrdenes] = useState([]);
             const [usuarios, setUsuarios] = useState([]);
+            const [materiales, setMateriales] = useState([]);
             const [isDarkMode, setIsDarkMode] = useState(document.body.classList.contains('dark-theme'));
 
             useEffect(() => {
@@ -263,14 +289,15 @@
 
             const cargarDatos = async () => {
                 try {
-                    const [clientesRes, contratosRes, zonasRes, emplazamientosRes, activosRes, ordenesRes, usuariosRes] = await Promise.all([
+                    const [clientesRes, contratosRes, zonasRes, emplazamientosRes, activosRes, ordenesRes, usuariosRes, materialesRes] = await Promise.all([
                         fetch(`${API_URL}/api/clientes`),
                         fetch(`${API_URL}/api/contratos`),
                         fetch(`${API_URL}/api/zonas`),
                         fetch(`${API_URL}/api/emplazamientos`),
                         fetch(`${API_URL}/api/activos`),
                         fetch(`${API_URL}/api/ordenes`),
-                        fetch(`${API_URL}/api/usuarios`)
+                        fetch(`${API_URL}/api/usuarios`),
+                        fetch(`${API_URL}/api/materiales`)
                     ]);
 
                     setClientes(await clientesRes.json());
@@ -280,6 +307,7 @@
                     setActivos(await activosRes.json());
                     setOrdenes(await ordenesRes.json());
                     setUsuarios(await usuariosRes.json());
+                    setMateriales(await materialesRes.json());
                 } catch (err) {
                     console.error('Error cargando datos:', err);
                 }
@@ -300,11 +328,13 @@
                     return [
                         ...common,
                         { id: 'ordenes', label: 'Órdenes' },
+                        { id: 'calendario', label: 'Calendario' },
                         { id: 'activos', label: 'Activos' },
                         { id: 'emplazamientos', label: 'Emplazam.' },
                         { id: 'zonas', label: 'Zonas' },
                         { id: 'contratos', label: 'Contratos' },
                         { id: 'clientes', label: 'Clientes' },
+                        { id: 'preciario', label: 'Preciario' },
                         { id: 'usuarios', label: 'Usuarios' }
                     ];
                 } else {
@@ -347,12 +377,14 @@
 
                     <div className="content">
                         {activeTab === 'dashboard' && <DashboardView ordenes={ordenes} clientes={clientes} activos={activos} contratos={contratos} />}
-                        {activeTab === 'ordenes' && <OrdenesView user={user} ordenes={ordenes} clientes={clientes} contratos={contratos} activos={activos} onRefresh={cargarDatos} />}
+                        {activeTab === 'ordenes' && <OrdenesView user={user} ordenes={ordenes} clientes={clientes} contratos={contratos} activos={activos} usuarios={usuarios} materiales={materiales} onRefresh={cargarDatos} />}
+                        {activeTab === 'calendario' && (user.rol === 'admin' || user.rol === 'supervisor') && <CalendarView user={user} ordenes={ordenes} usuarios={usuarios} activos={activos} onRefresh={cargarDatos} />}
                         {activeTab === 'activos' && (user.rol === 'admin' || user.rol === 'supervisor') && <ActivosView user={user} activos={activos} emplazamientos={emplazamientos} clientes={clientes} contratos={contratos} onRefresh={cargarDatos} />}
                         {activeTab === 'emplazamientos' && (user.rol === 'admin' || user.rol === 'supervisor') && <EmplazamientosView user={user} emplazamientos={emplazamientos} zonas={zonas} clientes={clientes} contratos={contratos} onRefresh={cargarDatos} />}
                         {activeTab === 'zonas' && (user.rol === 'admin' || user.rol === 'supervisor') && <ZonasView user={user} zonas={zonas} clientes={clientes} contratos={contratos} onRefresh={cargarDatos} />}
                         {activeTab === 'contratos' && (user.rol === 'admin' || user.rol === 'supervisor') && <ContratosView user={user} contratos={contratos} clientes={clientes} onRefresh={cargarDatos} />}
                         {activeTab === 'clientes' && (user.rol === 'admin' || user.rol === 'supervisor') && <ClientesView user={user} clientes={clientes} onRefresh={cargarDatos} />}
+                        {activeTab === 'preciario' && (user.rol === 'admin' || user.rol === 'supervisor') && <PreciarioView user={user} materiales={materiales} clientes={clientes} onRefresh={cargarDatos} />}
                         {activeTab === 'usuarios' && (user.rol === 'admin' || user.rol === 'supervisor') && <UsuariosView user={user} usuarios={usuarios} onRefresh={cargarDatos} />}
                     </div>
                 </div>
@@ -401,21 +433,61 @@
             'Puerta Automática': {
                 sections: [
                     { type: 'fields', title: 'Datos del Equipo', fields: [
+                        { key: 'fabricante', label: 'Fabricante', type: 'text' },
+                        { key: 'modelo', label: 'Modelo', type: 'text' },
+                        { key: 'cuadro_control', label: 'Cuadro de control', type: 'text' },
                         { key: 'telemando', label: 'Telemando', type: 'select', options: ['Sí', 'No'] },
                         { key: 'tipo_telemando', label: 'Tipo de telemando', type: 'text' },
+                        { key: 'ref_ubicacion', label: 'Referencia de ubicación', type: 'text' },
+                        { key: 'fecha_instalacion', label: 'Fecha instalación', type: 'date' },
+                        { key: 'anio_fabricacion', label: 'Año fabricación', type: 'text' },
                         { key: 'dispositivos_seguridad', label: 'Dispositivos de seguridad', type: 'select', options: ['Sí', 'No'] },
                         { key: 'tipo_dispositivo_seguridad', label: 'Tipo de dispositivo', type: 'text' },
-                        { key: 'finales_carrera', label: 'Finales de carrera', type: 'select', options: ['Sí', 'No'] }
+                        { key: 'finales_carrera', label: 'Finales de carrera', type: 'select', options: ['Sí', 'No'] },
+                        { key: 'tipo_finales_carrera', label: 'Tipo finales de carrera', type: 'text' }
                     ]},
-                    { type: 'inspection', title: 'Inspección', items: [
-                        'Comprobación visual',
-                        'Control de estructura y fijaciones',
-                        'Verificación de correcta apertura y cierre',
-                        'Comprobación de elementos de seguridad',
-                        'Comprobación de fotocélulas / radar',
-                        'Comprobación de finales de carrera',
-                        'Engrase de guías y rodamientos',
-                        'Limpieza general'
+                    { type: 'inspection', title: 'Inspección', grupos: [
+                        { titulo: 'Inspección', items: [
+                            'Comprobación visual', 'Control de estructura y fijaciones', 'Verificación de correcta apertura y cierre',
+                            'Comprobación de elementos de seguridad', 'Comprobación de finales de carrera',
+                            'Verificación de mecanismo de mando de emergencia', 'Lubricación de partes mecánicas'
+                        ]},
+                        { titulo: 'Limpieza y ajuste general de los mecanismos', items: [
+                            'Limpieza interior cajón mecanismo y revisión de sistema de fijación operador',
+                            'Limpieza y verificación estado perfil de rodadura',
+                            'Ajuste y revisión correa de tracción, piñones motor y poleas de transmisión',
+                            'Carros desplazamiento. Revisión tornillería y suspensiones hojas. Ajuste ruedas concéntricas/excéntricas. Revisión gomas.',
+                            'Repaso y ajuste tornillería de todos los elementos del operador. Revisión topes final de carrera.',
+                            'Inspección y sustitución de topes goma final carrera (si requiere)',
+                            'Inspección de grupo motor',
+                            'Inspección y cambio de ruedas concéntricas y excéntricas (si requiere)',
+                            'Inspección de carril de rodadura', 'Verificación, ajuste y ensayo'
+                        ]},
+                        { titulo: 'Ajuste y verificación de hojas y guías', items: [
+                            'Revisión y ajuste de hojas móviles. Verificación desplazamiento.',
+                            'Revisión, limpieza, engrase y fijación de guiadores, guías SOS y guías de seguridad.',
+                            'Cambio de guías (si requiere)'
+                        ]},
+                        { titulo: 'Verificación de conexiones eléctricas, elementos de seguridad y mando', items: [
+                            'Detectores magnéticos', 'Revisión y ensayo cerrojo interior. Comprobación de la holgura del cerrojo con pletinas cierre.',
+                            'Revisión y ensayo fotocélulas seguridad y/o apertura.', 'Revisión y ensayo selector de mando.',
+                            'Revisión y ensayo llave exterior/pulsadores/avisadores acústicos y conexiones a elementos externos',
+                            'Comprobación de automáticos diferenciales'
+                        ]},
+                        { titulo: 'Reglaje de parámetros y ensayo. Sistemas antipánico', items: [
+                            'Reglaje de rádares', 'Verificar y ajustar parámetros + autoajuste de la puerta',
+                            'Batería antipánico 24V. Comprobar carga. Ensayo y maniobra. (Si aplica)',
+                            'Cambio de la batería (si requiere)',
+                            'Antipánico puerta SOS. Ensayo de maniobra. Comprobar fuerza a aplicar abatibilidad de hojas.',
+                            'Antipánico mecánico CO-48. Revisión conexiones, poleas y caucho tracción. Ensayo de maniobra.'
+                        ]},
+                        { titulo: 'Telemando', items: [
+                            'Comprobación de apertura y cierre telemandado',
+                            'Comprobación de señales de estado (puerta abierta, cerrada, en tránsito)',
+                            'Verificación de cuadro de control de telemando', 'Conexión con autómata y test',
+                            'Comprobación de modos de funcionamiento (paso libre, bloqueo, sólo salida)',
+                            'Comprobación de interruptor de mando local de puerta'
+                        ]}
                     ]}
                 ]
             },
@@ -425,19 +497,54 @@
                         { key: 'tipo_lamas', label: 'Tipo de lamas', type: 'text' },
                         { key: 'motor', label: 'Motor', type: 'text' },
                         { key: 'telemando', label: 'Telemando', type: 'select', options: ['Sí', 'No'] },
+                        { key: 'tipo_telemando', label: 'Tipo de telemando', type: 'text' },
+                        { key: 'ref_ubicacion', label: 'Referencia de ubicación', type: 'text' },
+                        { key: 'fecha_instalacion', label: 'Fecha instalación', type: 'date' },
+                        { key: 'anio_fabricacion', label: 'Año fabricación', type: 'text' },
                         { key: 'finales_carrera_adicionales', label: 'Finales de carrera adicionales', type: 'select', options: ['Sí', 'No'] },
+                        { key: 'tipo_finales_carrera_ad', label: 'Tipo (finales adicionales)', type: 'text' },
                         { key: 'detectores_presencia', label: 'Detectores de presencia', type: 'select', options: ['Sí', 'No'] },
-                        { key: 'mecanismo_desbloqueo', label: 'Mecanismo desbloqueo emergencia', type: 'select', options: ['Sí', 'No'] }
+                        { key: 'tipo_detectores', label: 'Tipo detectores', type: 'text' },
+                        { key: 'mecanismo_desbloqueo', label: 'Mecanismo desbloqueo emergencia', type: 'select', options: ['Sí', 'No'] },
+                        { key: 'tipo_mec_desbloqueo', label: 'Tipo mecanismo desbloqueo', type: 'text' }
                     ]},
-                    { type: 'inspection', title: 'Inspección', items: [
-                        'Comprobación visual',
-                        'Control de estructura y fijaciones',
-                        'Verificación de correcto funcionamiento',
-                        'Comprobación de detectores de presencia',
-                        'Comprobación de finales de carrera',
-                        'Comprobación mecanismo de desbloqueo de emergencia',
-                        'Engrase de mecanismos',
-                        'Limpieza general'
+                    { type: 'inspection', title: 'Inspección', grupos: [
+                        { titulo: 'Inspección', items: [
+                            'Comprobación visual', 'Control de estructura y fijaciones', 'Verificación de correcta apertura y cierre',
+                            'Comprobación de elementos de seguridad', 'Comprobación de finales de carrera',
+                            'Verificación de mecanismo de desbloqueo de emergencia', 'Revisión de cerradura, lubricación y limpieza'
+                        ]},
+                        { titulo: 'Limpieza y ajuste del cajón de la persiana', items: [
+                            'Limpieza interior cajón de la persiana y revisión del motor.',
+                            'Ajuste y revisión del eje del motor de la persiana.',
+                            'Revisión del estado del cojinete del eje de la persiana.',
+                            'Repaso y ajuste tornillería de todos los elementos del grupo motor.',
+                            'Estado de las tapas y chapas del exterior del cajón de la persiana.',
+                            'Revisión del cable del mecanismo de apertura manual de emergencia.',
+                            'Verificación de la existencia de manivela de apertura de emergencia.'
+                        ]},
+                        { titulo: 'Ajuste y verificación de las lamas', items: [
+                            'Revisión de los topes de las lamas de la persiana.',
+                            'Revisión del estado de la goma de la lama inferior de la persiana.',
+                            'Revisión de las lamas de la persiana.',
+                            'Revisión de los flejes de sujeción de las lamas al eje del motor.',
+                            'Limpieza, lubricación y verificación del estado de las guías y gomas.'
+                        ]},
+                        { titulo: 'Verificación de conexiones eléctricas, elementos de seguridad y mando', items: [
+                            'Revisión y ensayo del sistema de desbloqueo manual de emergencia.',
+                            'Revisión y ensayo del funcionamiento de los finales de carrera del motor.',
+                            'Revisión y ensayo del funcionamiento del motor (subir/bajar persiana).',
+                            'Revisión y ensayo del pulsador de la cerradura de la persiana.',
+                            'Revisión y ensayo de los pulsadores de subida y bajada del cuadro de control.',
+                            'Revisión y ensayo de los detectores de presencia de seguridad.'
+                        ]},
+                        { titulo: 'Telemando', items: [
+                            'Comprobación de apertura y cierre telemandado.',
+                            'Comprobación de señales de estado (abierta, cerrada, en tránsito).',
+                            'Verificación de cuadro de control de telemando.', 'Conexión con autómata y test.',
+                            'Comprobación del funcionamiento de los detectores de presencia.',
+                            'Comprobación de interruptor de mando local de la persiana.', 'Comprobación de relés.'
+                        ]}
                     ]}
                 ]
             },
@@ -484,41 +591,61 @@
         };
 
         // ===== COMPONENTES GENÉRICOS DE CHECKLIST =====
-        function InspectionTable({ items, value, onChange, readOnly }) {
+        function InspectionTable({ items, grupos, value, onChange, readOnly }) {
             const data = value || {};
-            const setItem = (item, field, val) => {
-                onChange({ ...data, [item]: { ...(data[item] || {}), [field]: val } });
+            const gruposFinal = grupos && grupos.length ? grupos : [{ titulo: null, items: items || [] }];
+
+            const setItem = (rowKey, field, val) => {
+                onChange({ ...data, [rowKey]: { ...(data[rowKey] || {}), [field]: val } });
             };
+
+            const ESTADOS = [
+                { value: 'Correcto', icon: '✅' },
+                { value: 'Incorrecto', icon: '❌' },
+                { value: 'N/A', icon: '➖' }
+            ];
+
             return (
-                <div className="grid-table-wrap">
-                    <table className="insp-table">
-                        <thead>
-                            <tr><th>Elemento</th><th>Resultado</th><th>Observaciones</th></tr>
-                        </thead>
-                        <tbody>
-                            {items.map(item => {
-                                const row = data[item] || {};
-                                return (
-                                    <tr key={item}>
-                                        <td>{item}</td>
-                                        <td>
-                                            {readOnly ? (row.resultado || '—') : (
-                                                <div className="insp-radio-group">
-                                                    <label><input type="radio" name={item} checked={row.resultado === 'Correcto'} onChange={() => setItem(item, 'resultado', 'Correcto')} /> ✅</label>
-                                                    <label><input type="radio" name={item} checked={row.resultado === 'Incorrecto'} onChange={() => setItem(item, 'resultado', 'Incorrecto')} /> ❌</label>
-                                                </div>
-                                            )}
-                                        </td>
-                                        <td>
-                                            {readOnly ? (row.observaciones || '—') : (
-                                                <input className="insp-obs-input" type="text" placeholder="Observaciones" value={row.observaciones || ''} onChange={(e) => setItem(item, 'observaciones', e.target.value)} />
-                                            )}
-                                        </td>
-                                    </tr>
-                                );
-                            })}
-                        </tbody>
-                    </table>
+                <div>
+                    {gruposFinal.map((grupo, gi) => (
+                        <div key={gi} style={{ marginBottom: '14px' }}>
+                            {grupo.titulo && <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--fill-accent)', margin: '8px 0 4px' }}>{grupo.titulo}</div>}
+                            <div className="grid-table-wrap">
+                                <table className="insp-table">
+                                    <thead>
+                                        <tr><th>Elemento</th><th>Resultado</th><th>Observaciones</th></tr>
+                                    </thead>
+                                    <tbody>
+                                        {grupo.items.map(item => {
+                                            const rowKey = `${gi}::${item}`;
+                                            const row = data[rowKey] || {};
+                                            return (
+                                                <tr key={rowKey}>
+                                                    <td>{item}</td>
+                                                    <td>
+                                                        {readOnly ? (row.resultado || '—') : (
+                                                            <div className="insp-radio-group">
+                                                                {ESTADOS.map(es => (
+                                                                    <label key={es.value}>
+                                                                        <input type="radio" name={rowKey} checked={row.resultado === es.value} onChange={() => setItem(rowKey, 'resultado', es.value)} /> {es.icon}
+                                                                    </label>
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                    </td>
+                                                    <td>
+                                                        {readOnly ? (row.observaciones || '—') : (
+                                                            <input className="insp-obs-input" type="text" placeholder="Observaciones" value={row.observaciones || ''} onChange={(e) => setItem(rowKey, 'observaciones', e.target.value)} />
+                                                        )}
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    ))}
                 </div>
             );
         }
@@ -600,7 +727,7 @@
                                 )}
 
                                 {section.type === 'inspection' && (
-                                    <InspectionTable items={section.items} value={data[sectionKey]} onChange={(v) => updateSection(sectionKey, v)} readOnly={readOnly} />
+                                    <InspectionTable items={section.items} grupos={section.grupos} value={data[sectionKey]} onChange={(v) => updateSection(sectionKey, v)} readOnly={readOnly} />
                                 )}
 
                                 {section.type === 'grid' && (
@@ -622,10 +749,190 @@
         }
 
         // ===== PARTE DE TRABAJO (para OT tipo Obra) =====
+        // ===== CAPTURA DE FOTOS (comprimidas a base64) =====
+        function compressImageFile(file, maxWidth = 900, quality = 0.6) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const img = new Image();
+                    img.onload = () => {
+                        const scale = Math.min(1, maxWidth / img.width);
+                        const canvas = document.createElement('canvas');
+                        canvas.width = img.width * scale;
+                        canvas.height = img.height * scale;
+                        const ctx = canvas.getContext('2d');
+                        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                        resolve(canvas.toDataURL('image/jpeg', quality));
+                    };
+                    img.onerror = reject;
+                    img.src = e.target.result;
+                };
+                reader.onerror = reject;
+                reader.readAsDataURL(file);
+            });
+        }
+
+        function PhotoCapture({ value, onChange, readOnly }) {
+            const fotos = value || [];
+            const handleFiles = async (e) => {
+                const files = Array.from(e.target.files || []);
+                const compressed = await Promise.all(files.map(f => compressImageFile(f)));
+                onChange([...fotos, ...compressed]);
+                e.target.value = '';
+            };
+            const removeFoto = (idx) => {
+                const copy = [...fotos];
+                copy.splice(idx, 1);
+                onChange(copy);
+            };
+            return (
+                <div className="photo-grid">
+                    {fotos.map((f, i) => (
+                        <div key={i} className="photo-thumb">
+                            <img src={f} />
+                            {!readOnly && <button className="photo-remove" onClick={() => removeFoto(i)}>✕</button>}
+                        </div>
+                    ))}
+                    {!readOnly && (
+                        <label className="photo-add-btn">
+                            📷
+                            <input type="file" accept="image/*" capture="environment" multiple className="file-input-hidden" onChange={handleFiles} />
+                        </label>
+                    )}
+                    {fotos.length === 0 && readOnly && <p className="card-text">Sin fotos.</p>}
+                </div>
+            );
+        }
+
+        // ===== FIRMA DIGITAL (pad) =====
+        function SignaturePad({ value, onChange, readOnly }) {
+            const canvasRef = React.useRef(null);
+            const drawing = React.useRef(false);
+
+            useEffect(() => {
+                const canvas = canvasRef.current;
+                if (!canvas) return;
+                const dpr = window.devicePixelRatio || 1;
+                canvas.width = canvas.clientWidth * dpr;
+                canvas.height = canvas.clientHeight * dpr;
+                const ctx = canvas.getContext('2d');
+                ctx.scale(dpr, dpr);
+                ctx.lineWidth = 2;
+                ctx.lineCap = 'round';
+                ctx.strokeStyle = '#1a1d23';
+                if (value) {
+                    const img = new Image();
+                    img.onload = () => ctx.drawImage(img, 0, 0, canvas.clientWidth, canvas.clientHeight);
+                    img.src = value;
+                }
+            }, []);
+
+            if (readOnly) {
+                return value ? (
+                    <div className="signature-pad-wrap"><img src={value} style={{ width: '100%', display: 'block' }} /></div>
+                ) : <p className="card-text">Sin rúbrica registrada.</p>;
+            }
+
+            const getPos = (e) => {
+                const rect = canvasRef.current.getBoundingClientRect();
+                const point = e.touches ? e.touches[0] : e;
+                return { x: point.clientX - rect.left, y: point.clientY - rect.top };
+            };
+
+            const start = (e) => { e.preventDefault(); drawing.current = true; const { x, y } = getPos(e); const ctx = canvasRef.current.getContext('2d'); ctx.beginPath(); ctx.moveTo(x, y); };
+            const move = (e) => { if (!drawing.current) return; e.preventDefault(); const { x, y } = getPos(e); const ctx = canvasRef.current.getContext('2d'); ctx.lineTo(x, y); ctx.stroke(); };
+            const end = () => { if (!drawing.current) return; drawing.current = false; onChange(canvasRef.current.toDataURL('image/png')); };
+            const clear = () => { const canvas = canvasRef.current; const ctx = canvas.getContext('2d'); ctx.clearRect(0, 0, canvas.width, canvas.height); onChange(''); };
+
+            return (
+                <div>
+                    <div className="signature-pad-wrap">
+                        <canvas ref={canvasRef}
+                            onMouseDown={start} onMouseMove={move} onMouseUp={end} onMouseLeave={end}
+                            onTouchStart={start} onTouchMove={move} onTouchEnd={end}></canvas>
+                    </div>
+                    <button className="btn btn-secondary" style={{ marginTop: '6px' }} onClick={clear}>Limpiar firma</button>
+                </div>
+            );
+        }
+
+        // ===== SELECTOR DE MATERIALES (desde Preciario) =====
+        function MaterialesPicker({ value, onChange, materiales, clienteId, readOnly }) {
+            const filas = value && value.length ? value : [{ material_id: '', descripcion: '', cantidad: 1 }];
+            const materialesCliente = clienteId ? materiales.filter(m => !m.cliente_id || m.cliente_id === parseInt(clienteId)) : materiales;
+
+            const updateRow = (i, field, val) => {
+                const copy = [...filas];
+                copy[i] = { ...copy[i], [field]: val };
+                if (field === 'material_id' && val) {
+                    const mat = materiales.find(m => m.id === parseInt(val));
+                    if (mat) copy[i].descripcion = mat.descripcion;
+                }
+                onChange(copy);
+            };
+            const addRow = () => onChange([...filas, { material_id: '', descripcion: '', cantidad: 1 }]);
+            const removeRow = (i) => { const copy = [...filas]; copy.splice(i, 1); onChange(copy); };
+
+            if (readOnly) {
+                return filas.filter(f => f.descripcion).length ? (
+                    <div className="mini-list">
+                        {filas.filter(f => f.descripcion).map((f, i) => (
+                            <p key={i} className="card-text">• {f.descripcion} × {f.cantidad}</p>
+                        ))}
+                    </div>
+                ) : <p className="card-text">No se registraron materiales.</p>;
+            }
+
+            return (
+                <div>
+                    {filas.map((f, i) => (
+                        <div key={i} className="material-picker-row">
+                            <select value={f.material_id} onChange={(e) => updateRow(i, 'material_id', e.target.value)}>
+                                <option value="">-- Material del preciario (opcional) --</option>
+                                {materialesCliente.map(m => <option key={m.id} value={m.id}>{m.descripcion}</option>)}
+                            </select>
+                            <input type="number" min="0" placeholder="Cantidad" value={f.cantidad} onChange={(e) => updateRow(i, 'cantidad', e.target.value)} />
+                            <input style={{ gridColumn: '1 / -1' }} type="text" placeholder="Descripción (si no está en el preciario)" value={f.descripcion} onChange={(e) => updateRow(i, 'descripcion', e.target.value)} />
+                            {filas.length > 1 && <div style={{ gridColumn: '1 / -1' }}><button className="btn-remove-row" onClick={() => removeRow(i)}>Quitar</button></div>}
+                        </div>
+                    ))}
+                    <button className="btn-add-row" onClick={addRow}>+ Añadir material</button>
+                </div>
+            );
+        }
+
+        function DesplazamientosForm({ value, onChange, readOnly }) {
+            const desplazamientos = (value && value.length) ? value : [{ matricula: '', origen: '', destino: '', kilometros: '' }];
+            const updateItem = (idx, field, val) => {
+                const arr = [...desplazamientos];
+                arr[idx] = { ...arr[idx], [field]: val };
+                onChange(arr);
+            };
+            const addRow = () => onChange([...desplazamientos, { matricula: '', origen: '', destino: '', kilometros: '' }]);
+            const removeRow = (idx) => { const arr = [...desplazamientos]; arr.splice(idx, 1); onChange(arr); };
+            if (readOnly) {
+                return desplazamientos.filter(d => d.matricula || d.origen).length ? (
+                    desplazamientos.map((d, i) => <p key={i} className="card-text">🚗 {d.matricula || '—'} · {d.origen || '—'} → {d.destino || '—'} ({d.kilometros || 0} km)</p>)
+                ) : <p className="card-text">Sin desplazamientos registrados.</p>;
+            }
+            return (
+                <div>
+                    {desplazamientos.map((d, i) => (
+                        <div key={i} className="dyn-row">
+                            <input placeholder="Matrícula" value={d.matricula} onChange={(e) => updateItem(i, 'matricula', e.target.value)} />
+                            <input placeholder="Origen" value={d.origen} onChange={(e) => updateItem(i, 'origen', e.target.value)} />
+                            <input placeholder="Destino" value={d.destino} onChange={(e) => updateItem(i, 'destino', e.target.value)} />
+                            <input placeholder="Total Kilómetros" value={d.kilometros} onChange={(e) => updateItem(i, 'kilometros', e.target.value)} />
+                            {desplazamientos.length > 1 && <div className="dyn-row-actions"><button className="btn-remove-row" onClick={() => removeRow(i)}>Quitar</button></div>}
+                        </div>
+                    ))}
+                    <button className="btn-add-row" onClick={addRow}>+ Añadir desplazamiento</button>
+                </div>
+            );
+        }
+
         function ParteTrabajoForm({ value, onChange, readOnly }) {
             const data = value || {};
-            const trabajos = data.trabajos || [{ descripcion: '', horario: '', finalizado: 'NO', detalle: '' }];
-            const materiales = data.materiales || [{ proyecto: '', cantidad: '', descripcion: '' }];
             const medioAmbiente = data.medioAmbiente || [{ tipoResiduo: '', cantidad: '', destino: '' }];
             const desplazamientos = data.desplazamientos || [{ matricula: '', origen: '', destino: '', kilometros: '' }];
             const seguridad = data.seguridad || { epis: '', maquinariaBuenEstado: '', mediosElevacion: '', mediosElevacionTipo: '' };
@@ -646,234 +953,344 @@
             return (
                 <div>
                     <div className="checklist-section">
-                        <div className="checklist-section-title">📋 Trabajos Realizados</div>
-                        {trabajos.map((t, i) => (
-                            <div key={i} className="dyn-row">
-                                <input placeholder="Descripción / Nº Proyecto" value={t.descripcion} disabled={readOnly} onChange={(e) => updateArrayItem('trabajos', i, 'descripcion', e.target.value)} />
-                                <input placeholder="Horario" value={t.horario} disabled={readOnly} onChange={(e) => updateArrayItem('trabajos', i, 'horario', e.target.value)} />
-                                <select value={t.finalizado} disabled={readOnly} onChange={(e) => updateArrayItem('trabajos', i, 'finalizado', e.target.value)}>
-                                    <option value="NO">Finalizado: NO</option>
-                                    <option value="SI">Finalizado: SI</option>
-                                </select>
-                                <textarea placeholder="Descripción de los trabajos realizados" value={t.detalle} disabled={readOnly} onChange={(e) => updateArrayItem('trabajos', i, 'detalle', e.target.value)}></textarea>
-                                {!readOnly && trabajos.length > 1 && <div className="dyn-row-actions"><button className="btn-remove-row" onClick={() => removeRow('trabajos', i)}>Quitar</button></div>}
-                            </div>
-                        ))}
-                        {!readOnly && <button className="btn-add-row" onClick={() => addRow('trabajos', { descripcion: '', horario: '', finalizado: 'NO', detalle: '' })}>+ Añadir trabajo</button>}
-                    </div>
-
-                    <div className="checklist-section">
-                        <div className="checklist-section-title">📦 Materiales</div>
-                        {materiales.map((m, i) => (
-                            <div key={i} className="dyn-row">
-                                <input placeholder="Nº Proyecto" value={m.proyecto} disabled={readOnly} onChange={(e) => updateArrayItem('materiales', i, 'proyecto', e.target.value)} />
-                                <input placeholder="Cantidad" value={m.cantidad} disabled={readOnly} onChange={(e) => updateArrayItem('materiales', i, 'cantidad', e.target.value)} />
-                                <input placeholder="Descripción" value={m.descripcion} disabled={readOnly} onChange={(e) => updateArrayItem('materiales', i, 'descripcion', e.target.value)} />
-                                {!readOnly && materiales.length > 1 && <div className="dyn-row-actions"><button className="btn-remove-row" onClick={() => removeRow('materiales', i)}>Quitar</button></div>}
-                            </div>
-                        ))}
-                        {!readOnly && <button className="btn-add-row" onClick={() => addRow('materiales', { proyecto: '', cantidad: '', descripcion: '' })}>+ Añadir material</button>}
-                    </div>
-
-                    <div className="checklist-section">
                         <div className="checklist-section-title">🌱 Medio Ambiente</div>
-                        {medioAmbiente.map((r, i) => (
-                            <div key={i} className="dyn-row">
-                                <input placeholder="Tipo de Residuo" value={r.tipoResiduo} disabled={readOnly} onChange={(e) => updateArrayItem('medioAmbiente', i, 'tipoResiduo', e.target.value)} />
-                                <input placeholder="Cantidad" value={r.cantidad} disabled={readOnly} onChange={(e) => updateArrayItem('medioAmbiente', i, 'cantidad', e.target.value)} />
-                                <input placeholder="Destino del residuo" value={r.destino} disabled={readOnly} onChange={(e) => updateArrayItem('medioAmbiente', i, 'destino', e.target.value)} />
-                                {!readOnly && medioAmbiente.length > 1 && <div className="dyn-row-actions"><button className="btn-remove-row" onClick={() => removeRow('medioAmbiente', i)}>Quitar</button></div>}
-                            </div>
-                        ))}
-                        {!readOnly && <button className="btn-add-row" onClick={() => addRow('medioAmbiente', { tipoResiduo: '', cantidad: '', destino: '' })}>+ Añadir residuo</button>}
+                        {readOnly ? (
+                            medioAmbiente.filter(r => r.tipoResiduo).length ? medioAmbiente.map((r, i) => <p key={i} className="card-text">🌱 {r.tipoResiduo} · {r.cantidad} · {r.destino}</p>) : <p className="card-text">Sin residuos registrados.</p>
+                        ) : (
+                            <>
+                                {medioAmbiente.map((r, i) => (
+                                    <div key={i} className="dyn-row">
+                                        <input placeholder="Tipo de Residuo" value={r.tipoResiduo} onChange={(e) => updateArrayItem('medioAmbiente', i, 'tipoResiduo', e.target.value)} />
+                                        <input placeholder="Cantidad" value={r.cantidad} onChange={(e) => updateArrayItem('medioAmbiente', i, 'cantidad', e.target.value)} />
+                                        <input placeholder="Destino del residuo" value={r.destino} onChange={(e) => updateArrayItem('medioAmbiente', i, 'destino', e.target.value)} />
+                                        {medioAmbiente.length > 1 && <div className="dyn-row-actions"><button className="btn-remove-row" onClick={() => removeRow('medioAmbiente', i)}>Quitar</button></div>}
+                                    </div>
+                                ))}
+                                <button className="btn-add-row" onClick={() => addRow('medioAmbiente', { tipoResiduo: '', cantidad: '', destino: '' })}>+ Añadir residuo</button>
+                            </>
+                        )}
                     </div>
 
                     <div className="checklist-section">
                         <div className="checklist-section-title">🦺 Seguridad y Salud</div>
-                        <div className="form-group">
-                            <label>¿Se utilizaron EPIs para realizar los trabajos?</label>
-                            <select value={seguridad.epis} disabled={readOnly} onChange={(e) => onChange({ ...data, seguridad: { ...seguridad, epis: e.target.value } })}>
-                                <option value="">-- Selecciona --</option>
-                                <option value="SI">SI</option>
-                                <option value="NO">NO</option>
-                            </select>
-                        </div>
-                        <div className="form-group">
-                            <label>¿La maquinaria y equipos se encontraban en buen estado?</label>
-                            <select value={seguridad.maquinariaBuenEstado} disabled={readOnly} onChange={(e) => onChange({ ...data, seguridad: { ...seguridad, maquinariaBuenEstado: e.target.value } })}>
-                                <option value="">-- Selecciona --</option>
-                                <option value="SI">SI</option>
-                                <option value="NO">NO</option>
-                            </select>
-                        </div>
-                        <div className="form-group">
-                            <label>¿Han sido necesarios medios de elevación?</label>
-                            <select value={seguridad.mediosElevacion} disabled={readOnly} onChange={(e) => onChange({ ...data, seguridad: { ...seguridad, mediosElevacion: e.target.value } })}>
-                                <option value="">-- Selecciona --</option>
-                                <option value="SI">SI</option>
-                                <option value="NO">NO</option>
-                            </select>
-                        </div>
-                        {seguridad.mediosElevacion === 'SI' && (
-                            <div className="form-group">
-                                <label>Medios de elevación utilizados</label>
-                                <input type="text" value={seguridad.mediosElevacionTipo} disabled={readOnly} onChange={(e) => onChange({ ...data, seguridad: { ...seguridad, mediosElevacionTipo: e.target.value } })} />
+                        {readOnly ? (
+                            <div className="readonly-view">
+                                <div className="rv-row"><span className="rv-label">EPIs utilizados</span><span className="rv-value">{seguridad.epis || '—'}</span></div>
+                                <div className="rv-row"><span className="rv-label">Maquinaria en buen estado</span><span className="rv-value">{seguridad.maquinariaBuenEstado || '—'}</span></div>
+                                <div className="rv-row"><span className="rv-label">Medios de elevación</span><span className="rv-value">{seguridad.mediosElevacion || '—'}{seguridad.mediosElevacion === 'SI' && seguridad.mediosElevacionTipo ? ' — ' + seguridad.mediosElevacionTipo : ''}</span></div>
                             </div>
+                        ) : (
+                            <>
+                                <div className="form-group">
+                                    <label>¿Se utilizaron EPIs para realizar los trabajos?</label>
+                                    <select value={seguridad.epis} onChange={(e) => onChange({ ...data, seguridad: { ...seguridad, epis: e.target.value } })}>
+                                        <option value="">-- Selecciona --</option>
+                                        <option value="SI">SI</option>
+                                        <option value="NO">NO</option>
+                                    </select>
+                                </div>
+                                <div className="form-group">
+                                    <label>¿La maquinaria y equipos se encontraban en buen estado?</label>
+                                    <select value={seguridad.maquinariaBuenEstado} onChange={(e) => onChange({ ...data, seguridad: { ...seguridad, maquinariaBuenEstado: e.target.value } })}>
+                                        <option value="">-- Selecciona --</option>
+                                        <option value="SI">SI</option>
+                                        <option value="NO">NO</option>
+                                    </select>
+                                </div>
+                                <div className="form-group">
+                                    <label>¿Han sido necesarios medios de elevación?</label>
+                                    <select value={seguridad.mediosElevacion} onChange={(e) => onChange({ ...data, seguridad: { ...seguridad, mediosElevacion: e.target.value } })}>
+                                        <option value="">-- Selecciona --</option>
+                                        <option value="SI">SI</option>
+                                        <option value="NO">NO</option>
+                                    </select>
+                                </div>
+                                {seguridad.mediosElevacion === 'SI' && (
+                                    <div className="form-group">
+                                        <label>Medios de elevación utilizados</label>
+                                        <input type="text" value={seguridad.mediosElevacionTipo} onChange={(e) => onChange({ ...data, seguridad: { ...seguridad, mediosElevacionTipo: e.target.value } })} />
+                                    </div>
+                                )}
+                            </>
                         )}
                     </div>
 
                     <div className="checklist-section">
                         <div className="checklist-section-title">🚗 Desplazamientos</div>
-                        {desplazamientos.map((d, i) => (
-                            <div key={i} className="dyn-row">
-                                <input placeholder="Matrícula" value={d.matricula} disabled={readOnly} onChange={(e) => updateArrayItem('desplazamientos', i, 'matricula', e.target.value)} />
-                                <input placeholder="Origen" value={d.origen} disabled={readOnly} onChange={(e) => updateArrayItem('desplazamientos', i, 'origen', e.target.value)} />
-                                <input placeholder="Destino" value={d.destino} disabled={readOnly} onChange={(e) => updateArrayItem('desplazamientos', i, 'destino', e.target.value)} />
-                                <input placeholder="Total Kilómetros" value={d.kilometros} disabled={readOnly} onChange={(e) => updateArrayItem('desplazamientos', i, 'kilometros', e.target.value)} />
-                                {!readOnly && desplazamientos.length > 1 && <div className="dyn-row-actions"><button className="btn-remove-row" onClick={() => removeRow('desplazamientos', i)}>Quitar</button></div>}
-                            </div>
-                        ))}
-                        {!readOnly && <button className="btn-add-row" onClick={() => addRow('desplazamientos', { matricula: '', origen: '', destino: '', kilometros: '' })}>+ Añadir desplazamiento</button>}
+                        <DesplazamientosForm value={desplazamientos} onChange={(v) => updateArray('desplazamientos', v)} readOnly={readOnly} />
                     </div>
                 </div>
             );
         }
 
-        function OrdenesView({ user, ordenes, clientes, contratos, activos, onRefresh }) {
+
+        function OrdenesView({ user, ordenes, clientes, contratos, activos, usuarios, materiales, onRefresh }) {
             const esGestor = user.rol === 'admin' || user.rol === 'supervisor';
-            const [showForm, setShowForm] = useState(false);
-            const [editingId, setEditingId] = useState(null);
-            const [viewingId, setViewingId] = useState(null);
+            const [mode, setMode] = useState('list'); // list | form-ot | detail | form-visita | view-visita
             const [filtroTipo, setFiltroTipo] = useState('todas');
+            const [filtroEstado, setFiltroEstado] = useState('todas');
+            const [selectedOtId, setSelectedOtId] = useState(null);
+            const [visitas, setVisitas] = useState([]);
+            const [editingOtId, setEditingOtId] = useState(null);
             const [selectedCliente, setSelectedCliente] = useState('');
             const [activoSearch, setActivoSearch] = useState('');
+            const [editingVisitId, setEditingVisitId] = useState(null);
+            const [viewingVisitId, setViewingVisitId] = useState(null);
 
-            const initialForm = {
-                titulo: '', tipo: esGestor ? 'correctivo' : 'guardia',
-                cliente_id: '', estado: 'abierta', notas: '',
-                activo_id: '', datos_json: {}
+            const tecnicosDisponibles = usuarios.filter(u => u.activo);
+
+            const initialOtForm = {
+                titulo: '', tipo: esGestor ? 'correctivo' : 'guardia', ticket: '', id_cliente: '',
+                cliente_id: '', activo_id: '', prioridad: 'media', fecha_programada: '',
+                asignado_a: user.id, tecnicos_apoyo: [], notas: '', estado: 'abierta'
             };
-            const [formData, setFormData] = useState(initialForm);
+            const [otForm, setOtForm] = useState(initialOtForm);
+
+            const blankVisita = () => ({
+                fecha: new Date().toISOString().slice(0, 10), tecnico_id: user.id, hora_inicio: '', hora_fin: '',
+                id_mantis: '', proyecto: '', descripcion: '', checklist_json: {}, materiales_json: [], fotos_json: [],
+                medio_ambiente_json: {}, seguridad_json: {}, desplazamientos_json: [], firma: '', firma_nombre: '', finalizado: false
+            });
+            const [visitaForm, setVisitaForm] = useState(blankVisita());
+
+            const otSeleccionada = ordenes.find(o => o.id === selectedOtId);
+            const visitaViendo = viewingVisitId ? visitas.find(v => v.id === viewingVisitId) : null;
+
+            const cargarVisitas = async (otId) => {
+                try {
+                    const res = await fetch(`${API_URL}/api/visitas?orden_id=${otId}`);
+                    setVisitas(await res.json());
+                } catch { setVisitas([]); }
+            };
+
+            const abrirDetalle = (otId) => {
+                setSelectedOtId(otId);
+                setMode('detail');
+                cargarVisitas(otId);
+            };
 
             const contratosFiltrados = selectedCliente ? contratos.filter(c => c.cliente_id === parseInt(selectedCliente)) : contratos;
             const activosFiltrados = activoSearch ? activos.filter(a => a.nombre.toLowerCase().includes(activoSearch.toLowerCase())) : activos;
-            const activoSeleccionado = activos.find(a => a.id === parseInt(formData.activo_id));
 
-            const resetForm = () => {
-                setFormData(initialForm);
+            const abrirNuevaOt = () => {
+                setOtForm(initialOtForm);
                 setSelectedCliente('');
                 setActivoSearch('');
-                setEditingId(null);
-                setShowForm(false);
+                setEditingOtId(null);
+                setMode('form-ot');
             };
 
-            const handleSubmit = async () => {
-                if (!formData.titulo.trim()) { alert('El título es obligatorio'); return; }
-                if (formData.tipo === 'preventivo' && !formData.activo_id) { alert('Selecciona el activo a revisar'); return; }
-
-                const payload = {
-                    ...formData,
-                    cliente_id: formData.cliente_id || null,
-                    activo_id: formData.activo_id || null,
-                    asignado_a: user.id,
-                    datos_json: JSON.stringify(formData.datos_json || {})
-                };
-
-                try {
-                    const url = editingId ? `${API_URL}/api/ordenes/${editingId}` : `${API_URL}/api/ordenes`;
-                    const method = editingId ? 'PUT' : 'POST';
-                    await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-                    resetForm();
-                    onRefresh();
-                } catch (err) {
-                    alert('Error al guardar la orden');
-                }
-            };
-
-            const handleDelete = async (id) => {
-                if (!confirm('¿Eliminar esta orden?')) return;
-                await fetch(`${API_URL}/api/ordenes/${id}`, { method: 'DELETE' });
-                onRefresh();
-            };
-
-            const handleEdit = (o) => {
-                let datos = {};
-                try { datos = o.datos_json ? JSON.parse(o.datos_json) : {}; } catch { datos = {}; }
-                setFormData({
-                    titulo: o.titulo, tipo: o.tipo, cliente_id: o.cliente_id || '',
-                    estado: o.estado, notas: o.notas || '', activo_id: o.activo_id || '', datos_json: datos
+            const abrirEditarOt = (o) => {
+                let tecApoyo = [];
+                try { tecApoyo = o.tecnicos_apoyo ? JSON.parse(o.tecnicos_apoyo) : []; } catch { tecApoyo = []; }
+                setOtForm({
+                    titulo: o.titulo, tipo: o.tipo, ticket: o.ticket || '', id_cliente: o.id_cliente || '',
+                    cliente_id: o.cliente_id || '', activo_id: o.activo_id || '', prioridad: o.prioridad || 'media',
+                    fecha_programada: o.fecha_programada || '', asignado_a: o.asignado_a || user.id,
+                    tecnicos_apoyo: tecApoyo, notas: o.notas || '', estado: o.estado
                 });
                 if (o.cliente_id) setSelectedCliente(String(o.cliente_id));
-                setEditingId(o.id);
-                setShowForm(true);
-                setViewingId(null);
+                setEditingOtId(o.id);
+                setMode('form-ot');
             };
 
-            const handleConvertirGuardia = async (o) => {
-                const clienteId = prompt('Introduce el ID del cliente para convertir esta guardia en Correctivo.\n\nClientes disponibles:\n' + clientes.map(c => `${c.id} - ${c.nombre}`).join('\n'));
-                if (!clienteId) return;
-                await fetch(`${API_URL}/api/ordenes/${o.id}`, {
-                    method: 'PUT', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ ...o, tipo: 'correctivo', cliente_id: parseInt(clienteId), estado: 'abierta' })
-                });
+            const abrirConvertirGuardia = (o) => {
+                abrirEditarOt(o);
+                setOtForm(f => ({ ...f, tipo: 'correctivo' }));
+            };
+
+            const guardarOt = async () => {
+                if (!otForm.titulo.trim()) { alert('El título es obligatorio'); return; }
+                if (otForm.tipo === 'preventivo' && !otForm.activo_id) { alert('Selecciona el activo a revisar'); return; }
+                const payload = {
+                    ...otForm,
+                    cliente_id: otForm.cliente_id || null,
+                    activo_id: otForm.activo_id || null,
+                    tecnicos_apoyo: JSON.stringify(otForm.tecnicos_apoyo || [])
+                };
+                try {
+                    const url = editingOtId ? `${API_URL}/api/ordenes/${editingOtId}` : `${API_URL}/api/ordenes`;
+                    const method = editingOtId ? 'PUT' : 'POST';
+                    await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+                    setMode(editingOtId ? 'detail' : 'list');
+                    onRefresh();
+                } catch { alert('Error al guardar la orden'); }
+            };
+
+            const eliminarOt = async (id) => {
+                if (!confirm('¿Eliminar esta orden y todas sus visitas?')) return;
+                await fetch(`${API_URL}/api/ordenes/${id}`, { method: 'DELETE' });
+                setMode('list');
                 onRefresh();
             };
 
-            const ordenesFiltradas = filtroTipo === 'todas' ? ordenes : ordenes.filter(o => o.tipo === filtroTipo);
-            const ordenVista = viewingId ? ordenes.find(o => o.id === viewingId) : null;
-            let datosVista = {};
-            if (ordenVista) { try { datosVista = ordenVista.datos_json ? JSON.parse(ordenVista.datos_json) : {}; } catch { datosVista = {}; } }
+            const abrirNuevaVisita = () => {
+                setVisitaForm(blankVisita());
+                setEditingVisitId(null);
+                setMode('form-visita');
+            };
 
-            return (
-                <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '8px' }}>
-                        <h3 className="section-title" style={{ margin: 0 }}>📋 {esGestor ? 'Órdenes de Trabajo' : 'Mis Órdenes'}</h3>
-                        <button className="btn btn-primary" onClick={() => { setShowForm(!showForm); if (showForm) resetForm(); }}>
-                            + Nueva {!esGestor && 'Guardia'}
-                        </button>
+            const abrirEditarVisita = (v) => {
+                let checklist = {}, mats = [], fotos = [], medio = {}, seg = {}, desp = [];
+                try { checklist = v.checklist_json ? JSON.parse(v.checklist_json) : {}; } catch {}
+                try { mats = v.materiales_json ? JSON.parse(v.materiales_json) : []; } catch {}
+                try { fotos = v.fotos_json ? JSON.parse(v.fotos_json) : []; } catch {}
+                try { medio = v.medio_ambiente_json ? JSON.parse(v.medio_ambiente_json) : {}; } catch {}
+                try { seg = v.seguridad_json ? JSON.parse(v.seguridad_json) : {}; } catch {}
+                try { desp = v.desplazamientos_json ? JSON.parse(v.desplazamientos_json) : []; } catch {}
+                setVisitaForm({
+                    fecha: v.fecha || '', tecnico_id: v.tecnico_id || user.id, hora_inicio: v.hora_inicio || '', hora_fin: v.hora_fin || '',
+                    id_mantis: v.id_mantis || '', proyecto: v.proyecto || '', descripcion: v.descripcion || '',
+                    checklist_json: checklist, materiales_json: mats, fotos_json: fotos,
+                    medio_ambiente_json: medio, seguridad_json: seg, desplazamientos_json: desp,
+                    firma: v.firma || '', firma_nombre: v.firma_nombre || '', finalizado: !!v.finalizado
+                });
+                setEditingVisitId(v.id);
+                setMode('form-visita');
+            };
+
+            const guardarVisita = async () => {
+                if (!visitaForm.fecha) { alert('La fecha es obligatoria'); return; }
+                const payload = {
+                    orden_id: selectedOtId,
+                    fecha: visitaForm.fecha, tecnico_id: visitaForm.tecnico_id, hora_inicio: visitaForm.hora_inicio, hora_fin: visitaForm.hora_fin,
+                    id_mantis: visitaForm.id_mantis, proyecto: visitaForm.proyecto, descripcion: visitaForm.descripcion,
+                    checklist_tipo: otSeleccionada && otSeleccionada.activo_tipo ? otSeleccionada.activo_tipo : null,
+                    checklist_json: JSON.stringify(visitaForm.checklist_json || {}),
+                    materiales_json: JSON.stringify(visitaForm.materiales_json || []),
+                    fotos_json: JSON.stringify(visitaForm.fotos_json || []),
+                    medio_ambiente_json: JSON.stringify(visitaForm.medio_ambiente_json || {}),
+                    seguridad_json: JSON.stringify(visitaForm.seguridad_json || {}),
+                    desplazamientos_json: JSON.stringify(visitaForm.desplazamientos_json || []),
+                    firma: visitaForm.firma, firma_nombre: visitaForm.firma_nombre,
+                    finalizado: visitaForm.finalizado ? 1 : 0
+                };
+                try {
+                    const url = editingVisitId ? `${API_URL}/api/visitas/${editingVisitId}` : `${API_URL}/api/visitas`;
+                    const method = editingVisitId ? 'PUT' : 'POST';
+                    await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+                    setMode('detail');
+                    cargarVisitas(selectedOtId);
+                    onRefresh();
+                } catch { alert('Error al guardar la visita'); }
+            };
+
+            const eliminarVisita = async (id) => {
+                if (!confirm('¿Eliminar esta visita?')) return;
+                await fetch(`${API_URL}/api/visitas/${id}`, { method: 'DELETE' });
+                cargarVisitas(selectedOtId);
+                onRefresh();
+            };
+
+            let ordenesBase = ordenes;
+            if (!esGestor) {
+                ordenesBase = ordenes.filter(o => o.asignado_a === user.id || (() => {
+                    try { return (JSON.parse(o.tecnicos_apoyo || '[]')).includes(user.id); } catch { return false; }
+                })());
+            }
+            let ordenesFiltradas = filtroTipo === 'todas' ? ordenesBase : ordenesBase.filter(o => o.tipo === filtroTipo);
+            if (filtroEstado !== 'todas') ordenesFiltradas = ordenesFiltradas.filter(o => o.estado === filtroEstado);
+
+            // ============ RENDER: LIST ============
+            if (mode === 'list') {
+                return (
+                    <div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '8px' }}>
+                            <h3 className="section-title" style={{ margin: 0 }}>📋 {esGestor ? 'Órdenes de Trabajo' : 'Mis Órdenes'}</h3>
+                            <button className="btn btn-primary" onClick={abrirNuevaOt}>+ Nueva {!esGestor && 'Guardia'}</button>
+                        </div>
+
+                        <div className="tipo-filter-bar">
+                            {['todas', 'correctivo', 'preventivo', 'obra', 'guardia'].map(t => (
+                                <button key={t} className={`tipo-filter-btn ${filtroTipo === t ? 'active' : ''}`} onClick={() => setFiltroTipo(t)}>
+                                    {t === 'todas' ? 'Todas' : t.charAt(0).toUpperCase() + t.slice(1)}
+                                </button>
+                            ))}
+                        </div>
+                        <div className="tipo-filter-bar">
+                            {['todas', 'abierta', 'en_curso', 'resuelta', 'pendiente'].map(t => (
+                                <button key={t} className={`tipo-filter-btn ${filtroEstado === t ? 'active' : ''}`} onClick={() => setFiltroEstado(t)}>
+                                    {t === 'todas' ? 'Cualquier estado' : t.replace('_', ' ')}
+                                </button>
+                            ))}
+                        </div>
+
+                        <div className="list">
+                            {ordenesFiltradas.length === 0 ? (
+                                <div className="empty-state">No hay órdenes</div>
+                            ) : (
+                                ordenesFiltradas.map(order => (
+                                    <div key={order.id} className="list-item" style={{ cursor: 'pointer' }} onClick={() => abrirDetalle(order.id)}>
+                                        <div className="list-item-header">
+                                            <div>
+                                                <p className="card-title">{order.id} <span className={`prioridad-badge ${order.prioridad || 'media'}`}>{order.prioridad || 'media'}</span></p>
+                                                <p className="card-text">{order.titulo}</p>
+                                            </div>
+                                            <span className={`badge ${order.tipo}`}>{order.tipo}</span>
+                                        </div>
+                                        {order.cliente_nombre && <p className="card-text">👤 {order.cliente_nombre}</p>}
+                                        {order.activo_nombre && <p className="card-text">⚙️ {order.activo_nombre}</p>}
+                                        {order.fecha_programada && <p className="card-text">📅 Programada: {order.fecha_programada}</p>}
+                                        <p className="card-text">✓ {order.estado} · 📋 Visitas: {order.num_visitas || 0}{order.ultima_visita ? ` (última ${order.ultima_visita})` : ''}</p>
+                                    </div>
+                                ))
+                            )}
+                        </div>
                     </div>
+                );
+            }
 
-                    <div className="tipo-filter-bar">
-                        {['todas', 'correctivo', 'preventivo', 'obra', 'guardia'].map(t => (
-                            <button key={t} className={`tipo-filter-btn ${filtroTipo === t ? 'active' : ''}`} onClick={() => setFiltroTipo(t)}>
-                                {t === 'todas' ? 'Todas' : t.charAt(0).toUpperCase() + t.slice(1)}
-                            </button>
-                        ))}
-                    </div>
+            // ============ RENDER: FORM OT ============
+            if (mode === 'form-ot') {
+                return (
+                    <div>
+                        <button className="btn btn-secondary" onClick={() => setMode(editingOtId ? 'detail' : 'list')}>← Volver</button>
+                        <h3 className="section-title" style={{ marginTop: '10px' }}>{editingOtId ? 'Editar Orden' : 'Nueva Orden'}</h3>
 
-                    {showForm && (
-                        <div className="card" style={{ marginBottom: '1rem' }}>
+                        <div className="card">
                             <div className="form-group">
                                 <label>Título</label>
-                                <input type="text" placeholder="Título de la orden" value={formData.titulo} onChange={(e) => setFormData({ ...formData, titulo: e.target.value })} />
+                                <input type="text" placeholder="Título de la orden" value={otForm.titulo} onChange={(e) => setOtForm({ ...otForm, titulo: e.target.value })} />
                             </div>
 
-                            {esGestor && (
+                            {esGestor ? (
                                 <div className="form-group">
                                     <label>Tipo</label>
-                                    <select value={formData.tipo} onChange={(e) => setFormData({ ...formData, tipo: e.target.value, activo_id: '', datos_json: {} })}>
+                                    <select value={otForm.tipo} onChange={(e) => setOtForm({ ...otForm, tipo: e.target.value, activo_id: '' })}>
                                         <option value="correctivo">Correctiva</option>
                                         <option value="preventivo">Preventiva</option>
                                         <option value="obra">Obra</option>
                                         <option value="guardia">Guardia</option>
                                     </select>
                                 </div>
-                            )}
-                            {!esGestor && (
+                            ) : (
                                 <p className="card-text">🔔 Como técnico, tus órdenes se crean como <strong>Guardia</strong>. Un supervisor las revisará y convertirá en Correctivo si procede.</p>
                             )}
 
-                            {formData.tipo !== 'guardia' && (
+                            {esGestor && (
+                                <>
+                                    <div className="form-group">
+                                        <label>Ticket</label>
+                                        <input type="text" placeholder="Nº de ticket (opcional)" value={otForm.ticket} onChange={(e) => setOtForm({ ...otForm, ticket: e.target.value })} />
+                                    </div>
+                                    <div className="form-group">
+                                        <label>ID Cliente (referencia externa)</label>
+                                        <input type="text" placeholder="Ej: RF-2201" value={otForm.id_cliente} onChange={(e) => setOtForm({ ...otForm, id_cliente: e.target.value })} />
+                                    </div>
+                                </>
+                            )}
+
+                            {otForm.tipo !== 'guardia' && (
                                 <div className="form-group">
                                     <label>Cliente</label>
-                                    <select value={formData.cliente_id} onChange={(e) => setFormData({ ...formData, cliente_id: e.target.value })}>
+                                    <select value={otForm.cliente_id} onChange={(e) => setOtForm({ ...otForm, cliente_id: e.target.value })}>
                                         <option value="">-- Selecciona un cliente --</option>
                                         {clientes.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
                                     </select>
                                 </div>
                             )}
 
-                            {formData.tipo === 'preventivo' && (
+                            {otForm.tipo === 'preventivo' && (
                                 <>
                                     <div className="form-group">
                                         <label>Filtrar por Cliente (opcional)</label>
@@ -888,107 +1305,284 @@
                                     </div>
                                     <div className="form-group">
                                         <label>Activo a Revisar</label>
-                                        <select value={formData.activo_id} onChange={(e) => setFormData({ ...formData, activo_id: e.target.value, datos_json: {} })}>
+                                        <select value={otForm.activo_id} onChange={(e) => setOtForm({ ...otForm, activo_id: e.target.value })}>
                                             <option value="">-- Selecciona un activo --</option>
                                             {activosFiltrados.map(a => (
                                                 <option key={a.id} value={a.id}>{a.nombre} · {a.tipo} ({a.cliente_nombre} › {a.emplazamiento_nombre})</option>
                                             ))}
                                         </select>
                                     </div>
-
-                                    {activoSeleccionado && (
-                                        <div className="checklist-section">
-                                            <div className="checklist-section-title">✅ Checklist: {activoSeleccionado.tipo}</div>
-                                            <DynamicChecklistForm
-                                                tipoActivo={activoSeleccionado.tipo}
-                                                value={formData.datos_json}
-                                                onChange={(v) => setFormData({ ...formData, datos_json: v })}
-                                            />
-                                        </div>
-                                    )}
                                 </>
                             )}
 
-                            {formData.tipo === 'obra' && (
-                                <div className="checklist-section">
-                                    <div className="checklist-section-title">📝 Parte de Trabajo</div>
-                                    <ParteTrabajoForm value={formData.datos_json} onChange={(v) => setFormData({ ...formData, datos_json: v })} />
-                                </div>
+                            {esGestor && (
+                                <>
+                                    <div className="form-group">
+                                        <label>Prioridad</label>
+                                        <select value={otForm.prioridad} onChange={(e) => setOtForm({ ...otForm, prioridad: e.target.value })}>
+                                            <option value="baja">Baja</option>
+                                            <option value="media">Media</option>
+                                            <option value="alta">Alta</option>
+                                            <option value="urgente">Urgente</option>
+                                        </select>
+                                    </div>
+                                    <div className="form-group">
+                                        <label>Fecha Programada</label>
+                                        <input type="date" value={otForm.fecha_programada} onChange={(e) => setOtForm({ ...otForm, fecha_programada: e.target.value })} />
+                                    </div>
+                                    <div className="form-group">
+                                        <label>Técnico Responsable</label>
+                                        <select value={otForm.asignado_a} onChange={(e) => setOtForm({ ...otForm, asignado_a: parseInt(e.target.value) })}>
+                                            {tecnicosDisponibles.map(u => <option key={u.id} value={u.id}>{u.nombre} ({u.rol})</option>)}
+                                        </select>
+                                    </div>
+                                    <div className="form-group">
+                                        <label>Técnicos de Apoyo</label>
+                                        {tecnicosDisponibles.filter(u => u.id !== otForm.asignado_a).map(u => (
+                                            <label key={u.id} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', marginBottom: '4px' }}>
+                                                <input type="checkbox" checked={otForm.tecnicos_apoyo.includes(u.id)} onChange={(e) => {
+                                                    const checked = e.target.checked;
+                                                    setOtForm(f => ({ ...f, tecnicos_apoyo: checked ? [...f.tecnicos_apoyo, u.id] : f.tecnicos_apoyo.filter(id => id !== u.id) }));
+                                                }} /> {u.nombre}
+                                            </label>
+                                        ))}
+                                    </div>
+                                </>
                             )}
 
-                            {(formData.tipo === 'guardia' || formData.tipo === 'correctivo') && (
-                                <div className="form-group">
-                                    <label>Notas / Descripción</label>
-                                    <textarea placeholder="Describe el trabajo o incidencia..." value={formData.notas} onChange={(e) => setFormData({ ...formData, notas: e.target.value })}></textarea>
-                                </div>
-                            )}
+                            <div className="form-group">
+                                <label>Notas / Descripción</label>
+                                <textarea placeholder="Describe el trabajo o incidencia..." value={otForm.notas} onChange={(e) => setOtForm({ ...otForm, notas: e.target.value })}></textarea>
+                            </div>
 
                             <div className="btn-group">
-                                <button className="btn btn-success" onClick={handleSubmit}>{editingId ? 'Guardar' : 'Crear'}</button>
-                                <button className="btn btn-secondary" onClick={resetForm}>Cancelar</button>
+                                <button className="btn btn-success" onClick={guardarOt}>{editingOtId ? 'Guardar' : 'Crear'}</button>
+                                <button className="btn btn-secondary" onClick={() => setMode(editingOtId ? 'detail' : 'list')}>Cancelar</button>
                             </div>
                         </div>
-                    )}
+                    </div>
+                );
+            }
 
-                    {ordenVista && (
-                        <div className="card" style={{ marginBottom: '1rem' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                                <h4 className="card-title">👁️ {ordenVista.id} — {ordenVista.titulo}</h4>
-                                <button className="btn btn-secondary" onClick={() => setViewingId(null)}>Cerrar</button>
+            // ============ RENDER: DETAIL ============
+            if (mode === 'detail') {
+                if (!otSeleccionada) return <div className="empty-state">Orden no encontrada</div>;
+                let tecApoyoIds = [];
+                try { tecApoyoIds = otSeleccionada.tecnicos_apoyo ? JSON.parse(otSeleccionada.tecnicos_apoyo) : []; } catch {}
+                const nombresApoyo = tecApoyoIds.map(id => (usuarios.find(u => u.id === id) || {}).nombre).filter(Boolean);
+
+                return (
+                    <div>
+                        <button className="btn btn-secondary" onClick={() => setMode('list')}>← Volver</button>
+
+                        <div className="card" style={{ marginTop: '10px' }}>
+                            <div className="list-item-header">
+                                <div>
+                                    <p className="card-title">{otSeleccionada.id} <span className={`prioridad-badge ${otSeleccionada.prioridad || 'media'}`}>{otSeleccionada.prioridad || 'media'}</span></p>
+                                    <p className="card-text">{otSeleccionada.titulo}</p>
+                                </div>
+                                <span className={`badge ${otSeleccionada.tipo}`}>{otSeleccionada.tipo}</span>
                             </div>
                             <div className="readonly-view">
-                                <div className="rv-row"><span className="rv-label">Tipo</span><span className="rv-value">{ordenVista.tipo}</span></div>
-                                <div className="rv-row"><span className="rv-label">Estado</span><span className="rv-value">{ordenVista.estado}</span></div>
-                                {ordenVista.cliente_nombre && <div className="rv-row"><span className="rv-label">Cliente</span><span className="rv-value">{ordenVista.cliente_nombre}</span></div>}
-                                {ordenVista.activo_nombre && <div className="rv-row"><span className="rv-label">Activo</span><span className="rv-value">{ordenVista.activo_nombre} ({ordenVista.activo_tipo})</span></div>}
-                                {ordenVista.notas && <div className="rv-row"><span className="rv-label">Notas</span><span className="rv-value">{ordenVista.notas}</span></div>}
+                                {otSeleccionada.cliente_nombre && <div className="rv-row"><span className="rv-label">Cliente</span><span className="rv-value">{otSeleccionada.cliente_nombre}</span></div>}
+                                {otSeleccionada.activo_nombre && <div className="rv-row"><span className="rv-label">Activo</span><span className="rv-value">{otSeleccionada.activo_nombre}</span></div>}
+                                {otSeleccionada.ticket && <div className="rv-row"><span className="rv-label">Ticket</span><span className="rv-value">{otSeleccionada.ticket}</span></div>}
+                                {otSeleccionada.id_cliente && <div className="rv-row"><span className="rv-label">ID Cliente</span><span className="rv-value">{otSeleccionada.id_cliente}</span></div>}
+                                {otSeleccionada.fecha_programada && <div className="rv-row"><span className="rv-label">Programada</span><span className="rv-value">{otSeleccionada.fecha_programada}</span></div>}
+                                <div className="rv-row"><span className="rv-label">Técnico</span><span className="rv-value">{otSeleccionada.tecnico_nombre || '—'}</span></div>
+                                {nombresApoyo.length > 0 && <div className="rv-row"><span className="rv-label">Apoyo</span><span className="rv-value">{nombresApoyo.join(', ')}</span></div>}
+                                <div className="rv-row"><span className="rv-label">Estado</span><span className="rv-value">{otSeleccionada.estado}</span></div>
+                                {otSeleccionada.notas && <div className="rv-row"><span className="rv-label">Notas</span><span className="rv-value">{otSeleccionada.notas}</span></div>}
                             </div>
+                            <div style={{ marginTop: '10px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                                {(esGestor || otSeleccionada.asignado_a === user.id) && <button className="btn btn-primary" onClick={() => abrirEditarOt(otSeleccionada)}>Editar</button>}
+                                {esGestor && otSeleccionada.tipo === 'guardia' && <button className="btn btn-success" onClick={() => abrirConvertirGuardia(otSeleccionada)}>Convertir a Correctivo</button>}
+                                {esGestor && <button className="btn btn-danger" onClick={() => eliminarOt(otSeleccionada.id)}>Eliminar OT</button>}
+                            </div>
+                        </div>
 
-                            {ordenVista.tipo === 'preventivo' && ordenVista.activo_tipo && (
-                                <div style={{ marginTop: '12px' }}>
-                                    <DynamicChecklistForm tipoActivo={ordenVista.activo_tipo} value={datosVista} onChange={() => {}} readOnly={true} />
-                                </div>
-                            )}
-                            {ordenVista.tipo === 'obra' && (
-                                <div style={{ marginTop: '12px' }}>
-                                    <ParteTrabajoForm value={datosVista} onChange={() => {}} readOnly={true} />
-                                </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '14px 0 8px' }}>
+                            <h4 className="card-title" style={{ margin: 0 }}>📋 Visitas ({visitas.length})</h4>
+                            <button className="btn btn-primary" onClick={abrirNuevaVisita}>+ Nueva Visita</button>
+                        </div>
+
+                        <div className="list">
+                            {visitas.length === 0 ? (
+                                <div className="empty-state">No hay visitas registradas</div>
+                            ) : (
+                                visitas.map(v => (
+                                    <div key={v.id} className="visita-card">
+                                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                            <div>
+                                                <p style={{ fontWeight: 600, fontSize: '13px', margin: 0 }}>📅 {v.fecha}</p>
+                                                <p className="card-text">👤 {v.tecnico_nombre || '—'} {v.hora_inicio && `· ${v.hora_inicio}${v.hora_fin ? '-' + v.hora_fin : ''}`}</p>
+                                            </div>
+                                            <span className="badge" style={{ background: v.finalizado ? 'var(--bg-success)' : 'var(--bg-warning)', color: v.finalizado ? 'var(--fill-success)' : '#b8860b' }}>
+                                                {v.finalizado ? 'Finalizada' : 'En curso'}
+                                            </span>
+                                        </div>
+                                        {v.descripcion && <p className="card-text">{v.descripcion}</p>}
+                                        <div style={{ marginTop: '6px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                                            <button className="btn btn-secondary" onClick={() => { setViewingVisitId(v.id); setMode('view-visita'); }}>Ver</button>
+                                            {(esGestor || v.tecnico_id === user.id) && <button className="btn btn-primary" onClick={() => abrirEditarVisita(v)}>Editar</button>}
+                                            {esGestor && <button className="btn btn-danger" onClick={() => eliminarVisita(v.id)}>Eliminar</button>}
+                                        </div>
+                                    </div>
+                                ))
                             )}
                         </div>
-                    )}
-
-                    <div className="list">
-                        {ordenesFiltradas.length === 0 ? (
-                            <div className="empty-state">No hay órdenes</div>
-                        ) : (
-                            ordenesFiltradas.map(order => (
-                                <div key={order.id} className="list-item">
-                                    <div className="list-item-header">
-                                        <div>
-                                            <p className="card-title">{order.id}</p>
-                                            <p className="card-text">{order.titulo}</p>
-                                        </div>
-                                        <span className={`badge ${order.tipo}`}>{order.tipo}</span>
-                                    </div>
-                                    {order.cliente_nombre && <p className="card-text">👤 Cliente: {order.cliente_nombre}</p>}
-                                    {order.activo_nombre && <p className="card-text">⚙️ Activo: {order.activo_nombre}</p>}
-                                    <p className="card-text">✓ Estado: {order.estado}</p>
-                                    <div style={{ marginTop: '8px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                                        {(order.tipo === 'preventivo' || order.tipo === 'obra') && (
-                                            <button className="btn btn-secondary" onClick={() => setViewingId(order.id)}>Ver Checklist</button>
-                                        )}
-                                        <button className="btn btn-primary" onClick={() => handleEdit(order)}>Editar</button>
-                                        {esGestor && order.tipo === 'guardia' && (
-                                            <button className="btn btn-success" onClick={() => handleConvertirGuardia(order)}>Convertir a Correctivo</button>
-                                        )}
-                                        {esGestor && <button className="btn btn-danger" onClick={() => handleDelete(order.id)}>Eliminar</button>}
-                                    </div>
-                                </div>
-                            ))
-                        )}
                     </div>
-                </div>
-            );
+                );
+            }
+
+            // ============ RENDER: FORM VISITA ============
+            if (mode === 'form-visita') {
+                return (
+                    <div>
+                        <button className="btn btn-secondary" onClick={() => setMode('detail')}>← Volver</button>
+                        <div className="card" style={{ marginTop: '10px' }}>
+                            <h4 className="card-title">{editingVisitId ? 'Editar Visita' : 'Nueva Visita'}</h4>
+
+                            <div className="form-group"><label>Fecha</label><input type="date" value={visitaForm.fecha} onChange={(e) => setVisitaForm({ ...visitaForm, fecha: e.target.value })} /></div>
+                            <div className="form-group">
+                                <label>Técnico</label>
+                                <select value={visitaForm.tecnico_id} onChange={(e) => setVisitaForm({ ...visitaForm, tecnico_id: parseInt(e.target.value) })}>
+                                    {tecnicosDisponibles.map(u => <option key={u.id} value={u.id}>{u.nombre}</option>)}
+                                </select>
+                            </div>
+                            <div className="form-group"><label>Hora inicio</label><input type="time" value={visitaForm.hora_inicio} onChange={(e) => setVisitaForm({ ...visitaForm, hora_inicio: e.target.value })} /></div>
+                            <div className="form-group"><label>Hora fin</label><input type="time" value={visitaForm.hora_fin} onChange={(e) => setVisitaForm({ ...visitaForm, hora_fin: e.target.value })} /></div>
+                            <div className="form-group"><label>ID Mantis / Ticket</label><input type="text" value={visitaForm.id_mantis} onChange={(e) => setVisitaForm({ ...visitaForm, id_mantis: e.target.value })} /></div>
+                            <div className="form-group"><label>Proyecto</label><input type="text" value={visitaForm.proyecto} onChange={(e) => setVisitaForm({ ...visitaForm, proyecto: e.target.value })} /></div>
+                            <div className="form-group"><label>Descripción</label><textarea value={visitaForm.descripcion} onChange={(e) => setVisitaForm({ ...visitaForm, descripcion: e.target.value })}></textarea></div>
+
+                            {otSeleccionada && otSeleccionada.tipo === 'preventivo' && otSeleccionada.activo_tipo && (
+                                <div className="checklist-section">
+                                    <div className="checklist-section-title">✅ Checklist: {otSeleccionada.activo_tipo}</div>
+                                    <DynamicChecklistForm tipoActivo={otSeleccionada.activo_tipo} value={visitaForm.checklist_json} onChange={(v) => setVisitaForm({ ...visitaForm, checklist_json: v })} />
+                                </div>
+                            )}
+
+                            {otSeleccionada && otSeleccionada.tipo === 'obra' && (
+                                <div className="checklist-section">
+                                    <div className="checklist-section-title">📝 Parte de Trabajo</div>
+                                    <ParteTrabajoForm
+                                        value={{ medioAmbiente: visitaForm.medio_ambiente_json, seguridad: visitaForm.seguridad_json, desplazamientos: visitaForm.desplazamientos_json }}
+                                        onChange={(v) => setVisitaForm({ ...visitaForm, medio_ambiente_json: v.medioAmbiente || [], seguridad_json: v.seguridad || {}, desplazamientos_json: v.desplazamientos || [] })}
+                                    />
+                                    <div className="checklist-section-title" style={{ marginTop: '10px' }}>✍️ Firma</div>
+                                    <div className="form-group"><label>Firmado por</label><input type="text" value={visitaForm.firma_nombre} onChange={(e) => setVisitaForm({ ...visitaForm, firma_nombre: e.target.value })} /></div>
+                                    <SignaturePad value={visitaForm.firma} onChange={(v) => setVisitaForm({ ...visitaForm, firma: v })} />
+                                </div>
+                            )}
+
+                            {otSeleccionada && otSeleccionada.tipo === 'guardia' && (
+                                <div className="checklist-section">
+                                    <div className="checklist-section-title">🚗 Desplazamientos</div>
+                                    <DesplazamientosForm value={visitaForm.desplazamientos_json} onChange={(v) => setVisitaForm({ ...visitaForm, desplazamientos_json: v })} />
+                                </div>
+                            )}
+
+                            <div className="checklist-section">
+                                <div className="checklist-section-title">📦 Materiales Utilizados</div>
+                                <MaterialesPicker value={visitaForm.materiales_json} onChange={(v) => setVisitaForm({ ...visitaForm, materiales_json: v })} materiales={materiales} clienteId={otSeleccionada ? otSeleccionada.cliente_id : ''} />
+                            </div>
+
+                            <div className="checklist-section">
+                                <div className="checklist-section-title">📷 Fotos</div>
+                                <PhotoCapture value={visitaForm.fotos_json} onChange={(v) => setVisitaForm({ ...visitaForm, fotos_json: v })} />
+                            </div>
+
+                            <div className="form-group" style={{ marginTop: '10px' }}>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <input type="checkbox" checked={visitaForm.finalizado} onChange={(e) => setVisitaForm({ ...visitaForm, finalizado: e.target.checked })} />
+                                    Marcar como finalizada (resuelve la OT)
+                                </label>
+                            </div>
+
+                            <div className="btn-group">
+                                <button className="btn btn-success" onClick={guardarVisita}>{editingVisitId ? 'Guardar' : 'Crear'}</button>
+                                <button className="btn btn-secondary" onClick={() => setMode('detail')}>Cancelar</button>
+                            </div>
+                        </div>
+                    </div>
+                );
+            }
+
+            // ============ RENDER: VIEW VISITA (solo lectura) ============
+            if (mode === 'view-visita') {
+                if (!visitaViendo) return <div className="empty-state">Visita no encontrada</div>;
+                let checklist = {}, mats = [], fotos = [], medio = {}, seg = {}, desp = [];
+                try { checklist = visitaViendo.checklist_json ? JSON.parse(visitaViendo.checklist_json) : {}; } catch {}
+                try { mats = visitaViendo.materiales_json ? JSON.parse(visitaViendo.materiales_json) : []; } catch {}
+                try { fotos = visitaViendo.fotos_json ? JSON.parse(visitaViendo.fotos_json) : []; } catch {}
+                try { medio = visitaViendo.medio_ambiente_json ? JSON.parse(visitaViendo.medio_ambiente_json) : {}; } catch {}
+                try { seg = visitaViendo.seguridad_json ? JSON.parse(visitaViendo.seguridad_json) : {}; } catch {}
+                try { desp = visitaViendo.desplazamientos_json ? JSON.parse(visitaViendo.desplazamientos_json) : []; } catch {}
+
+                return (
+                    <div>
+                        <button className="btn btn-secondary" onClick={() => setMode('detail')}>← Volver</button>
+                        <div className="card" style={{ marginTop: '10px' }}>
+                            <h4 className="card-title">👁️ Visita del {visitaViendo.fecha}</h4>
+                            <div className="readonly-view">
+                                <div className="rv-row"><span className="rv-label">Técnico</span><span className="rv-value">{visitaViendo.tecnico_nombre || '—'}</span></div>
+                                <div className="rv-row"><span className="rv-label">Horario</span><span className="rv-value">{visitaViendo.hora_inicio || '—'}{visitaViendo.hora_fin ? ' - ' + visitaViendo.hora_fin : ''}</span></div>
+                                {visitaViendo.id_mantis && <div className="rv-row"><span className="rv-label">ID Mantis</span><span className="rv-value">{visitaViendo.id_mantis}</span></div>}
+                                {visitaViendo.proyecto && <div className="rv-row"><span className="rv-label">Proyecto</span><span className="rv-value">{visitaViendo.proyecto}</span></div>}
+                            </div>
+                            {visitaViendo.descripcion && <p className="card-text" style={{ marginTop: '8px' }}>{visitaViendo.descripcion}</p>}
+
+                            {otSeleccionada && otSeleccionada.tipo === 'preventivo' && visitaViendo.checklist_tipo && (
+                                <div className="checklist-section">
+                                    <div className="checklist-section-title">✅ Checklist: {visitaViendo.checklist_tipo}</div>
+                                    <DynamicChecklistForm tipoActivo={visitaViendo.checklist_tipo} value={checklist} onChange={() => {}} readOnly={true} />
+                                </div>
+                            )}
+
+                            {otSeleccionada && otSeleccionada.tipo === 'obra' && (
+                                <div className="checklist-section">
+                                    <div className="checklist-section-title">📝 Parte de Trabajo</div>
+                                    <ParteTrabajoForm value={{ medioAmbiente: medio, seguridad: seg, desplazamientos: desp }} onChange={() => {}} readOnly={true} />
+                                    <div className="checklist-section-title" style={{ marginTop: '10px' }}>✍️ Firma</div>
+                                    {visitaViendo.firma_nombre && <p className="card-text">Firmado por: {visitaViendo.firma_nombre}</p>}
+                                    <SignaturePad value={visitaViendo.firma} onChange={() => {}} readOnly={true} />
+                                </div>
+                            )}
+
+                            {otSeleccionada && otSeleccionada.tipo === 'guardia' && (
+                                <div className="checklist-section">
+                                    <div className="checklist-section-title">🚗 Desplazamientos</div>
+                                    <DesplazamientosForm value={desp} onChange={() => {}} readOnly={true} />
+                                </div>
+                            )}
+
+                            <div className="checklist-section">
+                                <div className="checklist-section-title">📦 Materiales Utilizados</div>
+                                <MaterialesPicker value={mats} onChange={() => {}} materiales={materiales} clienteId="" readOnly={true} />
+                            </div>
+
+                            <div className="checklist-section">
+                                <div className="checklist-section-title">📷 Fotos</div>
+                                <PhotoCapture value={fotos} onChange={() => {}} readOnly={true} />
+                            </div>
+
+                            <p className="card-text" style={{ marginTop: '10px' }}>
+                                <span className="badge" style={{ background: visitaViendo.finalizado ? 'var(--bg-success)' : 'var(--bg-warning)', color: visitaViendo.finalizado ? 'var(--fill-success)' : '#b8860b' }}>
+                                    {visitaViendo.finalizado ? 'Finalizada / OT resuelta' : 'En curso'}
+                                </span>
+                            </p>
+
+                            <div className="btn-group">
+                                {(esGestor || visitaViendo.tecnico_id === user.id) && <button className="btn btn-primary" onClick={() => abrirEditarVisita(visitaViendo)}>Editar Visita</button>}
+                                <button className="btn btn-secondary" onClick={() => setMode('detail')}>Cerrar</button>
+                            </div>
+                        </div>
+                    </div>
+                );
+            }
+
+            return null;
         }
 
         // ===== HELPERS EXCEL (SheetJS) =====
@@ -1946,6 +2540,323 @@
                                 </div>
                             ))
                         )}
+                    </div>
+                </div>
+            );
+        }
+
+        // ===== CALENDARIO DE PLANIFICACIÓN =====
+        const WEEKDAY_LABELS = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
+        const MONTH_LABELS = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+
+        function CalendarView({ user, ordenes, usuarios, activos, onRefresh }) {
+            const [year, setYear] = useState(new Date().getFullYear());
+            const [month, setMonth] = useState(new Date().getMonth());
+            const [filtroTecnico, setFiltroTecnico] = useState('todos');
+            const [diaSeleccionado, setDiaSeleccionado] = useState(null);
+            const [importMsg, setImportMsg] = useState('');
+
+            const tecnicos = usuarios.filter(u => u.activo);
+            const firstOfMonth = new Date(year, month, 1);
+            const startWeekday = (firstOfMonth.getDay() + 6) % 7;
+            const daysInMonth = new Date(year, month + 1, 0).getDate();
+            const cells = [];
+            for (let i = 0; i < startWeekday; i++) cells.push(null);
+            for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+
+            let planificables = ordenes.filter(o => o.tipo !== 'guardia' && o.fecha_programada);
+            if (filtroTecnico !== 'todos') {
+                planificables = planificables.filter(o => o.asignado_a === parseInt(filtroTecnico) || (() => {
+                    try { return JSON.parse(o.tecnicos_apoyo || '[]').includes(parseInt(filtroTecnico)); } catch { return false; }
+                })());
+            }
+            const byDay = {};
+            planificables.forEach(o => { (byDay[o.fecha_programada] = byDay[o.fecha_programada] || []).push(o); });
+
+            const hoy = new Date().toISOString().slice(0, 10);
+            const prevMonth = () => { if (month === 0) { setMonth(11); setYear(year - 1); } else setMonth(month - 1); };
+            const nextMonth = () => { if (month === 11) { setMonth(0); setYear(year + 1); } else setMonth(month + 1); };
+
+            const exportarPlantilla = () => {
+                const rows = activos.map(a => ({
+                    id_activo: a.id, activo: a.nombre, cliente: a.cliente_nombre, contrato: a.contrato_nombre,
+                    emplazamiento: a.emplazamiento_nombre, fecha_planificada: '', tecnico: '', tecnicos_apoyo: '', prioridad: 'media',
+                    titulo: `Preventivo ${a.nombre}`, descripcion: ''
+                }));
+                exportToExcel(rows, 'plantilla_preventivos', [
+                    { key: 'id_activo', label: 'id_activo' }, { key: 'activo', label: 'activo' }, { key: 'cliente', label: 'cliente' },
+                    { key: 'contrato', label: 'contrato' }, { key: 'emplazamiento', label: 'emplazamiento' },
+                    { key: 'fecha_planificada', label: 'fecha_planificada' }, { key: 'tecnico', label: 'tecnico' },
+                    { key: 'tecnicos_apoyo', label: 'tecnicos_apoyo' }, { key: 'prioridad', label: 'prioridad' },
+                    { key: 'titulo', label: 'titulo' }, { key: 'descripcion', label: 'descripcion' }
+                ]);
+            };
+
+            const importarPlan = async (rows) => {
+                let creados = 0, saltados = 0;
+                for (const row of rows) {
+                    const fecha = row['fecha_planificada'];
+                    if (!fecha) { saltados++; continue; }
+                    let activo = null;
+                    if (row['id_activo']) activo = activos.find(a => a.id === parseInt(row['id_activo']));
+                    if (!activo && row['activo']) activo = activos.find(a => a.nombre.trim().toLowerCase() === String(row['activo']).trim().toLowerCase());
+                    if (!activo) { saltados++; continue; }
+
+                    let tecnico = null;
+                    if (row['tecnico']) tecnico = tecnicos.find(u => u.nombre.trim().toLowerCase() === String(row['tecnico']).trim().toLowerCase());
+                    const apoyoIds = String(row['tecnicos_apoyo'] || '').split(',').map(s => s.trim()).filter(Boolean).map(n => {
+                        const u = tecnicos.find(u => u.nombre.trim().toLowerCase() === n.toLowerCase());
+                        return u ? u.id : null;
+                    }).filter(Boolean);
+
+                    let fechaISO = fecha;
+                    if (fecha instanceof Date) fechaISO = fecha.toISOString().slice(0, 10);
+
+                    try {
+                        await fetch(`${API_URL}/api/ordenes`, {
+                            method: 'POST', headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                titulo: row['titulo'] || `Preventivo ${activo.nombre}`,
+                                tipo: 'preventivo', cliente_id: activo.cliente_id, activo_id: activo.id,
+                                estado: tecnico ? 'abierta' : 'pendiente', prioridad: row['prioridad'] || 'media',
+                                asignado_a: tecnico ? tecnico.id : null, tecnicos_apoyo: JSON.stringify(apoyoIds),
+                                fecha_programada: fechaISO, notas: row['descripcion'] || ''
+                            })
+                        });
+                        creados++;
+                    } catch { saltados++; }
+                }
+                setImportMsg(`✅ OTs preventivas creadas: ${creados}${saltados ? ` | ⚠️ Filas omitidas: ${saltados}` : ''}`);
+                onRefresh();
+            };
+
+            return (
+                <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '8px' }}>
+                        <h3 className="section-title" style={{ margin: 0 }}>📅 Calendario de Planificación</h3>
+                        <div className="toolbar">
+                            <button className="btn btn-excel" onClick={exportarPlantilla}>📤 Plantilla anual</button>
+                            <ExcelImportButton onRows={importarPlan} label="Importar plan" />
+                        </div>
+                    </div>
+
+                    {importMsg && <div className="import-summary">{importMsg}</div>}
+
+                    <div className="form-group">
+                        <select value={filtroTecnico} onChange={(e) => setFiltroTecnico(e.target.value)}>
+                            <option value="todos">Todos los trabajadores</option>
+                            {tecnicos.map(u => <option key={u.id} value={u.id}>{u.nombre}</option>)}
+                        </select>
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                        <button className="btn btn-secondary" onClick={prevMonth}>‹</button>
+                        <span style={{ fontWeight: 700 }}>{MONTH_LABELS[month]} {year}</span>
+                        <button className="btn btn-secondary" onClick={nextMonth}>›</button>
+                    </div>
+
+                    <div className="cal-legend">
+                        <span><i style={{ background: 'var(--fill-success)' }}></i>Preventivo</span>
+                        <span><i style={{ background: 'var(--fill-danger)' }}></i>Correctivo</span>
+                        <span><i style={{ background: 'var(--fill-accent)' }}></i>Obra</span>
+                    </div>
+
+                    <div className="cal-grid">
+                        {WEEKDAY_LABELS.map(w => <div key={w} className="cal-weekday">{w}</div>)}
+                        {cells.map((d, i) => {
+                            if (d === null) return <div key={i} className="cal-cell empty"></div>;
+                            const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                            const dayOts = byDay[dateStr] || [];
+                            const isToday = dateStr === hoy;
+                            return (
+                                <button key={i} className={`cal-cell ${isToday ? 'today' : ''}`} onClick={() => setDiaSeleccionado(dateStr)}>
+                                    <span className="cal-daynum">{d}</span>
+                                    <span className="cal-dots">
+                                        {dayOts.slice(0, 4).map((o, j) => (
+                                            <i key={j} style={{ background: o.tipo === 'preventivo' ? 'var(--fill-success)' : o.tipo === 'correctivo' ? 'var(--fill-danger)' : 'var(--fill-accent)' }}></i>
+                                        ))}
+                                    </span>
+                                </button>
+                            );
+                        })}
+                    </div>
+
+                    {diaSeleccionado && (
+                        <div className="card" style={{ marginTop: '1rem' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                                <h4 className="card-title">📅 {diaSeleccionado}</h4>
+                                <button className="btn btn-secondary" onClick={() => setDiaSeleccionado(null)}>Cerrar</button>
+                            </div>
+                            <div className="list">
+                                {(byDay[diaSeleccionado] || []).length === 0 ? (
+                                    <div className="empty-state">No hay ninguna OT planificada este día.</div>
+                                ) : (
+                                    (byDay[diaSeleccionado] || []).map(o => (
+                                        <div key={o.id} className="list-item">
+                                            <div className="list-item-header">
+                                                <p className="card-title">{o.titulo}</p>
+                                                <span className={`badge ${o.tipo}`}>{o.tipo}</span>
+                                            </div>
+                                            <p className="card-text">👤 {o.tecnico_nombre || 'Sin asignar'}</p>
+                                        </div>
+                                    ))
+                                )}
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        // ===== PRECIARIO (con historial de precios) =====
+        function PreciarioView({ user, materiales, clientes, onRefresh }) {
+            const [showForm, setShowForm] = useState(false);
+            const [search, setSearch] = useState('');
+            const [filtroCliente, setFiltroCliente] = useState('todos');
+            const [verHistorialId, setVerHistorialId] = useState(null);
+            const [precioNuevo, setPrecioNuevo] = useState({});
+            const [formData, setFormData] = useState({ cliente_id: '', tipo: '', descripcion: '', unidad: 'ud', precio: '' });
+            const [importMsg, setImportMsg] = useState('');
+
+            const getHistorial = (m) => { try { return JSON.parse(m.historial_json || '[]'); } catch { return []; } };
+            const getPrecioActual = (m) => { const h = getHistorial(m); return h.length ? h[h.length - 1].precio : null; };
+
+            let filtrados = materiales;
+            if (filtroCliente !== 'todos') filtrados = filtrados.filter(m => m.cliente_id === parseInt(filtroCliente));
+            if (search) filtrados = filtrados.filter(m => m.descripcion.toLowerCase().includes(search.toLowerCase()) || (m.tipo || '').toLowerCase().includes(search.toLowerCase()));
+
+            const handleAdd = async () => {
+                if (!formData.descripcion.trim()) { alert('La descripción es obligatoria'); return; }
+                try {
+                    await fetch(`${API_URL}/api/materiales`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(formData) });
+                    setFormData({ cliente_id: '', tipo: '', descripcion: '', unidad: 'ud', precio: '' });
+                    setShowForm(false);
+                    onRefresh();
+                } catch { alert('Error al guardar material'); }
+            };
+
+            const handleDelete = async (id) => {
+                if (!confirm('¿Eliminar este material del preciario?')) return;
+                await fetch(`${API_URL}/api/materiales/${id}`, { method: 'DELETE' });
+                onRefresh();
+            };
+
+            const handleAddPrecio = async (id) => {
+                const precio = precioNuevo[id];
+                if (!precio) { alert('Introduce un precio'); return; }
+                await fetch(`${API_URL}/api/materiales/${id}/precio`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ precio }) });
+                setPrecioNuevo({ ...precioNuevo, [id]: '' });
+                onRefresh();
+            };
+
+            const handleImportRows = async (rows) => {
+                let ok = 0, fail = 0;
+                for (const row of rows) {
+                    const descripcion = row['Descripción'] || row['descripcion'];
+                    const clienteNombre = row['Cliente'] || row['cliente'];
+                    const cliente = clientes.find(c => c.nombre === clienteNombre);
+                    if (!descripcion) { fail++; continue; }
+                    try {
+                        await fetch(`${API_URL}/api/materiales`, {
+                            method: 'POST', headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                cliente_id: cliente ? cliente.id : null, tipo: row['Tipo'] || row['tipo'] || '',
+                                descripcion, unidad: row['Unidad'] || row['unidad'] || 'ud',
+                                precio: row['Precio'] || row['precio'] || row['Precio Actual'] || ''
+                            })
+                        });
+                        ok++;
+                    } catch { fail++; }
+                }
+                setImportMsg(`✅ Importados: ${ok} | ❌ Fallidos: ${fail}`);
+                onRefresh();
+            };
+
+            return (
+                <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '8px' }}>
+                        <h3 className="section-title" style={{ margin: 0 }}>💰 Preciario</h3>
+                        <div className="toolbar">
+                            <button className="btn btn-excel" onClick={() => exportToExcel(materiales.map(m => ({ ...m, cliente_nombre: (clientes.find(c => c.id === m.cliente_id) || {}).nombre || '', precio_actual: getPrecioActual(m) })), 'preciario', [
+                                { key: 'cliente_nombre', label: 'Cliente' }, { key: 'tipo', label: 'Tipo' }, { key: 'descripcion', label: 'Descripción' },
+                                { key: 'unidad', label: 'Unidad' }, { key: 'precio_actual', label: 'Precio Actual' }
+                            ])}>📤 Exportar</button>
+                            <ExcelImportButton onRows={handleImportRows} />
+                            <button className="btn btn-primary" onClick={() => setShowForm(!showForm)}>+ Nuevo</button>
+                        </div>
+                    </div>
+
+                    {importMsg && <div className="import-summary">{importMsg}</div>}
+
+                    <div className="form-group">
+                        <input type="text" placeholder="🔍 Buscar material..." value={search} onChange={(e) => setSearch(e.target.value)} />
+                    </div>
+                    <div className="form-group">
+                        <select value={filtroCliente} onChange={(e) => setFiltroCliente(e.target.value)}>
+                            <option value="todos">Todos los clientes</option>
+                            {clientes.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                        </select>
+                    </div>
+
+                    {showForm && (
+                        <div className="card" style={{ marginBottom: '1rem' }}>
+                            <div className="form-group">
+                                <label>Cliente</label>
+                                <select value={formData.cliente_id} onChange={(e) => setFormData({ ...formData, cliente_id: e.target.value })}>
+                                    <option value="">-- Sin cliente específico --</option>
+                                    {clientes.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                                </select>
+                            </div>
+                            <div className="form-group"><label>Tipo / Categoría</label><input type="text" placeholder="Ej: Accesorios Puertas" value={formData.tipo} onChange={(e) => setFormData({ ...formData, tipo: e.target.value })} /></div>
+                            <div className="form-group"><label>Descripción</label><input type="text" placeholder="Descripción del material" value={formData.descripcion} onChange={(e) => setFormData({ ...formData, descripcion: e.target.value })} /></div>
+                            <div className="form-group"><label>Unidad</label><input type="text" placeholder="ud, m, kg..." value={formData.unidad} onChange={(e) => setFormData({ ...formData, unidad: e.target.value })} /></div>
+                            <div className="form-group"><label>Precio inicial (€)</label><input type="number" step="0.01" placeholder="0.00" value={formData.precio} onChange={(e) => setFormData({ ...formData, precio: e.target.value })} /></div>
+                            <div className="btn-group">
+                                <button className="btn btn-success" onClick={handleAdd}>Crear</button>
+                                <button className="btn btn-secondary" onClick={() => setShowForm(false)}>Cancelar</button>
+                            </div>
+                        </div>
+                    )}
+
+                    <div className="list">
+                        {filtrados.length === 0 ? <div className="empty-state">No hay materiales</div> : filtrados.map(m => {
+                            const historial = getHistorial(m);
+                            const precioActual = getPrecioActual(m);
+                            return (
+                                <div key={m.id} className="list-item">
+                                    <div className="list-item-header">
+                                        <div>
+                                            <p className="card-title">{m.descripcion}</p>
+                                            <p className="card-text">{m.tipo} {m.cliente_nombre ? `· ${m.cliente_nombre}` : ''}</p>
+                                        </div>
+                                        <span className="badge" style={{ background: 'var(--bg-accent)', color: 'var(--fill-accent)' }}>
+                                            {precioActual !== null ? `${precioActual.toFixed(2)} €` : 'Sin precio'} / {m.unidad}
+                                        </span>
+                                    </div>
+
+                                    <div style={{ marginTop: '8px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                                        <button className="btn btn-secondary" onClick={() => setVerHistorialId(verHistorialId === m.id ? null : m.id)}>
+                                            {verHistorialId === m.id ? 'Ocultar historial' : `Ver historial (${historial.length})`}
+                                        </button>
+                                        <button className="btn btn-danger" onClick={() => handleDelete(m.id)}>Eliminar</button>
+                                    </div>
+
+                                    {verHistorialId === m.id && (
+                                        <div style={{ marginTop: '10px' }}>
+                                            {historial.length === 0 ? <p className="card-text">Sin historial de precios.</p> : (
+                                                [...historial].reverse().map((h, i) => (
+                                                    <div key={i} className="price-history-row"><span>{h.fecha}</span><span>{parseFloat(h.precio).toFixed(2)} €</span></div>
+                                                ))
+                                            )}
+                                            <div style={{ display: 'flex', gap: '6px', marginTop: '8px' }}>
+                                                <input type="number" step="0.01" placeholder="Nuevo precio" value={precioNuevo[m.id] || ''} onChange={(e) => setPrecioNuevo({ ...precioNuevo, [m.id]: e.target.value })} />
+                                                <button className="btn btn-success" onClick={() => handleAddPrecio(m.id)}>Añadir</button>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })}
                     </div>
                 </div>
             );
