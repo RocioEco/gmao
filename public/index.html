@@ -178,6 +178,13 @@
         .cal-legend { display: flex; gap: 12px; font-size: 11px; margin-bottom: 8px; color: var(--text-secondary); }
         .cal-legend i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 4px; }
         .price-history-row { display: flex; justify-content: space-between; font-size: 12px; padding: 4px 0; border-bottom: 1px dashed var(--border); }
+        .field-with-add { display: flex; gap: 6px; align-items: stretch; }
+        .field-with-add select, .field-with-add input { flex: 1; }
+        .btn-quickadd { flex-shrink: 0; padding: 0 12px; background: var(--bg-accent); color: var(--fill-accent); border: 1px solid var(--fill-accent); border-radius: 8px; cursor: pointer; font-size: 16px; font-weight: 700; line-height: 1; }
+        .btn-quickadd:hover { background: var(--fill-accent); color: white; }
+        .quickadd-box { background: var(--bg-accent); border: 1px dashed var(--fill-accent); border-radius: 8px; padding: 10px; margin-top: 6px; }
+        .quickadd-box input, .quickadd-box select { margin-bottom: 6px; }
+        .quickadd-actions { display: flex; gap: 8px; margin-top: 4px; }
         .nav-badge { position: absolute; top: -4px; right: -4px; background: var(--fill-danger); color: white; font-size: 10px; font-weight: 700; border-radius: 10px; padding: 1px 5px; min-width: 16px; text-align: center; }
         .field-locked { opacity: 0.6; }
         .lock-note { font-size: 11px; color: var(--text-muted); margin: -4px 0 8px; font-style: italic; }
@@ -1937,20 +1944,91 @@
             );
         }
 
-        function ActivosView({ user, activos, emplazamientos, clientes, contratos, onRefresh }) {
+        // ===== CREACIÓN RÁPIDA INLINE (para no salir del formulario) =====
+        function QuickAddInline({ label, fields, onCreate }) {
+            const [open, setOpen] = useState(false);
+            const [values, setValues] = useState({});
+            const [saving, setSaving] = useState(false);
+
+            const handleSave = async () => {
+                const primerCampo = fields[0].key;
+                if (!values[primerCampo] || !values[primerCampo].trim()) { alert('Rellena el campo obligatorio'); return; }
+                setSaving(true);
+                try {
+                    await onCreate(values);
+                    setValues({});
+                    setOpen(false);
+                } catch {
+                    alert('Error al crear');
+                }
+                setSaving(false);
+            };
+
+            if (!open) {
+                return <button type="button" className="btn-quickadd" title={`Crear ${label}`} onClick={() => setOpen(true)}>＋</button>;
+            }
+
+            return (
+                <div className="quickadd-box">
+                    <p className="card-text" style={{ marginBottom: '6px', fontWeight: 600 }}>Nuevo {label}</p>
+                    {fields.map(f => (
+                        <input key={f.key} type={f.type || 'text'} placeholder={f.placeholder} value={values[f.key] || ''} onChange={(e) => setValues({ ...values, [f.key]: e.target.value })} />
+                    ))}
+                    <div className="quickadd-actions">
+                        <button type="button" className="btn btn-success" disabled={saving} onClick={handleSave}>{saving ? 'Creando...' : 'Crear'}</button>
+                        <button type="button" className="btn btn-secondary" onClick={() => { setOpen(false); setValues({}); }}>Cancelar</button>
+                    </div>
+                </div>
+            );
+        }
+
+        function ActivosView({ user, activos, emplazamientos, zonas, clientes, contratos, onRefresh }) {
             const [showForm, setShowForm] = useState(false);
             const [editingId, setEditingId] = useState(null);
             const [selectedCliente, setSelectedCliente] = useState('');
+            const [selectedZona, setSelectedZona] = useState('');
             const [emplazamientoSearch, setEmplazamientoSearch] = useState('');
             const [formData, setFormData] = useState({ emplazamiento_id: '', contrato_id: '', tipo: '', nombre: '', fabricante: '', modelo: '', estado: 'Activo', observaciones: '' });
             const [importMsg, setImportMsg] = useState('');
 
             const contratosFiltrados = selectedCliente ? contratos.filter(c => c.cliente_id === parseInt(selectedCliente)) : contratos;
+            const zonasFiltradas = formData.contrato_id ? zonas.filter(z => z.contrato_id === parseInt(formData.contrato_id)) : [];
             const emplazamientosFiltrados = emplazamientoSearch
                 ? emplazamientos.filter(e => e.nombre.toLowerCase().includes(emplazamientoSearch.toLowerCase()))
-                : emplazamientos;
+                : (selectedZona ? emplazamientos.filter(e => e.zona_id === parseInt(selectedZona)) : emplazamientos);
 
             const tiposActivo = ['Puerta Automática', 'Persiana Motorizada', 'CCTV', 'Control Acceso Peatonal', 'Control Acceso Vehicular', 'Otro'];
+
+            // ---- Creación rápida de dependencias (sin salir de este formulario) ----
+            const crearClienteRapido = async (values) => {
+                const res = await fetch(`${API_URL}/api/clientes`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nombre: values.nombre, contacto: values.contacto || '', telefono: values.telefono || '' }) });
+                const creado = await res.json();
+                await onRefresh();
+                setSelectedCliente(String(creado.id));
+                setFormData(f => ({ ...f, contrato_id: '' }));
+            };
+
+            const crearContratoRapido = async (values) => {
+                const res = await fetch(`${API_URL}/api/contratos`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cliente_id: parseInt(selectedCliente), nombre: values.nombre, descripcion: values.descripcion || '' }) });
+                const creado = await res.json();
+                await onRefresh();
+                setFormData(f => ({ ...f, contrato_id: String(creado.id) }));
+                setSelectedZona('');
+            };
+
+            const crearZonaRapida = async (values) => {
+                const res = await fetch(`${API_URL}/api/zonas`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contrato_id: parseInt(formData.contrato_id), nombre: values.nombre }) });
+                const creada = await res.json();
+                await onRefresh();
+                setSelectedZona(String(creada.id));
+            };
+
+            const crearEmplazamientoRapido = async (values) => {
+                const res = await fetch(`${API_URL}/api/emplazamientos`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ zona_id: parseInt(selectedZona), nombre: values.nombre, direccion: values.direccion || '' }) });
+                const creado = await res.json();
+                await onRefresh();
+                setFormData(f => ({ ...f, emplazamiento_id: String(creado.id) }));
+            };
 
             const handleAdd = async () => {
                 if (!formData.nombre.trim() || !formData.emplazamiento_id || !formData.contrato_id) {
@@ -1961,7 +2039,7 @@
                     const method = editingId ? 'PUT' : 'POST';
                     await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(formData) });
                     setFormData({ emplazamiento_id: '', contrato_id: '', tipo: '', nombre: '', fabricante: '', modelo: '', estado: 'Activo', observaciones: '' });
-                    setSelectedCliente(''); setEmplazamientoSearch('');
+                    setSelectedCliente(''); setSelectedZona(''); setEmplazamientoSearch('');
                     setEditingId(null);
                     setShowForm(false);
                     onRefresh();
@@ -1981,6 +2059,7 @@
                     estado: a.estado, observaciones: a.observaciones || ''
                 });
                 setSelectedCliente(String(a.cliente_id || ''));
+                setSelectedZona(a.zona_id ? String(a.zona_id) : '');
                 setEditingId(a.id);
                 setShowForm(true);
             };
@@ -2031,7 +2110,10 @@
                                 { key: 'observaciones', label: 'Observaciones' }
                             ])}>📤 Exportar</button>
                             <ExcelImportButton onRows={handleImportRows} />
-                            <button className="btn btn-primary" onClick={() => { setShowForm(!showForm); setEditingId(null); }}>+ Nuevo</button>
+                            <button className="btn btn-primary" onClick={() => {
+                                if (!showForm) { setFormData({ emplazamiento_id: '', contrato_id: '', tipo: '', nombre: '', fabricante: '', modelo: '', estado: 'Activo', observaciones: '' }); setSelectedCliente(''); setSelectedZona(''); setEmplazamientoSearch(''); }
+                                setShowForm(!showForm); setEditingId(null);
+                            }}>+ Nuevo</button>
                         </div>
                     </div>
 
@@ -2040,36 +2122,75 @@
                     {showForm && (
                         <div className="card" style={{ marginBottom: '1rem' }}>
                             <p className="card-text" style={{ marginBottom: '10px' }}>
-                                💡 Un mismo emplazamiento puede tener activos de distintos contratos. Selecciona el contrato al que pertenece <strong>este activo</strong> de forma independiente al emplazamiento.
+                                💡 Puedes crear el cliente, contrato, zona o emplazamiento aquí mismo con el botón <strong>＋</strong> si aún no existen.
                             </p>
 
                             <div className="form-group">
-                                <label>Cliente (del contrato)</label>
-                                <select value={selectedCliente} onChange={(e) => { setSelectedCliente(e.target.value); setFormData({ ...formData, contrato_id: '' }); }}>
-                                    <option value="">-- Selecciona un cliente --</option>
-                                    {clientes.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-                                </select>
-                            </div>
-                            <div className="form-group">
-                                <label>Contrato de este Activo</label>
-                                <select value={formData.contrato_id} disabled={!selectedCliente} className={!selectedCliente ? 'select-disabled' : ''} onChange={(e) => setFormData({ ...formData, contrato_id: e.target.value })}>
-                                    <option value="">-- Selecciona un contrato --</option>
-                                    {contratosFiltrados.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-                                </select>
+                                <label>Cliente</label>
+                                <div className="field-with-add">
+                                    <select value={selectedCliente} onChange={(e) => { setSelectedCliente(e.target.value); setFormData({ ...formData, contrato_id: '' }); setSelectedZona(''); }}>
+                                        <option value="">-- Selecciona un cliente --</option>
+                                        {clientes.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                                    </select>
+                                    <QuickAddInline label="Cliente" onCreate={crearClienteRapido} fields={[
+                                        { key: 'nombre', placeholder: 'Nombre del cliente *' },
+                                        { key: 'contacto', placeholder: 'Contacto (email)' },
+                                        { key: 'telefono', placeholder: 'Teléfono' }
+                                    ]} />
+                                </div>
                             </div>
 
                             <div className="form-group">
-                                <label>Buscar Emplazamiento</label>
-                                <input type="text" placeholder="Escribe para filtrar..." value={emplazamientoSearch} onChange={(e) => setEmplazamientoSearch(e.target.value)} />
+                                <label>Contrato de este Activo</label>
+                                <div className="field-with-add">
+                                    <select value={formData.contrato_id} disabled={!selectedCliente} className={!selectedCliente ? 'select-disabled' : ''} onChange={(e) => { setFormData({ ...formData, contrato_id: e.target.value }); setSelectedZona(''); }}>
+                                        <option value="">-- Selecciona un contrato --</option>
+                                        {contratosFiltrados.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                                    </select>
+                                    {selectedCliente && (
+                                        <QuickAddInline label="Contrato" onCreate={crearContratoRapido} fields={[
+                                            { key: 'nombre', placeholder: 'Nombre del contrato *' },
+                                            { key: 'descripcion', placeholder: 'Descripción' }
+                                        ]} />
+                                    )}
+                                </div>
+                                {!selectedCliente && <p className="lock-note">Selecciona primero un cliente.</p>}
                             </div>
+
+                            <div className="form-group">
+                                <label>Zona</label>
+                                <div className="field-with-add">
+                                    <select value={selectedZona} disabled={!formData.contrato_id} className={!formData.contrato_id ? 'select-disabled' : ''} onChange={(e) => { setSelectedZona(e.target.value); setFormData({ ...formData, emplazamiento_id: '' }); }}>
+                                        <option value="">-- Selecciona una zona --</option>
+                                        {zonasFiltradas.map(z => <option key={z.id} value={z.id}>{z.nombre}</option>)}
+                                    </select>
+                                    {formData.contrato_id && (
+                                        <QuickAddInline label="Zona" onCreate={crearZonaRapida} fields={[
+                                            { key: 'nombre', placeholder: 'Nombre de la zona *' }
+                                        ]} />
+                                    )}
+                                </div>
+                                {!formData.contrato_id && <p className="lock-note">Selecciona primero un contrato.</p>}
+                            </div>
+
                             <div className="form-group">
                                 <label>Emplazamiento</label>
-                                <select value={formData.emplazamiento_id} onChange={(e) => setFormData({ ...formData, emplazamiento_id: e.target.value })}>
-                                    <option value="">-- Selecciona un emplazamiento --</option>
-                                    {emplazamientosFiltrados.map(e => (
-                                        <option key={e.id} value={e.id}>{e.nombre} ({e.cliente_nombre} › {e.zona_nombre})</option>
-                                    ))}
-                                </select>
+                                <div className="field-with-add">
+                                    <select value={formData.emplazamiento_id} onChange={(e) => setFormData({ ...formData, emplazamiento_id: e.target.value })}>
+                                        <option value="">-- Selecciona un emplazamiento --</option>
+                                        {emplazamientosFiltrados.map(e => (
+                                            <option key={e.id} value={e.id}>{e.nombre} ({e.cliente_nombre} › {e.zona_nombre})</option>
+                                        ))}
+                                    </select>
+                                    {selectedZona && (
+                                        <QuickAddInline label="Emplazamiento" onCreate={crearEmplazamientoRapido} fields={[
+                                            { key: 'nombre', placeholder: 'Nombre del emplazamiento *' },
+                                            { key: 'direccion', placeholder: 'Dirección' }
+                                        ]} />
+                                    )}
+                                </div>
+                                <p className="card-text" style={{ marginTop: '6px' }}>O busca entre todos los emplazamientos existentes:</p>
+                                <input type="text" placeholder="Escribe para filtrar..." value={emplazamientoSearch} onChange={(e) => setEmplazamientoSearch(e.target.value)} />
                             </div>
 
                             <div className="form-group">
