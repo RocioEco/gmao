@@ -51,14 +51,19 @@ db.serialize(() => {
   db.run(`CREATE TABLE IF NOT EXISTS ordenes_trabajo (
     id TEXT PRIMARY KEY,
     ticket TEXT,
+    id_cliente TEXT,
     cliente_id INTEGER,
     tipo TEXT NOT NULL,
     estado TEXT NOT NULL,
+    prioridad TEXT DEFAULT 'media',
     asignado_a INTEGER,
+    tecnicos_apoyo TEXT,
     titulo TEXT NOT NULL,
     notas TEXT,
     activo_id INTEGER,
     datos_json TEXT,
+    fecha_programada DATE,
+    fecha_cierre TIMESTAMP,
     creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(cliente_id) REFERENCES clientes(id),
     FOREIGN KEY(asignado_a) REFERENCES usuarios(id),
@@ -68,6 +73,47 @@ db.serialize(() => {
   // Migración segura para bases de datos ya existentes (ignora error si la columna ya existe)
   db.run(`ALTER TABLE ordenes_trabajo ADD COLUMN activo_id INTEGER`, () => {});
   db.run(`ALTER TABLE ordenes_trabajo ADD COLUMN datos_json TEXT`, () => {});
+  db.run(`ALTER TABLE ordenes_trabajo ADD COLUMN id_cliente TEXT`, () => {});
+  db.run(`ALTER TABLE ordenes_trabajo ADD COLUMN prioridad TEXT DEFAULT 'media'`, () => {});
+  db.run(`ALTER TABLE ordenes_trabajo ADD COLUMN tecnicos_apoyo TEXT`, () => {});
+  db.run(`ALTER TABLE ordenes_trabajo ADD COLUMN fecha_programada DATE`, () => {});
+  db.run(`ALTER TABLE ordenes_trabajo ADD COLUMN fecha_cierre TIMESTAMP`, () => {});
+
+  db.run(`CREATE TABLE IF NOT EXISTS visitas (
+    id TEXT PRIMARY KEY,
+    orden_id TEXT NOT NULL,
+    fecha DATE,
+    tecnico_id INTEGER,
+    hora_inicio TEXT,
+    hora_fin TEXT,
+    id_mantis TEXT,
+    proyecto TEXT,
+    descripcion TEXT,
+    checklist_tipo TEXT,
+    checklist_json TEXT,
+    materiales_json TEXT,
+    fotos_json TEXT,
+    medio_ambiente_json TEXT,
+    seguridad_json TEXT,
+    desplazamientos_json TEXT,
+    firma TEXT,
+    firma_nombre TEXT,
+    finalizado INTEGER DEFAULT 0,
+    creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(orden_id) REFERENCES ordenes_trabajo(id),
+    FOREIGN KEY(tecnico_id) REFERENCES usuarios(id)
+  )`);
+
+  db.run(`CREATE TABLE IF NOT EXISTS materiales (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    cliente_id INTEGER,
+    tipo TEXT,
+    descripcion TEXT NOT NULL,
+    unidad TEXT DEFAULT 'ud',
+    historial_json TEXT DEFAULT '[]',
+    creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(cliente_id) REFERENCES clientes(id)
+  )`);
 
   db.run(`CREATE TABLE IF NOT EXISTS ordenes_guardia (
     id TEXT PRIMARY KEY,
@@ -453,7 +499,9 @@ app.get('/api/ordenes', (req, res) => {
                  a.nombre as activo_nombre,
                  a.tipo as activo_tipo,
                  e.nombre as emplazamiento_nombre,
-                 z.nombre as zona_nombre
+                 z.nombre as zona_nombre,
+                 (SELECT COUNT(*) FROM visitas v WHERE v.orden_id = o.id) as num_visitas,
+                 (SELECT MAX(fecha) FROM visitas v WHERE v.orden_id = o.id) as ultima_visita
           FROM ordenes_trabajo o 
           LEFT JOIN clientes c ON o.cliente_id = c.id
           LEFT JOIN usuarios u ON o.asignado_a = u.id
@@ -467,28 +515,160 @@ app.get('/api/ordenes', (req, res) => {
 });
 
 app.post('/api/ordenes', (req, res) => {
-  const { ticket, cliente_id, tipo, estado, asignado_a, titulo, notas, activo_id, datos_json } = req.body;
+  const { ticket, id_cliente, cliente_id, tipo, estado, prioridad, asignado_a, tecnicos_apoyo,
+          titulo, notas, activo_id, datos_json, fecha_programada, fecha_cierre } = req.body;
   const id = `OT-${Date.now()}`;
-  db.run(`INSERT INTO ordenes_trabajo (id, ticket, cliente_id, tipo, estado, asignado_a, titulo, notas, activo_id, datos_json) 
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [id, ticket, cliente_id || null, tipo, estado, asignado_a, titulo, notas, activo_id || null, datos_json || null], function(err) {
+  db.run(`INSERT INTO ordenes_trabajo (id, ticket, id_cliente, cliente_id, tipo, estado, prioridad, asignado_a, 
+          tecnicos_apoyo, titulo, notas, activo_id, datos_json, fecha_programada, fecha_cierre) 
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [id, ticket, id_cliente, cliente_id || null, tipo, estado, prioridad || 'media', asignado_a,
+     tecnicos_apoyo || null, titulo, notas, activo_id || null, datos_json || null, fecha_programada || null, fecha_cierre || null],
+    function(err) {
       if (err) return res.status(500).json({ error: err.message });
-      res.json({ id, ticket, cliente_id, tipo, estado, asignado_a, titulo, notas, activo_id, datos_json });
+      res.json({ id, ticket, id_cliente, cliente_id, tipo, estado, prioridad, asignado_a, tecnicos_apoyo, titulo, notas, activo_id, datos_json, fecha_programada, fecha_cierre });
     });
 });
 
 app.put('/api/ordenes/:id', (req, res) => {
-  const { ticket, cliente_id, tipo, estado, asignado_a, titulo, notas, activo_id, datos_json } = req.body;
-  db.run(`UPDATE ordenes_trabajo SET ticket = ?, cliente_id = ?, tipo = ?, estado = ?, asignado_a = ?, 
-          titulo = ?, notas = ?, activo_id = ?, datos_json = ? WHERE id = ?`,
-    [ticket, cliente_id || null, tipo, estado, asignado_a, titulo, notas, activo_id || null, datos_json || null, req.params.id], (err) => {
+  const { ticket, id_cliente, cliente_id, tipo, estado, prioridad, asignado_a, tecnicos_apoyo,
+          titulo, notas, activo_id, datos_json, fecha_programada, fecha_cierre } = req.body;
+  db.run(`UPDATE ordenes_trabajo SET ticket = ?, id_cliente = ?, cliente_id = ?, tipo = ?, estado = ?, prioridad = ?, 
+          asignado_a = ?, tecnicos_apoyo = ?, titulo = ?, notas = ?, activo_id = ?, datos_json = ?, 
+          fecha_programada = ?, fecha_cierre = ? WHERE id = ?`,
+    [ticket, id_cliente, cliente_id || null, tipo, estado, prioridad || 'media', asignado_a, tecnicos_apoyo || null,
+     titulo, notas, activo_id || null, datos_json || null, fecha_programada || null, fecha_cierre || null, req.params.id],
+    (err) => {
       if (err) return res.status(500).json({ error: err.message });
-      res.json({ id: req.params.id, ticket, cliente_id, tipo, estado, asignado_a, titulo, notas, activo_id, datos_json });
+      res.json({ id: req.params.id, ticket, id_cliente, cliente_id, tipo, estado, prioridad, asignado_a, tecnicos_apoyo, titulo, notas, activo_id, datos_json, fecha_programada, fecha_cierre });
     });
 });
 
 app.delete('/api/ordenes/:id', (req, res) => {
-  db.run('DELETE FROM ordenes_trabajo WHERE id = ?', [req.params.id], (err) => {
+  db.run('DELETE FROM visitas WHERE orden_id = ?', [req.params.id], () => {
+    db.run('DELETE FROM ordenes_trabajo WHERE id = ?', [req.params.id], (err) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ success: true });
+    });
+  });
+});
+
+// VISITAS (revisiones/ejecuciones dentro de una OT)
+app.get('/api/visitas', (req, res) => {
+  const { orden_id } = req.query;
+  let sql = `SELECT v.*, u.nombre as tecnico_nombre FROM visitas v LEFT JOIN usuarios u ON v.tecnico_id = u.id`;
+  const params = [];
+  if (orden_id) { sql += ' WHERE v.orden_id = ?'; params.push(orden_id); }
+  sql += ' ORDER BY v.fecha DESC, v.creado_en DESC';
+  db.all(sql, params, (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows);
+  });
+});
+
+app.post('/api/visitas', (req, res) => {
+  const { orden_id, fecha, tecnico_id, hora_inicio, hora_fin, id_mantis, proyecto, descripcion,
+          checklist_tipo, checklist_json, materiales_json, fotos_json, medio_ambiente_json,
+          seguridad_json, desplazamientos_json, firma, firma_nombre, finalizado } = req.body;
+  if (!orden_id) return res.status(400).json({ error: 'orden_id requerido' });
+  const id = `VIS-${Date.now()}`;
+  db.run(`INSERT INTO visitas (id, orden_id, fecha, tecnico_id, hora_inicio, hora_fin, id_mantis, proyecto, 
+          descripcion, checklist_tipo, checklist_json, materiales_json, fotos_json, medio_ambiente_json, 
+          seguridad_json, desplazamientos_json, firma, firma_nombre, finalizado) 
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [id, orden_id, fecha, tecnico_id, hora_inicio, hora_fin, id_mantis, proyecto, descripcion,
+     checklist_tipo, checklist_json, materiales_json, fotos_json, medio_ambiente_json,
+     seguridad_json, desplazamientos_json, firma, firma_nombre, finalizado ? 1 : 0],
+    function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      // Si la visita finaliza el trabajo, marcamos la OT como resuelta
+      if (finalizado) {
+        db.run(`UPDATE ordenes_trabajo SET estado = 'resuelta', fecha_cierre = CURRENT_TIMESTAMP WHERE id = ?`, [orden_id]);
+      } else {
+        db.run(`UPDATE ordenes_trabajo SET estado = 'en_curso' WHERE id = ? AND estado = 'abierta'`, [orden_id]);
+      }
+      res.json({ id, orden_id, fecha, tecnico_id, hora_inicio, hora_fin, id_mantis, proyecto, descripcion,
+        checklist_tipo, checklist_json, materiales_json, fotos_json, medio_ambiente_json,
+        seguridad_json, desplazamientos_json, firma, firma_nombre, finalizado: finalizado ? 1 : 0 });
+    });
+});
+
+app.put('/api/visitas/:id', (req, res) => {
+  const { fecha, tecnico_id, hora_inicio, hora_fin, id_mantis, proyecto, descripcion,
+          checklist_tipo, checklist_json, materiales_json, fotos_json, medio_ambiente_json,
+          seguridad_json, desplazamientos_json, firma, firma_nombre, finalizado, orden_id } = req.body;
+  db.run(`UPDATE visitas SET fecha = ?, tecnico_id = ?, hora_inicio = ?, hora_fin = ?, id_mantis = ?, 
+          proyecto = ?, descripcion = ?, checklist_tipo = ?, checklist_json = ?, materiales_json = ?, 
+          fotos_json = ?, medio_ambiente_json = ?, seguridad_json = ?, desplazamientos_json = ?, 
+          firma = ?, firma_nombre = ?, finalizado = ? WHERE id = ?`,
+    [fecha, tecnico_id, hora_inicio, hora_fin, id_mantis, proyecto, descripcion, checklist_tipo,
+     checklist_json, materiales_json, fotos_json, medio_ambiente_json, seguridad_json,
+     desplazamientos_json, firma, firma_nombre, finalizado ? 1 : 0, req.params.id],
+    (err) => {
+      if (err) return res.status(500).json({ error: err.message });
+      if (orden_id) {
+        if (finalizado) {
+          db.run(`UPDATE ordenes_trabajo SET estado = 'resuelta', fecha_cierre = CURRENT_TIMESTAMP WHERE id = ?`, [orden_id]);
+        } else {
+          db.run(`UPDATE ordenes_trabajo SET estado = 'en_curso' WHERE id = ? AND estado = 'abierta'`, [orden_id]);
+        }
+      }
+      res.json({ id: req.params.id, ...req.body });
+    });
+});
+
+app.delete('/api/visitas/:id', (req, res) => {
+  db.run('DELETE FROM visitas WHERE id = ?', [req.params.id], (err) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ success: true });
+  });
+});
+
+// MATERIALES (PRECIARIO)
+app.get('/api/materiales', (req, res) => {
+  db.all(`SELECT m.*, c.nombre as cliente_nombre FROM materiales m 
+          LEFT JOIN clientes c ON m.cliente_id = c.id ORDER BY m.descripcion`, (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows);
+  });
+});
+
+app.post('/api/materiales', (req, res) => {
+  const { cliente_id, tipo, descripcion, unidad, precio } = req.body;
+  if (!descripcion) return res.status(400).json({ error: 'Descripción requerida' });
+  const historial = precio !== undefined && precio !== '' ? [{ fecha: new Date().toISOString().slice(0, 10), precio: parseFloat(precio) }] : [];
+  db.run(`INSERT INTO materiales (cliente_id, tipo, descripcion, unidad, historial_json) VALUES (?, ?, ?, ?, ?)`,
+    [cliente_id || null, tipo, descripcion, unidad || 'ud', JSON.stringify(historial)], function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ id: this.lastID, cliente_id, tipo, descripcion, unidad, historial_json: JSON.stringify(historial) });
+    });
+});
+
+app.put('/api/materiales/:id', (req, res) => {
+  const { cliente_id, tipo, descripcion, unidad } = req.body;
+  db.run(`UPDATE materiales SET cliente_id = ?, tipo = ?, descripcion = ?, unidad = ? WHERE id = ?`,
+    [cliente_id || null, tipo, descripcion, unidad, req.params.id], (err) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ id: req.params.id, cliente_id, tipo, descripcion, unidad });
+    });
+});
+
+app.post('/api/materiales/:id/precio', (req, res) => {
+  const { precio, fecha } = req.body;
+  if (precio === undefined || precio === '') return res.status(400).json({ error: 'Precio requerido' });
+  db.get('SELECT historial_json FROM materiales WHERE id = ?', [req.params.id], (err, row) => {
+    if (err || !row) return res.status(404).json({ error: 'Material no encontrado' });
+    let historial = [];
+    try { historial = JSON.parse(row.historial_json || '[]'); } catch { historial = []; }
+    historial.push({ fecha: fecha || new Date().toISOString().slice(0, 10), precio: parseFloat(precio) });
+    db.run('UPDATE materiales SET historial_json = ? WHERE id = ?', [JSON.stringify(historial), req.params.id], (err2) => {
+      if (err2) return res.status(500).json({ error: err2.message });
+      res.json({ id: req.params.id, historial_json: JSON.stringify(historial) });
+    });
+  });
+});
+
+app.delete('/api/materiales/:id', (req, res) => {
+  db.run('DELETE FROM materiales WHERE id = ?', [req.params.id], (err) => {
     if (err) return res.status(500).json({ error: err.message });
     res.json({ success: true });
   });
