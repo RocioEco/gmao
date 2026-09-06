@@ -127,6 +127,31 @@
         .breadcrumb-path { font-size: 11px; color: var(--text-muted); margin: 2px 0; }
         .select-disabled { opacity: 0.5; cursor: not-allowed; }
         .import-summary { background: var(--bg-accent); border-radius: 8px; padding: 10px; font-size: 12px; margin-top: 8px; color: var(--text-primary); }
+        .checklist-section { margin-bottom: 1.25rem; }
+        .checklist-section-title { font-size: 13px; font-weight: 700; color: var(--fill-accent); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; padding-bottom: 4px; border-bottom: 2px solid var(--border); }
+        .insp-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        .insp-table th { text-align: left; padding: 6px 4px; border-bottom: 1px solid var(--border); color: var(--text-secondary); font-weight: 600; }
+        .insp-table td { padding: 6px 4px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+        .insp-radio-group { display: flex; gap: 10px; align-items: center; }
+        .insp-radio-group label { display: flex; align-items: center; gap: 3px; font-size: 11px; white-space: nowrap; }
+        .insp-obs-input { min-width: 90px; }
+        .grid-table-wrap { overflow-x: auto; }
+        .grid-table { width: 100%; border-collapse: collapse; font-size: 11px; min-width: 500px; }
+        .grid-table th, .grid-table td { border: 1px solid var(--border); padding: 4px; text-align: center; }
+        .grid-table th { background: var(--surface-2); font-weight: 600; }
+        .grid-table select { font-size: 11px; padding: 4px; }
+        .dyn-row { display: grid; gap: 6px; padding: 8px; background: var(--surface-2); border-radius: 8px; margin-bottom: 6px; }
+        .dyn-row-actions { display: flex; justify-content: flex-end; }
+        .btn-remove-row { background: var(--bg-danger); color: var(--fill-danger); font-size: 11px; padding: 4px 8px; border: none; border-radius: 6px; cursor: pointer; }
+        .btn-add-row { background: var(--bg-success); color: var(--fill-success); font-size: 12px; padding: 6px 10px; border: none; border-radius: 6px; cursor: pointer; margin-top: 4px; }
+        .tipo-filter-bar { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 1rem; }
+        .tipo-filter-btn { padding: 6px 10px; border-radius: 20px; border: 1px solid var(--border); background: transparent; color: var(--text-primary); font-size: 11px; cursor: pointer; }
+        .tipo-filter-btn.active { background: var(--fill-accent); color: white; border-color: var(--fill-accent); }
+        .badge.guardia { background: var(--bg-warning); color: #b8860b; }
+        .readonly-view { font-size: 12px; }
+        .readonly-view .rv-row { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed var(--border); }
+        .readonly-view .rv-label { color: var(--text-secondary); }
+        .readonly-view .rv-value { font-weight: 600; text-align: right; }
     </style>
 </head>
 <body class="light-theme">
@@ -322,7 +347,7 @@
 
                     <div className="content">
                         {activeTab === 'dashboard' && <DashboardView ordenes={ordenes} clientes={clientes} activos={activos} contratos={contratos} />}
-                        {activeTab === 'ordenes' && <OrdenesView user={user} ordenes={ordenes} clientes={clientes} onRefresh={cargarDatos} />}
+                        {activeTab === 'ordenes' && <OrdenesView user={user} ordenes={ordenes} clientes={clientes} contratos={contratos} activos={activos} onRefresh={cargarDatos} />}
                         {activeTab === 'activos' && (user.rol === 'admin' || user.rol === 'supervisor') && <ActivosView user={user} activos={activos} emplazamientos={emplazamientos} clientes={clientes} contratos={contratos} onRefresh={cargarDatos} />}
                         {activeTab === 'emplazamientos' && (user.rol === 'admin' || user.rol === 'supervisor') && <EmplazamientosView user={user} emplazamientos={emplazamientos} zonas={zonas} clientes={clientes} contratos={contratos} onRefresh={cargarDatos} />}
                         {activeTab === 'zonas' && (user.rol === 'admin' || user.rol === 'supervisor') && <ZonasView user={user} zonas={zonas} clientes={clientes} contratos={contratos} onRefresh={cargarDatos} />}
@@ -371,95 +396,572 @@
             );
         }
 
-        function OrdenesView({ user, ordenes, clientes, onRefresh }) {
-            const [showForm, setShowForm] = useState(false);
-            const [formData, setFormData] = useState({
-                titulo: '',
-                tipo: 'correctivo',
-                cliente_id: clientes.length > 0 ? clientes[0].id : 1,
-                estado: 'abierta'
-            });
+        // ===== SCHEMAS DE CHECKLISTS PREVENTIVO (según tipo de Activo) =====
+        const CHECKLIST_SCHEMAS = {
+            'Puerta Automática': {
+                sections: [
+                    { type: 'fields', title: 'Datos del Equipo', fields: [
+                        { key: 'telemando', label: 'Telemando', type: 'select', options: ['Sí', 'No'] },
+                        { key: 'tipo_telemando', label: 'Tipo de telemando', type: 'text' },
+                        { key: 'dispositivos_seguridad', label: 'Dispositivos de seguridad', type: 'select', options: ['Sí', 'No'] },
+                        { key: 'tipo_dispositivo_seguridad', label: 'Tipo de dispositivo', type: 'text' },
+                        { key: 'finales_carrera', label: 'Finales de carrera', type: 'select', options: ['Sí', 'No'] }
+                    ]},
+                    { type: 'inspection', title: 'Inspección', items: [
+                        'Comprobación visual',
+                        'Control de estructura y fijaciones',
+                        'Verificación de correcta apertura y cierre',
+                        'Comprobación de elementos de seguridad',
+                        'Comprobación de fotocélulas / radar',
+                        'Comprobación de finales de carrera',
+                        'Engrase de guías y rodamientos',
+                        'Limpieza general'
+                    ]}
+                ]
+            },
+            'Persiana Motorizada': {
+                sections: [
+                    { type: 'fields', title: 'Datos del Equipo', fields: [
+                        { key: 'tipo_lamas', label: 'Tipo de lamas', type: 'text' },
+                        { key: 'motor', label: 'Motor', type: 'text' },
+                        { key: 'telemando', label: 'Telemando', type: 'select', options: ['Sí', 'No'] },
+                        { key: 'finales_carrera_adicionales', label: 'Finales de carrera adicionales', type: 'select', options: ['Sí', 'No'] },
+                        { key: 'detectores_presencia', label: 'Detectores de presencia', type: 'select', options: ['Sí', 'No'] },
+                        { key: 'mecanismo_desbloqueo', label: 'Mecanismo desbloqueo emergencia', type: 'select', options: ['Sí', 'No'] }
+                    ]},
+                    { type: 'inspection', title: 'Inspección', items: [
+                        'Comprobación visual',
+                        'Control de estructura y fijaciones',
+                        'Verificación de correcto funcionamiento',
+                        'Comprobación de detectores de presencia',
+                        'Comprobación de finales de carrera',
+                        'Comprobación mecanismo de desbloqueo de emergencia',
+                        'Engrase de mecanismos',
+                        'Limpieza general'
+                    ]}
+                ]
+            },
+            'Control Acceso Vehicular': {
+                sections: [
+                    { type: 'grid', title: 'Barreras', rows: ['Entrada Ext', 'Entrada Int', 'Salida Ext', 'Salida Int'],
+                      columns: ['E. Físico', 'Motor/Red', 'Muelle', 'Engrase', 'Semáforo', 'Mástil', 'Fotocélulas', 'Leds', 'Detectores', 'Lazos', 'Conexiones'],
+                      options: ['ok', 'no ok', 'N/A'] },
+                    { type: 'grid', title: 'Rack', rows: ['Rack'],
+                      columns: ['E. Físico', 'Controlador', 'Diferenciales', 'SAI', 'Interfonía E', 'Interfonía S', 'Conexiones'],
+                      options: ['ok', 'no ok', 'N/A'] },
+                    { type: 'grid', title: 'Cámara OCR', rows: ['Entrada Ext', 'Salida Int'],
+                      columns: ['E. Físico', 'Fijación', 'Lectura', 'Conexiones'],
+                      options: ['ok', 'no ok', 'N/A'] },
+                    { type: 'textarea', title: 'Observaciones Generales', key: 'observaciones_generales' }
+                ]
+            },
+            'Control Acceso Peatonal': {
+                sections: [
+                    { type: 'grid', title: 'Torno', rows: ['Torno'],
+                      columns: ['E. Físico', 'Controlador', 'Lector RFID', 'Lector QR', 'Engrase', 'Conexiones'],
+                      options: ['ok', 'no ok', 'N/A'] },
+                    { type: 'grid', title: 'Rack', rows: ['Rack'],
+                      columns: ['E. Físico', 'Controlador', 'Diferenciales', 'SAI', 'Interfonía E', 'Interfonía S', 'Conexiones'],
+                      options: ['ok', 'no ok', 'N/A'] },
+                    { type: 'grid', title: 'Portón', rows: ['Portón'],
+                      columns: ['E. Físico', 'Motor', 'Engrase'],
+                      options: ['ok', 'no ok', 'N/A'] },
+                    { type: 'textarea', title: 'Observaciones Generales', key: 'observaciones_generales' }
+                ]
+            },
+            'CCTV': {
+                sections: [
+                    { type: 'fields', title: 'Datos de la Cámara', fields: [
+                        { key: 'estado_camara', label: 'Estado general cámara', type: 'select', options: ['OK', 'NO OK'] },
+                        { key: 'estado_cableado', label: 'Estado general cableado', type: 'select', options: ['OK', 'NO OK'] },
+                        { key: 'estado_soporte', label: 'Estado general soporte', type: 'select', options: ['OK', 'NO OK'] },
+                        { key: 'limpieza_camara', label: 'Limpieza de cámara realizada', type: 'select', options: ['SI', 'NO'] },
+                        { key: 'tratamiento_insectos', label: 'Tratamiento insectos realizado', type: 'select', options: ['SI', 'NO'] }
+                    ]},
+                    { type: 'textarea', title: 'Observaciones', key: 'observaciones' }
+                ]
+            }
+        };
 
-            const handleAddOrden = async () => {
-                if (!formData.titulo.trim()) return;
+        // ===== COMPONENTES GENÉRICOS DE CHECKLIST =====
+        function InspectionTable({ items, value, onChange, readOnly }) {
+            const data = value || {};
+            const setItem = (item, field, val) => {
+                onChange({ ...data, [item]: { ...(data[item] || {}), [field]: val } });
+            };
+            return (
+                <div className="grid-table-wrap">
+                    <table className="insp-table">
+                        <thead>
+                            <tr><th>Elemento</th><th>Resultado</th><th>Observaciones</th></tr>
+                        </thead>
+                        <tbody>
+                            {items.map(item => {
+                                const row = data[item] || {};
+                                return (
+                                    <tr key={item}>
+                                        <td>{item}</td>
+                                        <td>
+                                            {readOnly ? (row.resultado || '—') : (
+                                                <div className="insp-radio-group">
+                                                    <label><input type="radio" name={item} checked={row.resultado === 'Correcto'} onChange={() => setItem(item, 'resultado', 'Correcto')} /> ✅</label>
+                                                    <label><input type="radio" name={item} checked={row.resultado === 'Incorrecto'} onChange={() => setItem(item, 'resultado', 'Incorrecto')} /> ❌</label>
+                                                </div>
+                                            )}
+                                        </td>
+                                        <td>
+                                            {readOnly ? (row.observaciones || '—') : (
+                                                <input className="insp-obs-input" type="text" placeholder="Observaciones" value={row.observaciones || ''} onChange={(e) => setItem(item, 'observaciones', e.target.value)} />
+                                            )}
+                                        </td>
+                                    </tr>
+                                );
+                            })}
+                        </tbody>
+                    </table>
+                </div>
+            );
+        }
 
-                try {
-                    await fetch(`${API_URL}/api/ordenes`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            ...formData,
-                            asignado_a: user.id
-                        })
-                    });
+        function ComponentGrid({ rows, columns, options, value, onChange, readOnly }) {
+            const data = value || {};
+            const setCell = (row, col, val) => {
+                onChange({ ...data, [row]: { ...(data[row] || {}), [col]: val } });
+            };
+            return (
+                <div className="grid-table-wrap">
+                    <table className="grid-table">
+                        <thead>
+                            <tr><th></th>{columns.map(c => <th key={c}>{c}</th>)}</tr>
+                        </thead>
+                        <tbody>
+                            {rows.map(row => (
+                                <tr key={row}>
+                                    <td style={{ fontWeight: 600, textAlign: 'left' }}>{row}</td>
+                                    {columns.map(col => {
+                                        const val = (data[row] || {})[col] || '';
+                                        return (
+                                            <td key={col}>
+                                                {readOnly ? (val || '—') : (
+                                                    <select value={val} onChange={(e) => setCell(row, col, e.target.value)}>
+                                                        <option value="">-</option>
+                                                        {options.map(o => <option key={o} value={o}>{o}</option>)}
+                                                    </select>
+                                                )}
+                                            </td>
+                                        );
+                                    })}
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            );
+        }
 
-                    setFormData({ titulo: '', tipo: 'correctivo', cliente_id: clientes[0]?.id || 1, estado: 'abierta' });
-                    setShowForm(false);
-                    onRefresh();
-                } catch (err) {
-                    alert('Error al crear orden');
-                }
+        function DynamicChecklistForm({ tipoActivo, value, onChange, readOnly }) {
+            const schema = CHECKLIST_SCHEMAS[tipoActivo];
+            const data = value || {};
+
+            if (!schema) {
+                return <p className="card-text">⚠️ No hay checklist definido para el tipo de activo "{tipoActivo}".</p>;
+            }
+
+            const updateSection = (sectionKey, sectionValue) => {
+                onChange({ ...data, [sectionKey]: sectionValue });
             };
 
             return (
                 <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-                        <h3 className="section-title" style={{ margin: 0 }}>📋 Órdenes de Trabajo</h3>
-                        {(user.rol === 'admin' || user.rol === 'supervisor' || user.rol === 'tecnico') && (
-                            <button className="btn btn-primary" onClick={() => setShowForm(!showForm)}>
-                                + Nueva
-                            </button>
+                    {schema.sections.map((section, idx) => {
+                        const sectionKey = section.key || `section_${idx}`;
+                        return (
+                            <div key={idx} className="checklist-section">
+                                <div className="checklist-section-title">{section.title}</div>
+
+                                {section.type === 'fields' && (
+                                    <div>
+                                        {section.fields.map(f => (
+                                            <div className="form-group" key={f.key}>
+                                                <label>{f.label}</label>
+                                                {readOnly ? (
+                                                    <p className="card-text">{(data[sectionKey] || {})[f.key] || '—'}</p>
+                                                ) : f.type === 'select' ? (
+                                                    <select value={(data[sectionKey] || {})[f.key] || ''} onChange={(e) => updateSection(sectionKey, { ...(data[sectionKey] || {}), [f.key]: e.target.value })}>
+                                                        <option value="">-- Selecciona --</option>
+                                                        {f.options.map(o => <option key={o} value={o}>{o}</option>)}
+                                                    </select>
+                                                ) : (
+                                                    <input type="text" value={(data[sectionKey] || {})[f.key] || ''} onChange={(e) => updateSection(sectionKey, { ...(data[sectionKey] || {}), [f.key]: e.target.value })} />
+                                                )}
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+
+                                {section.type === 'inspection' && (
+                                    <InspectionTable items={section.items} value={data[sectionKey]} onChange={(v) => updateSection(sectionKey, v)} readOnly={readOnly} />
+                                )}
+
+                                {section.type === 'grid' && (
+                                    <ComponentGrid rows={section.rows} columns={section.columns} options={section.options} value={data[sectionKey]} onChange={(v) => updateSection(sectionKey, v)} readOnly={readOnly} />
+                                )}
+
+                                {section.type === 'textarea' && (
+                                    readOnly ? (
+                                        <p className="card-text">{data[section.key] || '—'}</p>
+                                    ) : (
+                                        <textarea value={data[section.key] || ''} onChange={(e) => onChange({ ...data, [section.key]: e.target.value })}></textarea>
+                                    )
+                                )}
+                            </div>
+                        );
+                    })}
+                </div>
+            );
+        }
+
+        // ===== PARTE DE TRABAJO (para OT tipo Obra) =====
+        function ParteTrabajoForm({ value, onChange, readOnly }) {
+            const data = value || {};
+            const trabajos = data.trabajos || [{ descripcion: '', horario: '', finalizado: 'NO', detalle: '' }];
+            const materiales = data.materiales || [{ proyecto: '', cantidad: '', descripcion: '' }];
+            const medioAmbiente = data.medioAmbiente || [{ tipoResiduo: '', cantidad: '', destino: '' }];
+            const desplazamientos = data.desplazamientos || [{ matricula: '', origen: '', destino: '', kilometros: '' }];
+            const seguridad = data.seguridad || { epis: '', maquinariaBuenEstado: '', mediosElevacion: '', mediosElevacionTipo: '' };
+
+            const updateArray = (key, arr) => onChange({ ...data, [key]: arr });
+            const updateArrayItem = (key, idx, field, val) => {
+                const arr = [...(data[key] || [])];
+                arr[idx] = { ...arr[idx], [field]: val };
+                updateArray(key, arr);
+            };
+            const addRow = (key, empty) => updateArray(key, [...(data[key] || [empty]), empty]);
+            const removeRow = (key, idx) => {
+                const arr = [...(data[key] || [])];
+                arr.splice(idx, 1);
+                updateArray(key, arr);
+            };
+
+            return (
+                <div>
+                    <div className="checklist-section">
+                        <div className="checklist-section-title">📋 Trabajos Realizados</div>
+                        {trabajos.map((t, i) => (
+                            <div key={i} className="dyn-row">
+                                <input placeholder="Descripción / Nº Proyecto" value={t.descripcion} disabled={readOnly} onChange={(e) => updateArrayItem('trabajos', i, 'descripcion', e.target.value)} />
+                                <input placeholder="Horario" value={t.horario} disabled={readOnly} onChange={(e) => updateArrayItem('trabajos', i, 'horario', e.target.value)} />
+                                <select value={t.finalizado} disabled={readOnly} onChange={(e) => updateArrayItem('trabajos', i, 'finalizado', e.target.value)}>
+                                    <option value="NO">Finalizado: NO</option>
+                                    <option value="SI">Finalizado: SI</option>
+                                </select>
+                                <textarea placeholder="Descripción de los trabajos realizados" value={t.detalle} disabled={readOnly} onChange={(e) => updateArrayItem('trabajos', i, 'detalle', e.target.value)}></textarea>
+                                {!readOnly && trabajos.length > 1 && <div className="dyn-row-actions"><button className="btn-remove-row" onClick={() => removeRow('trabajos', i)}>Quitar</button></div>}
+                            </div>
+                        ))}
+                        {!readOnly && <button className="btn-add-row" onClick={() => addRow('trabajos', { descripcion: '', horario: '', finalizado: 'NO', detalle: '' })}>+ Añadir trabajo</button>}
+                    </div>
+
+                    <div className="checklist-section">
+                        <div className="checklist-section-title">📦 Materiales</div>
+                        {materiales.map((m, i) => (
+                            <div key={i} className="dyn-row">
+                                <input placeholder="Nº Proyecto" value={m.proyecto} disabled={readOnly} onChange={(e) => updateArrayItem('materiales', i, 'proyecto', e.target.value)} />
+                                <input placeholder="Cantidad" value={m.cantidad} disabled={readOnly} onChange={(e) => updateArrayItem('materiales', i, 'cantidad', e.target.value)} />
+                                <input placeholder="Descripción" value={m.descripcion} disabled={readOnly} onChange={(e) => updateArrayItem('materiales', i, 'descripcion', e.target.value)} />
+                                {!readOnly && materiales.length > 1 && <div className="dyn-row-actions"><button className="btn-remove-row" onClick={() => removeRow('materiales', i)}>Quitar</button></div>}
+                            </div>
+                        ))}
+                        {!readOnly && <button className="btn-add-row" onClick={() => addRow('materiales', { proyecto: '', cantidad: '', descripcion: '' })}>+ Añadir material</button>}
+                    </div>
+
+                    <div className="checklist-section">
+                        <div className="checklist-section-title">🌱 Medio Ambiente</div>
+                        {medioAmbiente.map((r, i) => (
+                            <div key={i} className="dyn-row">
+                                <input placeholder="Tipo de Residuo" value={r.tipoResiduo} disabled={readOnly} onChange={(e) => updateArrayItem('medioAmbiente', i, 'tipoResiduo', e.target.value)} />
+                                <input placeholder="Cantidad" value={r.cantidad} disabled={readOnly} onChange={(e) => updateArrayItem('medioAmbiente', i, 'cantidad', e.target.value)} />
+                                <input placeholder="Destino del residuo" value={r.destino} disabled={readOnly} onChange={(e) => updateArrayItem('medioAmbiente', i, 'destino', e.target.value)} />
+                                {!readOnly && medioAmbiente.length > 1 && <div className="dyn-row-actions"><button className="btn-remove-row" onClick={() => removeRow('medioAmbiente', i)}>Quitar</button></div>}
+                            </div>
+                        ))}
+                        {!readOnly && <button className="btn-add-row" onClick={() => addRow('medioAmbiente', { tipoResiduo: '', cantidad: '', destino: '' })}>+ Añadir residuo</button>}
+                    </div>
+
+                    <div className="checklist-section">
+                        <div className="checklist-section-title">🦺 Seguridad y Salud</div>
+                        <div className="form-group">
+                            <label>¿Se utilizaron EPIs para realizar los trabajos?</label>
+                            <select value={seguridad.epis} disabled={readOnly} onChange={(e) => onChange({ ...data, seguridad: { ...seguridad, epis: e.target.value } })}>
+                                <option value="">-- Selecciona --</option>
+                                <option value="SI">SI</option>
+                                <option value="NO">NO</option>
+                            </select>
+                        </div>
+                        <div className="form-group">
+                            <label>¿La maquinaria y equipos se encontraban en buen estado?</label>
+                            <select value={seguridad.maquinariaBuenEstado} disabled={readOnly} onChange={(e) => onChange({ ...data, seguridad: { ...seguridad, maquinariaBuenEstado: e.target.value } })}>
+                                <option value="">-- Selecciona --</option>
+                                <option value="SI">SI</option>
+                                <option value="NO">NO</option>
+                            </select>
+                        </div>
+                        <div className="form-group">
+                            <label>¿Han sido necesarios medios de elevación?</label>
+                            <select value={seguridad.mediosElevacion} disabled={readOnly} onChange={(e) => onChange({ ...data, seguridad: { ...seguridad, mediosElevacion: e.target.value } })}>
+                                <option value="">-- Selecciona --</option>
+                                <option value="SI">SI</option>
+                                <option value="NO">NO</option>
+                            </select>
+                        </div>
+                        {seguridad.mediosElevacion === 'SI' && (
+                            <div className="form-group">
+                                <label>Medios de elevación utilizados</label>
+                                <input type="text" value={seguridad.mediosElevacionTipo} disabled={readOnly} onChange={(e) => onChange({ ...data, seguridad: { ...seguridad, mediosElevacionTipo: e.target.value } })} />
+                            </div>
                         )}
+                    </div>
+
+                    <div className="checklist-section">
+                        <div className="checklist-section-title">🚗 Desplazamientos</div>
+                        {desplazamientos.map((d, i) => (
+                            <div key={i} className="dyn-row">
+                                <input placeholder="Matrícula" value={d.matricula} disabled={readOnly} onChange={(e) => updateArrayItem('desplazamientos', i, 'matricula', e.target.value)} />
+                                <input placeholder="Origen" value={d.origen} disabled={readOnly} onChange={(e) => updateArrayItem('desplazamientos', i, 'origen', e.target.value)} />
+                                <input placeholder="Destino" value={d.destino} disabled={readOnly} onChange={(e) => updateArrayItem('desplazamientos', i, 'destino', e.target.value)} />
+                                <input placeholder="Total Kilómetros" value={d.kilometros} disabled={readOnly} onChange={(e) => updateArrayItem('desplazamientos', i, 'kilometros', e.target.value)} />
+                                {!readOnly && desplazamientos.length > 1 && <div className="dyn-row-actions"><button className="btn-remove-row" onClick={() => removeRow('desplazamientos', i)}>Quitar</button></div>}
+                            </div>
+                        ))}
+                        {!readOnly && <button className="btn-add-row" onClick={() => addRow('desplazamientos', { matricula: '', origen: '', destino: '', kilometros: '' })}>+ Añadir desplazamiento</button>}
+                    </div>
+                </div>
+            );
+        }
+
+        function OrdenesView({ user, ordenes, clientes, contratos, activos, onRefresh }) {
+            const esGestor = user.rol === 'admin' || user.rol === 'supervisor';
+            const [showForm, setShowForm] = useState(false);
+            const [editingId, setEditingId] = useState(null);
+            const [viewingId, setViewingId] = useState(null);
+            const [filtroTipo, setFiltroTipo] = useState('todas');
+            const [selectedCliente, setSelectedCliente] = useState('');
+            const [activoSearch, setActivoSearch] = useState('');
+
+            const initialForm = {
+                titulo: '', tipo: esGestor ? 'correctivo' : 'guardia',
+                cliente_id: '', estado: 'abierta', notas: '',
+                activo_id: '', datos_json: {}
+            };
+            const [formData, setFormData] = useState(initialForm);
+
+            const contratosFiltrados = selectedCliente ? contratos.filter(c => c.cliente_id === parseInt(selectedCliente)) : contratos;
+            const activosFiltrados = activoSearch ? activos.filter(a => a.nombre.toLowerCase().includes(activoSearch.toLowerCase())) : activos;
+            const activoSeleccionado = activos.find(a => a.id === parseInt(formData.activo_id));
+
+            const resetForm = () => {
+                setFormData(initialForm);
+                setSelectedCliente('');
+                setActivoSearch('');
+                setEditingId(null);
+                setShowForm(false);
+            };
+
+            const handleSubmit = async () => {
+                if (!formData.titulo.trim()) { alert('El título es obligatorio'); return; }
+                if (formData.tipo === 'preventivo' && !formData.activo_id) { alert('Selecciona el activo a revisar'); return; }
+
+                const payload = {
+                    ...formData,
+                    cliente_id: formData.cliente_id || null,
+                    activo_id: formData.activo_id || null,
+                    asignado_a: user.id,
+                    datos_json: JSON.stringify(formData.datos_json || {})
+                };
+
+                try {
+                    const url = editingId ? `${API_URL}/api/ordenes/${editingId}` : `${API_URL}/api/ordenes`;
+                    const method = editingId ? 'PUT' : 'POST';
+                    await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+                    resetForm();
+                    onRefresh();
+                } catch (err) {
+                    alert('Error al guardar la orden');
+                }
+            };
+
+            const handleDelete = async (id) => {
+                if (!confirm('¿Eliminar esta orden?')) return;
+                await fetch(`${API_URL}/api/ordenes/${id}`, { method: 'DELETE' });
+                onRefresh();
+            };
+
+            const handleEdit = (o) => {
+                let datos = {};
+                try { datos = o.datos_json ? JSON.parse(o.datos_json) : {}; } catch { datos = {}; }
+                setFormData({
+                    titulo: o.titulo, tipo: o.tipo, cliente_id: o.cliente_id || '',
+                    estado: o.estado, notas: o.notas || '', activo_id: o.activo_id || '', datos_json: datos
+                });
+                if (o.cliente_id) setSelectedCliente(String(o.cliente_id));
+                setEditingId(o.id);
+                setShowForm(true);
+                setViewingId(null);
+            };
+
+            const handleConvertirGuardia = async (o) => {
+                const clienteId = prompt('Introduce el ID del cliente para convertir esta guardia en Correctivo.\n\nClientes disponibles:\n' + clientes.map(c => `${c.id} - ${c.nombre}`).join('\n'));
+                if (!clienteId) return;
+                await fetch(`${API_URL}/api/ordenes/${o.id}`, {
+                    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ...o, tipo: 'correctivo', cliente_id: parseInt(clienteId), estado: 'abierta' })
+                });
+                onRefresh();
+            };
+
+            const ordenesFiltradas = filtroTipo === 'todas' ? ordenes : ordenes.filter(o => o.tipo === filtroTipo);
+            const ordenVista = viewingId ? ordenes.find(o => o.id === viewingId) : null;
+            let datosVista = {};
+            if (ordenVista) { try { datosVista = ordenVista.datos_json ? JSON.parse(ordenVista.datos_json) : {}; } catch { datosVista = {}; } }
+
+            return (
+                <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '8px' }}>
+                        <h3 className="section-title" style={{ margin: 0 }}>📋 {esGestor ? 'Órdenes de Trabajo' : 'Mis Órdenes'}</h3>
+                        <button className="btn btn-primary" onClick={() => { setShowForm(!showForm); if (showForm) resetForm(); }}>
+                            + Nueva {!esGestor && 'Guardia'}
+                        </button>
+                    </div>
+
+                    <div className="tipo-filter-bar">
+                        {['todas', 'correctivo', 'preventivo', 'obra', 'guardia'].map(t => (
+                            <button key={t} className={`tipo-filter-btn ${filtroTipo === t ? 'active' : ''}`} onClick={() => setFiltroTipo(t)}>
+                                {t === 'todas' ? 'Todas' : t.charAt(0).toUpperCase() + t.slice(1)}
+                            </button>
+                        ))}
                     </div>
 
                     {showForm && (
                         <div className="card" style={{ marginBottom: '1rem' }}>
                             <div className="form-group">
                                 <label>Título</label>
-                                <input
-                                    type="text"
-                                    placeholder="Título de la orden"
-                                    value={formData.titulo}
-                                    onChange={(e) => setFormData({ ...formData, titulo: e.target.value })}
-                                />
+                                <input type="text" placeholder="Título de la orden" value={formData.titulo} onChange={(e) => setFormData({ ...formData, titulo: e.target.value })} />
                             </div>
 
-                            <div className="form-group">
-                                <label>Tipo</label>
-                                <select
-                                    value={formData.tipo}
-                                    onChange={(e) => setFormData({ ...formData, tipo: e.target.value })}
-                                >
-                                    <option value="correctivo">Correctiva</option>
-                                    <option value="preventivo">Preventiva</option>
-                                    <option value="obra">Obra</option>
-                                </select>
-                            </div>
+                            {esGestor && (
+                                <div className="form-group">
+                                    <label>Tipo</label>
+                                    <select value={formData.tipo} onChange={(e) => setFormData({ ...formData, tipo: e.target.value, activo_id: '', datos_json: {} })}>
+                                        <option value="correctivo">Correctiva</option>
+                                        <option value="preventivo">Preventiva</option>
+                                        <option value="obra">Obra</option>
+                                        <option value="guardia">Guardia</option>
+                                    </select>
+                                </div>
+                            )}
+                            {!esGestor && (
+                                <p className="card-text">🔔 Como técnico, tus órdenes se crean como <strong>Guardia</strong>. Un supervisor las revisará y convertirá en Correctivo si procede.</p>
+                            )}
 
-                            <div className="form-group">
-                                <label>Cliente</label>
-                                <select
-                                    value={formData.cliente_id}
-                                    onChange={(e) => setFormData({ ...formData, cliente_id: parseInt(e.target.value) })}
-                                >
-                                    {clientes.map(c => (
-                                        <option key={c.id} value={c.id}>{c.nombre}</option>
-                                    ))}
-                                </select>
-                            </div>
+                            {formData.tipo !== 'guardia' && (
+                                <div className="form-group">
+                                    <label>Cliente</label>
+                                    <select value={formData.cliente_id} onChange={(e) => setFormData({ ...formData, cliente_id: e.target.value })}>
+                                        <option value="">-- Selecciona un cliente --</option>
+                                        {clientes.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                                    </select>
+                                </div>
+                            )}
+
+                            {formData.tipo === 'preventivo' && (
+                                <>
+                                    <div className="form-group">
+                                        <label>Filtrar por Cliente (opcional)</label>
+                                        <select value={selectedCliente} onChange={(e) => setSelectedCliente(e.target.value)}>
+                                            <option value="">-- Todos --</option>
+                                            {clientes.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                                        </select>
+                                    </div>
+                                    <div className="form-group">
+                                        <label>Buscar Activo</label>
+                                        <input type="text" placeholder="Escribe para filtrar..." value={activoSearch} onChange={(e) => setActivoSearch(e.target.value)} />
+                                    </div>
+                                    <div className="form-group">
+                                        <label>Activo a Revisar</label>
+                                        <select value={formData.activo_id} onChange={(e) => setFormData({ ...formData, activo_id: e.target.value, datos_json: {} })}>
+                                            <option value="">-- Selecciona un activo --</option>
+                                            {activosFiltrados.map(a => (
+                                                <option key={a.id} value={a.id}>{a.nombre} · {a.tipo} ({a.cliente_nombre} › {a.emplazamiento_nombre})</option>
+                                            ))}
+                                        </select>
+                                    </div>
+
+                                    {activoSeleccionado && (
+                                        <div className="checklist-section">
+                                            <div className="checklist-section-title">✅ Checklist: {activoSeleccionado.tipo}</div>
+                                            <DynamicChecklistForm
+                                                tipoActivo={activoSeleccionado.tipo}
+                                                value={formData.datos_json}
+                                                onChange={(v) => setFormData({ ...formData, datos_json: v })}
+                                            />
+                                        </div>
+                                    )}
+                                </>
+                            )}
+
+                            {formData.tipo === 'obra' && (
+                                <div className="checklist-section">
+                                    <div className="checklist-section-title">📝 Parte de Trabajo</div>
+                                    <ParteTrabajoForm value={formData.datos_json} onChange={(v) => setFormData({ ...formData, datos_json: v })} />
+                                </div>
+                            )}
+
+                            {(formData.tipo === 'guardia' || formData.tipo === 'correctivo') && (
+                                <div className="form-group">
+                                    <label>Notas / Descripción</label>
+                                    <textarea placeholder="Describe el trabajo o incidencia..." value={formData.notas} onChange={(e) => setFormData({ ...formData, notas: e.target.value })}></textarea>
+                                </div>
+                            )}
 
                             <div className="btn-group">
-                                <button className="btn btn-success" onClick={handleAddOrden}>Crear</button>
-                                <button className="btn btn-secondary" onClick={() => setShowForm(false)}>Cancelar</button>
+                                <button className="btn btn-success" onClick={handleSubmit}>{editingId ? 'Guardar' : 'Crear'}</button>
+                                <button className="btn btn-secondary" onClick={resetForm}>Cancelar</button>
                             </div>
                         </div>
                     )}
 
+                    {ordenVista && (
+                        <div className="card" style={{ marginBottom: '1rem' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                                <h4 className="card-title">👁️ {ordenVista.id} — {ordenVista.titulo}</h4>
+                                <button className="btn btn-secondary" onClick={() => setViewingId(null)}>Cerrar</button>
+                            </div>
+                            <div className="readonly-view">
+                                <div className="rv-row"><span className="rv-label">Tipo</span><span className="rv-value">{ordenVista.tipo}</span></div>
+                                <div className="rv-row"><span className="rv-label">Estado</span><span className="rv-value">{ordenVista.estado}</span></div>
+                                {ordenVista.cliente_nombre && <div className="rv-row"><span className="rv-label">Cliente</span><span className="rv-value">{ordenVista.cliente_nombre}</span></div>}
+                                {ordenVista.activo_nombre && <div className="rv-row"><span className="rv-label">Activo</span><span className="rv-value">{ordenVista.activo_nombre} ({ordenVista.activo_tipo})</span></div>}
+                                {ordenVista.notas && <div className="rv-row"><span className="rv-label">Notas</span><span className="rv-value">{ordenVista.notas}</span></div>}
+                            </div>
+
+                            {ordenVista.tipo === 'preventivo' && ordenVista.activo_tipo && (
+                                <div style={{ marginTop: '12px' }}>
+                                    <DynamicChecklistForm tipoActivo={ordenVista.activo_tipo} value={datosVista} onChange={() => {}} readOnly={true} />
+                                </div>
+                            )}
+                            {ordenVista.tipo === 'obra' && (
+                                <div style={{ marginTop: '12px' }}>
+                                    <ParteTrabajoForm value={datosVista} onChange={() => {}} readOnly={true} />
+                                </div>
+                            )}
+                        </div>
+                    )}
+
                     <div className="list">
-                        {ordenes.length === 0 ? (
+                        {ordenesFiltradas.length === 0 ? (
                             <div className="empty-state">No hay órdenes</div>
                         ) : (
-                            ordenes.map(order => (
+                            ordenesFiltradas.map(order => (
                                 <div key={order.id} className="list-item">
                                     <div className="list-item-header">
                                         <div>
@@ -468,8 +970,19 @@
                                         </div>
                                         <span className={`badge ${order.tipo}`}>{order.tipo}</span>
                                     </div>
-                                    <p className="card-text">👤 Cliente: {order.cliente_nombre}</p>
+                                    {order.cliente_nombre && <p className="card-text">👤 Cliente: {order.cliente_nombre}</p>}
+                                    {order.activo_nombre && <p className="card-text">⚙️ Activo: {order.activo_nombre}</p>}
                                     <p className="card-text">✓ Estado: {order.estado}</p>
+                                    <div style={{ marginTop: '8px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                                        {(order.tipo === 'preventivo' || order.tipo === 'obra') && (
+                                            <button className="btn btn-secondary" onClick={() => setViewingId(order.id)}>Ver Checklist</button>
+                                        )}
+                                        <button className="btn btn-primary" onClick={() => handleEdit(order)}>Editar</button>
+                                        {esGestor && order.tipo === 'guardia' && (
+                                            <button className="btn btn-success" onClick={() => handleConvertirGuardia(order)}>Convertir a Correctivo</button>
+                                        )}
+                                        {esGestor && <button className="btn btn-danger" onClick={() => handleDelete(order.id)}>Eliminar</button>}
+                                    </div>
                                 </div>
                             ))
                         )}
