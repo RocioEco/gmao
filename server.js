@@ -3,6 +3,7 @@ import sqlite3 from 'sqlite3';
 import cors from 'cors';
 import bodyParser from 'body-parser';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import bcrypt from 'bcryptjs';
 
@@ -15,10 +16,18 @@ app.use(cors());
 app.use(bodyParser.json());
 app.use(express.static('public'));
 
+// Ruta de la base de datos: usa DB_PATH si está definida (para volumen persistente en Railway),
+// si no, cae en el archivo local './gmao.db' (desarrollo).
+const DB_PATH = process.env.DB_PATH || './gmao.db';
+const dbDir = path.dirname(DB_PATH);
+if (dbDir && dbDir !== '.' && !fs.existsSync(dbDir)) {
+  fs.mkdirSync(dbDir, { recursive: true });
+}
+
 // Inicializar base de datos SQLite
-const db = new sqlite3.Database('./gmao.db', (err) => {
+const db = new sqlite3.Database(DB_PATH, (err) => {
   if (err) console.error('Error al abrir BD:', err);
-  else console.log('Base de datos SQLite conectada');
+  else console.log(`Base de datos SQLite conectada en: ${DB_PATH}`);
 });
 
 // Crear tablas si no existen
@@ -632,6 +641,18 @@ app.delete('/api/activos/:id', (req, res) => {
   db.run('DELETE FROM activos WHERE id = ?', [req.params.id], (err) => {
     if (err) return res.status(500).json({ error: err.message });
     res.json({ success: true });
+  });
+});
+
+// VIGÍA DE NOTIFICACIONES: guardias pendientes (endpoint ligero, sin joins pesados)
+app.get('/api/guardias-pendientes', (req, res) => {
+  db.all(`SELECT o.id, o.titulo, o.creado_en, u.nombre as tecnico_nombre
+          FROM ordenes_trabajo o
+          LEFT JOIN usuarios u ON o.asignado_a = u.id
+          WHERE o.tipo = 'guardia'
+          ORDER BY o.creado_en DESC`, (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows);
   });
 });
 
