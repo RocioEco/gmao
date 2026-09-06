@@ -51,6 +51,7 @@
             --bg-danger: #3d2626;
             --bg-warning: #3d3000;
         }
+        html, body { max-width: 100%; overflow-x: hidden; }
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--surface-0); color: var(--text-primary); line-height: 1.6; transition: background-color 0.3s, color 0.3s; }
         .container { max-width: 100%; width: 100%; }
         .login-screen { min-height: 100vh; padding: 2rem 1rem; background: linear-gradient(135deg, #2563eb 0%, #1e40af 100%); display: flex; align-items: center; justify-content: center; }
@@ -69,7 +70,7 @@
         .credentials-info p { font-size: 12px; color: var(--text-secondary); margin-bottom: 8px; }
         .credentials-list { font-size: 11px; color: var(--text-muted); }
         .credentials-list p { margin: 4px 0; }
-        .dashboard { min-height: 100vh; background: var(--surface-0); }
+        .dashboard { min-height: 100vh; background: var(--surface-0); overflow-x: hidden; max-width: 100%; }
         .header { background: var(--surface-1); border-bottom: 1px solid var(--border); padding: 1rem; position: sticky; top: 0; z-index: 100; }
         .header-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
         .header-left { display: flex; align-items: center; gap: 12px; }
@@ -83,8 +84,8 @@
         .theme-toggle:hover { background: var(--bg-accent); }
         .logout-btn { padding: 8px 12px; background: transparent; border: 1px solid var(--border); border-radius: 8px; cursor: pointer; font-size: 12px; color: var(--text-primary); transition: all 0.2s; }
         .logout-btn:hover { background: var(--surface-2); }
-        .nav-tabs { display: grid; grid-template-columns: repeat(auto-fit, minmax(80px, 1fr)); gap: 8px; }
-        .nav-btn { padding: 8px 12px; background: transparent; border: 1px solid var(--border); border-radius: 8px; cursor: pointer; font-size: 12px; transition: all 0.2s; color: var(--text-primary); }
+        .nav-tabs { display: flex; overflow-x: auto; -webkit-overflow-scrolling: touch; gap: 8px; scrollbar-width: thin; padding-bottom: 2px; }
+        .nav-btn { padding: 8px 12px; background: transparent; border: 1px solid var(--border); border-radius: 8px; cursor: pointer; font-size: 12px; transition: all 0.2s; color: var(--text-primary); flex: 0 0 auto; white-space: nowrap; }
         .nav-btn:hover { background: var(--surface-2); }
         .nav-btn.active { background: var(--fill-accent); color: white; border-color: var(--fill-accent); }
         .content { padding: 1rem; }
@@ -118,7 +119,7 @@
         .badge.admin { background: var(--bg-accent); color: var(--fill-accent); }
         .badge.supervisor { background: #e8f0ff; color: #0052a3; }
         .badge.tecnico { background: #f0f0f0; color: #666; }
-        @media (max-width: 768px) { .metrics-grid { grid-template-columns: repeat(2, 1fr); } .nav-tabs { grid-template-columns: repeat(2, 1fr); } }
+        @media (max-width: 768px) { .metrics-grid { grid-template-columns: repeat(2, 1fr); } }
         .toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
         .btn-excel { background: #1e7e34; color: white; display: inline-flex; align-items: center; gap: 4px; }
         .btn-excel:hover { opacity: 0.9; }
@@ -335,8 +336,6 @@
                         { id: 'guardias', label: 'Guardias', badge: guardiasPendientes },
                         { id: 'calendario', label: 'Calendario' },
                         { id: 'inventario', label: 'Inventario' },
-                        { id: 'contratos', label: 'Contratos' },
-                        { id: 'clientes', label: 'Clientes' },
                         { id: 'preciario', label: 'Preciario' },
                         { id: 'usuarios', label: 'Usuarios' }
                     ];
@@ -386,8 +385,6 @@
                         {activeTab === 'guardias' && (user.rol === 'admin' || user.rol === 'supervisor') && <OrdenesView user={user} ordenes={ordenes} clientes={clientes} contratos={contratos} activos={activos} usuarios={usuarios} materiales={materiales} onRefresh={cargarDatos} filtroInicialTipo="guardia" />}
                         {activeTab === 'calendario' && (user.rol === 'admin' || user.rol === 'supervisor') && <CalendarView user={user} ordenes={ordenes} usuarios={usuarios} activos={activos} onRefresh={cargarDatos} />}
                         {activeTab === 'inventario' && (user.rol === 'admin' || user.rol === 'supervisor') && <InventarioView user={user} activos={activos} emplazamientos={emplazamientos} zonas={zonas} clientes={clientes} contratos={contratos} onRefresh={cargarDatos} />}
-                        {activeTab === 'contratos' && (user.rol === 'admin' || user.rol === 'supervisor') && <ContratosView user={user} contratos={contratos} clientes={clientes} onRefresh={cargarDatos} />}
-                        {activeTab === 'clientes' && (user.rol === 'admin' || user.rol === 'supervisor') && <ClientesView user={user} clientes={clientes} onRefresh={cargarDatos} />}
                         {activeTab === 'preciario' && (user.rol === 'admin' || user.rol === 'supervisor') && <PreciarioView user={user} materiales={materiales} clientes={clientes} onRefresh={cargarDatos} />}
                         {activeTab === 'usuarios' && (user.rol === 'admin' || user.rol === 'supervisor') && <UsuariosView user={user} usuarios={usuarios} onRefresh={cargarDatos} />}
                     </div>
@@ -1914,11 +1911,13 @@
         // ===== ACTIVOS =====
         // ===== INVENTARIO (envoltorio con submenús: Zonas / Emplazamientos / Activos) =====
         function InventarioView(props) {
-            const [subTab, setSubTab] = useState('activos');
+            const [subTab, setSubTab] = useState('clientes');
             const subTabs = [
-                { id: 'activos', label: 'Activos' },
+                { id: 'clientes', label: 'Clientes' },
+                { id: 'contratos', label: 'Contratos' },
+                { id: 'zonas', label: 'Zonas' },
                 { id: 'emplazamientos', label: 'Emplazamientos' },
-                { id: 'zonas', label: 'Zonas' }
+                { id: 'activos', label: 'Activos' }
             ];
             return (
                 <div>
@@ -1929,9 +1928,11 @@
                             </button>
                         ))}
                     </div>
-                    {subTab === 'activos' && <ActivosView {...props} />}
-                    {subTab === 'emplazamientos' && <EmplazamientosView {...props} />}
+                    {subTab === 'clientes' && <ClientesView {...props} />}
+                    {subTab === 'contratos' && <ContratosView {...props} />}
                     {subTab === 'zonas' && <ZonasView {...props} />}
+                    {subTab === 'emplazamientos' && <EmplazamientosView {...props} />}
+                    {subTab === 'activos' && <ActivosView {...props} />}
                 </div>
             );
         }
