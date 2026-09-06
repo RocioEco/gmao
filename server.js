@@ -154,11 +154,33 @@ db.serialize(() => {
 
   db.run(`CREATE TABLE IF NOT EXISTS zonas (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    contrato_id INTEGER NOT NULL,
     nombre TEXT NOT NULL,
-    creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY(contrato_id) REFERENCES contratos(id)
+    creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP
   )`);
+
+  // Migración: si la tabla zonas ya existe con la antigua columna contrato_id (versión previa
+  // donde una Zona dependía incorrectamente de un Contrato), la recreamos sin esa columna,
+  // preservando id/nombre/creado_en. Una Zona y un Emplazamiento son lugares físicos: pueden
+  // contener activos de distintos clientes y contratos.
+  db.all(`PRAGMA table_info(zonas)`, (err, cols) => {
+    if (err) return;
+    const tieneContratoId = cols.some(c => c.name === 'contrato_id');
+    if (tieneContratoId) {
+      db.serialize(() => {
+        db.run(`ALTER TABLE zonas RENAME TO zonas_old_migracion`);
+        db.run(`CREATE TABLE zonas (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          nombre TEXT NOT NULL,
+          creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`);
+        db.run(`INSERT INTO zonas (id, nombre, creado_en) SELECT id, nombre, creado_en FROM zonas_old_migracion`);
+        db.run(`DROP TABLE zonas_old_migracion`, (err2) => {
+          if (err2) console.error('Error al migrar tabla zonas:', err2);
+          else console.log('✓ Migración: zonas ya no dependen de contrato_id');
+        });
+      });
+    }
+  });
 
   db.run(`CREATE TABLE IF NOT EXISTS emplazamientos (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -520,32 +542,28 @@ app.delete('/api/contratos/:id', (req, res) => {
 
 // ZONAS
 app.get('/api/zonas', (req, res) => {
-  db.all(`SELECT z.*, c.nombre as contrato_nombre, cl.id as cliente_id, cl.nombre as cliente_nombre
-          FROM zonas z
-          LEFT JOIN contratos c ON z.contrato_id = c.id
-          LEFT JOIN clientes cl ON c.cliente_id = cl.id
-          ORDER BY z.nombre`, (err, rows) => {
+  db.all(`SELECT * FROM zonas ORDER BY nombre`, (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
     res.json(rows);
   });
 });
 
 app.post('/api/zonas', (req, res) => {
-  const { contrato_id, nombre } = req.body;
-  if (!contrato_id || !nombre) return res.status(400).json({ error: 'Contrato y nombre requeridos' });
-  db.run('INSERT INTO zonas (contrato_id, nombre) VALUES (?, ?)',
-    [contrato_id, nombre], function(err) {
+  const { nombre } = req.body;
+  if (!nombre) return res.status(400).json({ error: 'El nombre es obligatorio' });
+  db.run('INSERT INTO zonas (nombre) VALUES (?)',
+    [nombre], function(err) {
       if (err) return res.status(500).json({ error: err.message });
-      res.json({ id: this.lastID, contrato_id, nombre });
+      res.json({ id: this.lastID, nombre });
     });
 });
 
 app.put('/api/zonas/:id', (req, res) => {
-  const { contrato_id, nombre } = req.body;
-  db.run('UPDATE zonas SET contrato_id = ?, nombre = ? WHERE id = ?',
-    [contrato_id, nombre, req.params.id], (err) => {
+  const { nombre } = req.body;
+  db.run('UPDATE zonas SET nombre = ? WHERE id = ?',
+    [nombre, req.params.id], (err) => {
       if (err) return res.status(500).json({ error: err.message });
-      res.json({ id: req.params.id, contrato_id, nombre });
+      res.json({ id: req.params.id, nombre });
     });
 });
 
@@ -558,12 +576,9 @@ app.delete('/api/zonas/:id', (req, res) => {
 
 // EMPLAZAMIENTOS
 app.get('/api/emplazamientos', (req, res) => {
-  db.all(`SELECT e.*, z.nombre as zona_nombre, c.id as contrato_id, c.nombre as contrato_nombre, 
-                 cl.id as cliente_id, cl.nombre as cliente_nombre
+  db.all(`SELECT e.*, z.nombre as zona_nombre
           FROM emplazamientos e
           LEFT JOIN zonas z ON e.zona_id = z.id
-          LEFT JOIN contratos c ON z.contrato_id = c.id
-          LEFT JOIN clientes cl ON c.cliente_id = cl.id
           ORDER BY e.nombre`, (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
     res.json(rows);
