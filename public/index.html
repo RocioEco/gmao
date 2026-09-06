@@ -191,6 +191,13 @@
         .video-item video { width: 100%; border-radius: 6px; display: block; }
         .video-remove { margin-top: 4px; }
         .btn-video-add { display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; border: 2px dashed var(--border); border-radius: 8px; cursor: pointer; color: var(--text-secondary); background: var(--surface-2); font-size: 12px; }
+        .finalizar-banner { display: flex; align-items: center; gap: 12px; padding: 14px; border-radius: 12px; margin: 16px 0; cursor: pointer; border: 2px solid var(--border); background: var(--surface-2); transition: all 0.2s; }
+        .finalizar-banner.activo { background: var(--bg-success); border-color: var(--fill-success); }
+        .finalizar-banner input[type="checkbox"] { width: 22px; height: 22px; flex-shrink: 0; cursor: pointer; }
+        .finalizar-banner-text { flex: 1; }
+        .finalizar-banner-title { font-weight: 700; font-size: 14px; margin: 0; }
+        .finalizar-banner.activo .finalizar-banner-title { color: var(--fill-success); }
+        .finalizar-banner-sub { font-size: 12px; color: var(--text-secondary); margin: 2px 0 0; }
         .field-with-add { display: flex; gap: 6px; align-items: stretch; }
         .field-with-add select, .field-with-add input { flex: 1; }
         .btn-quickadd { flex-shrink: 0; padding: 0 12px; background: var(--bg-accent); color: var(--fill-accent); border: 1px solid var(--fill-accent); border-radius: 8px; cursor: pointer; font-size: 16px; font-weight: 700; line-height: 1; }
@@ -1238,35 +1245,24 @@
                                 </>
                             )}
 
-                            {otForm.tipo !== 'guardia' && (
-                                <div className={`form-group ${!puedeEditarTodo ? 'field-locked' : ''}`}>
-                                    <label>Cliente</label>
-                                    <select value={otForm.cliente_id} disabled={!puedeEditarTodo} onChange={(e) => setOtForm({ ...otForm, cliente_id: e.target.value })}>
-                                        <option value="">-- Selecciona un cliente --</option>
-                                        {clientes.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-                                    </select>
-                                </div>
-                            )}
+                            <div className={`form-group ${!puedeEditarTodo ? 'field-locked' : ''}`}>
+                                <label>Cliente{otForm.tipo === 'guardia' ? ' (opcional)' : ''}</label>
+                                <select value={otForm.cliente_id} disabled={!puedeEditarTodo} onChange={(e) => { setOtForm({ ...otForm, cliente_id: e.target.value }); setSelectedCliente(e.target.value); }}>
+                                    <option value="">-- Selecciona un cliente --</option>
+                                    {clientes.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                                </select>
+                            </div>
 
-                            {otForm.tipo === 'preventivo' && (
+                            {(otForm.tipo === 'preventivo' || otForm.tipo === 'guardia') && (
                                 <>
                                     {puedeEditarTodo && (
-                                        <>
-                                            <div className="form-group">
-                                                <label>Filtrar por Cliente (opcional)</label>
-                                                <select value={selectedCliente} onChange={(e) => setSelectedCliente(e.target.value)}>
-                                                    <option value="">-- Todos --</option>
-                                                    {clientes.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-                                                </select>
-                                            </div>
-                                            <div className="form-group">
-                                                <label>Buscar Activo</label>
-                                                <input type="text" placeholder="Escribe para filtrar..." value={activoSearch} onChange={(e) => setActivoSearch(e.target.value)} />
-                                            </div>
-                                        </>
+                                        <div className="form-group">
+                                            <label>Buscar Activo{otForm.tipo === 'guardia' ? ' (opcional)' : ''}</label>
+                                            <input type="text" placeholder="Escribe para filtrar..." value={activoSearch} onChange={(e) => setActivoSearch(e.target.value)} />
+                                        </div>
                                     )}
                                     <div className={`form-group ${!puedeEditarTodo ? 'field-locked' : ''}`}>
-                                        <label>Activo a Revisar</label>
+                                        <label>Activo{otForm.tipo === 'guardia' ? ' Relacionado (opcional, indica el tipo)' : ' a Revisar'}</label>
                                         <select value={otForm.activo_id} disabled={!puedeEditarTodo} onChange={(e) => setOtForm({ ...otForm, activo_id: e.target.value })}>
                                             <option value="">-- Selecciona un activo --</option>
                                             {activosFiltrados.map(a => (
@@ -1481,12 +1477,13 @@
                                 <VideoCapture value={visitaForm.videos_json} onChange={(v) => setVisitaForm({ ...visitaForm, videos_json: v })} />
                             </div>
 
-                            <div className="form-group" style={{ marginTop: '10px' }}>
-                                <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                    <input type="checkbox" checked={visitaForm.finalizado} onChange={(e) => setVisitaForm({ ...visitaForm, finalizado: e.target.checked })} />
-                                    Marcar como finalizada (resuelve la OT)
-                                </label>
-                            </div>
+                            <label className={`finalizar-banner ${visitaForm.finalizado ? 'activo' : ''}`}>
+                                <input type="checkbox" checked={visitaForm.finalizado} onChange={(e) => setVisitaForm({ ...visitaForm, finalizado: e.target.checked })} />
+                                <div className="finalizar-banner-text">
+                                    <p className="finalizar-banner-title">{visitaForm.finalizado ? '✅ Parte marcado como FINALIZADO' : '🔓 Marcar este parte como finalizado'}</p>
+                                    <p className="finalizar-banner-sub">Al finalizar, la orden de trabajo se marca como resuelta.</p>
+                                </div>
+                            </label>
 
                             <div className="btn-group">
                                 <button className="btn btn-success" onClick={guardarVisita}>{editingVisitId ? 'Guardar' : 'Crear'}</button>
