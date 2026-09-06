@@ -177,6 +177,254 @@
         .cal-legend { display: flex; gap: 12px; font-size: 11px; margin-bottom: 8px; color: var(--text-secondary); }
         .cal-legend i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 4px; }
         .price-history-row { display: flex; justify-content: space-between; font-size: 12px; padding: 4px 0; border-bottom: 1px dashed var(--border); }
+        .nav-badge { position: absolute; top: -4px; right: -4px; background: var(--fill-danger); color: white; font-size: 10px; font-weight: 700; border-radius: 10px; padding: 1px 5px; min-width: 16px; text-align: center; }
+        .field-locked { opacity: 0.6; }
+        .lock-note { font-size: 11px; color: var(--text-muted); margin: -4px 0 8px; font-style: italic; }
+    </style>
+</head>
+<body class="light-theme">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useContext, createContext } = React;
+        const API_URL = typeof window !== 'undefined' && window.location.hostname === 'localhost' 
+            ? 'http://localhost:3001'
+            : '';
+
+        const AppContext = createContext();
+
+        function LoginScreen({ onLogin }) {
+            const [email, setEmail] = useState('');
+            const [password, setPassword] = useState('');
+            const [loading, setLoading] = useState(false);
+            const [error, setError] = useState('');
+
+            const handleLogin = async (e) => {
+                e.preventDefault();
+                setError('');
+                setLoading(true);
+
+                try {
+                    const response = await fetch(`${API_URL}/api/auth/login`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ email, password })
+                    });
+
+                    if (response.ok) {
+                        const user = await response.json();
+                        onLogin(user);
+                    } else {
+                        setError('Email o contraseña inválida');
+                    }
+                } catch (err) {
+                    setError('Error al autenticarse');
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            return (
+                <div className="login-screen">
+                    <div className="login-card">
+                        <h1>GMAO</h1>
+                        <p>Sistema de Gestión de Órdenes de Trabajo</p>
+
+                        <form onSubmit={handleLogin}>
+                            <div className="form-group">
+                                <label>📧 Email</label>
+                                <input
+                                    type="email"
+                                    placeholder="usuario@empresa.com"
+                                    value={email}
+                                    onChange={(e) => setEmail(e.target.value)}
+                                    required
+                                    autoFocus
+                                />
+                            </div>
+
+                            <div className="form-group">
+                                <label>🔐 Contraseña</label>
+                                <input
+                                    type="password"
+                                    placeholder="Tu contraseña"
+                                    value={password}
+                                    onChange={(e) => setPassword(e.target.value)}
+                                    required
+                                />
+                            </div>
+
+                            {error && <div className="error-message">❌ {error}</div>}
+
+                            <button type="submit" className="login-btn" disabled={loading}>
+                                {loading ? 'Accediendo...' : 'Acceder'}
+                            </button>
+                        </form>
+
+                        <div className="credentials-info">
+                            <p><strong>Usuarios de prueba:</strong></p>
+                            <div className="credentials-list">
+                                <p>👤 admin@gmao.com / admin123</p>
+                                <p>👤 supervisor@gmao.com / supervisor123</p>
+                                <p>👤 tecnico@gmao.com / tecnico123</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        function Dashboard({ user, onLogout }) {
+            const [activeTab, setActiveTab] = useState('dashboard');
+            const [clientes, setClientes] = useState([]);
+            const [contratos, setContratos] = useState([]);
+            const [zonas, setZonas] = useState([]);
+            const [emplazamientos, setEmplazamientos] = useState([]);
+            const [activos, setActivos] = useState([]);
+            const [ordenes, setOrdenes] = useState([]);
+             --surface-2: #21262d;
+            --text-primary: #e6edf3;
+            --text-secondary: #8b949e;
+            --text-muted: #6e7681;
+            --border: #30363d;
+            --fill-accent: #1f6feb;
+            --fill-accent-dark: #1960e8;
+            --on-accent: #ffffff;
+            --fill-success: #238636;
+            --on-success: #ffffff;
+            --fill-danger: #da3633;
+            --on-danger: #ffffff;
+            --bg-accent: #0d47a1;
+            --bg-success: #1b4620;
+            --bg-danger: #3d2626;
+            --bg-warning: #3d3000;
+        }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--surface-0); color: var(--text-primary); line-height: 1.6; transition: background-color 0.3s, color 0.3s; }
+        .container { max-width: 100%; width: 100%; }
+        .login-screen { min-height: 100vh; padding: 2rem 1rem; background: linear-gradient(135deg, #2563eb 0%, #1e40af 100%); display: flex; align-items: center; justify-content: center; }
+        .login-card { background: var(--surface-1); border-radius: 12px; padding: 2rem; width: 100%; max-width: 420px; box-shadow: 0 10px 40px rgba(0,0,0,0.15); }
+        .login-card h1 { font-size: 28px; font-weight: 700; text-align: center; margin-bottom: 0.5rem; color: var(--fill-accent); }
+        .login-card p { text-align: center; color: var(--text-secondary); margin-bottom: 2rem; font-size: 14px; }
+        .form-group { margin-bottom: 14px; }
+        .form-group label { display: block; font-size: 13px; margin-bottom: 6px; color: var(--text-primary); font-weight: 500; }
+        input, select, textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; font-family: inherit; background: var(--surface-1); color: var(--text-primary); }
+        input:focus, select:focus, textarea:focus { outline: none; border-color: var(--fill-accent); box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1); }
+        .login-btn { width: 100%; padding: 12px; background: linear-gradient(135deg, #2563eb 0%, #1e40af 100%); color: white; border: none; border-radius: 8px; font-weight: 600; font-size: 15px; cursor: pointer; transition: opacity 0.2s; margin-top: 1rem; }
+        .login-btn:hover:not(:disabled) { opacity: 0.9; }
+        .login-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+        .error-message { color: var(--fill-danger); font-size: 12px; margin-bottom: 12px; }
+        .credentials-info { margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--border); }
+        .credentials-info p { font-size: 12px; color: var(--text-secondary); margin-bottom: 8px; }
+        .credentials-list { font-size: 11px; color: var(--text-muted); }
+        .credentials-list p { margin: 4px 0; }
+        .dashboard { min-height: 100vh; background: var(--surface-0); }
+        .header { background: var(--surface-1); border-bottom: 1px solid var(--border); padding: 1rem; position: sticky; top: 0; z-index: 100; }
+        .header-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
+        .header-left { display: flex; align-items: center; gap: 12px; }
+        .header-logo { width: 44px; height: 44px; border-radius: 8px; background: linear-gradient(135deg, #2563eb 0%, #1e40af 100%); display: flex; align-items: center; justify-content: center; color: white; font-weight: 700; font-size: 18px; flex-shrink: 0; }
+        .header-logo img { width: 100%; height: 100%; object-fit: contain; border-radius: 6px; }
+        .header-user { display: flex; flex-direction: column; }
+        .header-user h2 { font-size: 15px; font-weight: 600; margin: 0; }
+        .header-user p { font-size: 12px; color: var(--text-secondary); margin: 2px 0 0 0; }
+        .header-right { display: flex; gap: 8px; align-items: center; }
+        .theme-toggle { padding: 8px 12px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; cursor: pointer; font-size: 12px; color: var(--text-primary); transition: all 0.2s; }
+        .theme-toggle:hover { background: var(--bg-accent); }
+        .logout-btn { padding: 8px 12px; background: transparent; border: 1px solid var(--border); border-radius: 8px; cursor: pointer; font-size: 12px; color: var(--text-primary); transition: all 0.2s; }
+        .logout-btn:hover { background: var(--surface-2); }
+        .nav-tabs { display: grid; grid-template-columns: repeat(auto-fit, minmax(80px, 1fr)); gap: 8px; }
+        .nav-btn { padding: 8px 12px; background: transparent; border: 1px solid var(--border); border-radius: 8px; cursor: pointer; font-size: 12px; transition: all 0.2s; color: var(--text-primary); }
+        .nav-btn:hover { background: var(--surface-2); }
+        .nav-btn.active { background: var(--fill-accent); color: white; border-color: var(--fill-accent); }
+        .content { padding: 1rem; }
+        .section-title { font-size: 20px; font-weight: 600; margin-bottom: 1.5rem; color: var(--text-primary); }
+        .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 1rem; margin-bottom: 1rem; }
+        .card-title { font-size: 14px; font-weight: 600; color: var(--text-primary); }
+        .card-text { font-size: 12px; color: var(--text-secondary); margin: 4px 0; }
+        .metrics-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 1.5rem; }
+        .metric-card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; text-align: center; }
+        .metric-label { font-size: 12px; color: var(--text-secondary); margin-bottom: 8px; }
+        .metric-value { font-size: 24px; font-weight: 700; color: var(--fill-accent); }
+        textarea { resize: vertical; min-height: 80px; }
+        .btn { padding: 8px 12px; border: none; border-radius: 8px; cursor: pointer; font-size: 12px; font-weight: 500; transition: all 0.2s; }
+        .btn-primary { background: var(--fill-accent); color: white; }
+        .btn-primary:hover { background: var(--fill-accent-dark); }
+        .btn-success { background: var(--fill-success); color: white; }
+        .btn-success:hover { opacity: 0.9; }
+        .btn-danger { background: var(--fill-danger); color: white; }
+        .btn-secondary { background: transparent; border: 1px solid var(--border); color: var(--text-primary); }
+        .btn-secondary:hover { background: var(--surface-2); }
+        .btn-group { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 1rem; }
+        .list { display: grid; gap: 12px; }
+        .list-item { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 1rem; }
+        .list-item:hover { border-color: var(--fill-accent); }
+        .list-item-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; }
+        .empty-state { text-align: center; padding: 2rem; color: var(--text-secondary); }
+        .badge { font-size: 11px; padding: 4px 8px; border-radius: 6px; font-weight: 500; }
+        .badge.correctivo { background: var(--bg-danger); color: var(--fill-danger); }
+        .badge.preventivo { background: var(--bg-success); color: var(--fill-success); }
+        .badge.obra { background: var(--bg-warning); color: #b8860b; }
+        .badge.admin { background: var(--bg-accent); color: var(--fill-accent); }
+        .badge.supervisor { background: #e8f0ff; color: #0052a3; }
+        .badge.tecnico { background: #f0f0f0; color: #666; }
+        @media (max-width: 768px) { .metrics-grid { grid-template-columns: repeat(2, 1fr); } .nav-tabs { grid-template-columns: repeat(2, 1fr); } }
+        .toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+        .btn-excel { background: #1e7e34; color: white; display: inline-flex; align-items: center; gap: 4px; }
+        .btn-excel:hover { opacity: 0.9; }
+        .btn-import { background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary); }
+        .file-input-hidden { display: none; }
+        .breadcrumb-path { font-size: 11px; color: var(--text-muted); margin: 2px 0; }
+        .select-disabled { opacity: 0.5; cursor: not-allowed; }
+        .import-summary { background: var(--bg-accent); border-radius: 8px; padding: 10px; font-size: 12px; margin-top: 8px; color: var(--text-primary); }
+        .checklist-section { margin-bottom: 1.25rem; }
+        .checklist-section-title { font-size: 13px; font-weight: 700; color: var(--fill-accent); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; padding-bottom: 4px; border-bottom: 2px solid var(--border); }
+        .insp-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        .insp-table th { text-align: left; padding: 6px 4px; border-bottom: 1px solid var(--border); color: var(--text-secondary); font-weight: 600; }
+        .insp-table td { padding: 6px 4px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+        .insp-radio-group { display: flex; gap: 10px; align-items: center; }
+        .insp-radio-group label { display: flex; align-items: center; gap: 3px; font-size: 11px; white-space: nowrap; }
+        .insp-obs-input { min-width: 90px; }
+        .grid-table-wrap { overflow-x: auto; }
+        .grid-table { width: 100%; border-collapse: collapse; font-size: 11px; min-width: 500px; }
+        .grid-table th, .grid-table td { border: 1px solid var(--border); padding: 4px; text-align: center; }
+        .grid-table th { background: var(--surface-2); font-weight: 600; }
+        .grid-table select { font-size: 11px; padding: 4px; }
+        .dyn-row { display: grid; gap: 6px; padding: 8px; background: var(--surface-2); border-radius: 8px; margin-bottom: 6px; }
+        .dyn-row-actions { display: flex; justify-content: flex-end; }
+        .btn-remove-row { background: var(--bg-danger); color: var(--fill-danger); font-size: 11px; padding: 4px 8px; border: none; border-radius: 6px; cursor: pointer; }
+        .btn-add-row { background: var(--bg-success); color: var(--fill-success); font-size: 12px; padding: 6px 10px; border: none; border-radius: 6px; cursor: pointer; margin-top: 4px; }
+        .tipo-filter-bar { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 1rem; }
+        .tipo-filter-btn { padding: 6px 10px; border-radius: 20px; border: 1px solid var(--border); background: transparent; color: var(--text-primary); font-size: 11px; cursor: pointer; }
+        .tipo-filter-btn.active { background: var(--fill-accent); color: white; border-color: var(--fill-accent); }
+        .badge.guardia { background: var(--bg-warning); color: #b8860b; }
+        .readonly-view { font-size: 12px; }
+        .readonly-view .rv-row { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed var(--border); }
+        .readonly-view .rv-label { color: var(--text-secondary); }
+        .readonly-view .rv-value { font-weight: 600; text-align: right; }
+        .photo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); gap: 8px; margin-top: 8px; }
+        .photo-thumb { position: relative; aspect-ratio: 1; border-radius: 8px; overflow: hidden; border: 1px solid var(--border); }
+        .photo-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .photo-thumb .photo-remove { position: absolute; top: 2px; right: 2px; background: rgba(0,0,0,0.6); color: white; border: none; border-radius: 50%; width: 20px; height: 20px; font-size: 12px; cursor: pointer; line-height: 1; }
+        .photo-add-btn { display: flex; align-items: center; justify-content: center; aspect-ratio: 1; border: 2px dashed var(--border); border-radius: 8px; cursor: pointer; color: var(--text-secondary); font-size: 24px; background: var(--surface-2); }
+        .signature-pad-wrap { border: 1px solid var(--border); border-radius: 8px; background: white; touch-action: none; }
+        .signature-pad-wrap canvas { display: block; width: 100%; height: 150px; }
+        .material-picker-row { display: grid; grid-template-columns: 2fr 1fr; gap: 6px; margin-bottom: 6px; }
+        .prioridad-badge { font-size: 10px; padding: 2px 6px; border-radius: 4px; font-weight: 600; margin-left: 6px; }
+        .prioridad-badge.baja { background: #e8f0ff; color: #0052a3; }
+        .prioridad-badge.media { background: var(--bg-warning); color: #b8860b; }
+        .prioridad-badge.alta { background: var(--bg-danger); color: var(--fill-danger); }
+        .prioridad-badge.urgente { background: var(--fill-danger); color: white; }
+        .visita-card { background: var(--surface-2); border-radius: 8px; padding: 10px; margin-bottom: 8px; }
+        .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+        .cal-weekday { text-align: center; font-size: 10px; color: var(--text-muted); font-weight: 600; padding: 4px 0; }
+        .cal-cell { aspect-ratio: 1; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-1); display: flex; flex-direction: column; align-items: center; justify-content: center; cursor: pointer; padding: 2px; }
+        .cal-cell.empty { border: none; background: transparent; cursor: default; }
+        .cal-cell.today { border-color: var(--fill-accent); border-width: 2px; }
+        .cal-daynum { font-size: 12px; font-weight: 600; }
+        .cal-dots { display: flex; gap: 2px; margin-top: 2px; }
+        .cal-dots i { width: 5px; height: 5px; border-radius: 50%; display: inline-block; }
+        .cal-legend { display: flex; gap: 12px; font-size: 11px; margin-bottom: 8px; color: var(--text-secondary); }
+        .cal-legend i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 4px; }
+        .price-history-row { display: flex; justify-content: space-between; font-size: 12px; padding: 4px 0; border-bottom: 1px dashed var(--border); }
     </style>
 </head>
 <body class="light-theme">
