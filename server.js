@@ -57,10 +57,17 @@ db.serialize(() => {
     asignado_a INTEGER,
     titulo TEXT NOT NULL,
     notas TEXT,
+    activo_id INTEGER,
+    datos_json TEXT,
     creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(cliente_id) REFERENCES clientes(id),
-    FOREIGN KEY(asignado_a) REFERENCES usuarios(id)
+    FOREIGN KEY(asignado_a) REFERENCES usuarios(id),
+    FOREIGN KEY(activo_id) REFERENCES activos(id)
   )`);
+
+  // Migración segura para bases de datos ya existentes (ignora error si la columna ya existe)
+  db.run(`ALTER TABLE ordenes_trabajo ADD COLUMN activo_id INTEGER`, () => {});
+  db.run(`ALTER TABLE ordenes_trabajo ADD COLUMN datos_json TEXT`, () => {});
 
   db.run(`CREATE TABLE IF NOT EXISTS ordenes_guardia (
     id TEXT PRIMARY KEY,
@@ -440,10 +447,19 @@ app.delete('/api/inventario/:id', (req, res) => {
 
 // ÓRDENES DE TRABAJO
 app.get('/api/ordenes', (req, res) => {
-  db.all(`SELECT o.*, c.nombre as cliente_nombre, u.nombre as tecnico_nombre 
+  db.all(`SELECT o.*, 
+                 c.nombre as cliente_nombre, 
+                 u.nombre as tecnico_nombre,
+                 a.nombre as activo_nombre,
+                 a.tipo as activo_tipo,
+                 e.nombre as emplazamiento_nombre,
+                 z.nombre as zona_nombre
           FROM ordenes_trabajo o 
           LEFT JOIN clientes c ON o.cliente_id = c.id
           LEFT JOIN usuarios u ON o.asignado_a = u.id
+          LEFT JOIN activos a ON o.activo_id = a.id
+          LEFT JOIN emplazamientos e ON a.emplazamiento_id = e.id
+          LEFT JOIN zonas z ON e.zona_id = z.id
           ORDER BY o.creado_en DESC`, (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
     res.json(rows);
@@ -451,21 +467,23 @@ app.get('/api/ordenes', (req, res) => {
 });
 
 app.post('/api/ordenes', (req, res) => {
-  const { ticket, cliente_id, tipo, estado, asignado_a, titulo, notas } = req.body;
+  const { ticket, cliente_id, tipo, estado, asignado_a, titulo, notas, activo_id, datos_json } = req.body;
   const id = `OT-${Date.now()}`;
-  db.run('INSERT INTO ordenes_trabajo (id, ticket, cliente_id, tipo, estado, asignado_a, titulo, notas) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-    [id, ticket, cliente_id, tipo, estado, asignado_a, titulo, notas], function(err) {
+  db.run(`INSERT INTO ordenes_trabajo (id, ticket, cliente_id, tipo, estado, asignado_a, titulo, notas, activo_id, datos_json) 
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [id, ticket, cliente_id || null, tipo, estado, asignado_a, titulo, notas, activo_id || null, datos_json || null], function(err) {
       if (err) return res.status(500).json({ error: err.message });
-      res.json({ id, ticket, cliente_id, tipo, estado, asignado_a, titulo, notas });
+      res.json({ id, ticket, cliente_id, tipo, estado, asignado_a, titulo, notas, activo_id, datos_json });
     });
 });
 
 app.put('/api/ordenes/:id', (req, res) => {
-  const { ticket, cliente_id, tipo, estado, asignado_a, titulo, notas } = req.body;
-  db.run('UPDATE ordenes_trabajo SET ticket = ?, cliente_id = ?, tipo = ?, estado = ?, asignado_a = ?, titulo = ?, notas = ? WHERE id = ?',
-    [ticket, cliente_id, tipo, estado, asignado_a, titulo, notas, req.params.id], (err) => {
+  const { ticket, cliente_id, tipo, estado, asignado_a, titulo, notas, activo_id, datos_json } = req.body;
+  db.run(`UPDATE ordenes_trabajo SET ticket = ?, cliente_id = ?, tipo = ?, estado = ?, asignado_a = ?, 
+          titulo = ?, notas = ?, activo_id = ?, datos_json = ? WHERE id = ?`,
+    [ticket, cliente_id || null, tipo, estado, asignado_a, titulo, notas, activo_id || null, datos_json || null, req.params.id], (err) => {
       if (err) return res.status(500).json({ error: err.message });
-      res.json({ id: req.params.id, ticket, cliente_id, tipo, estado, asignado_a, titulo, notas });
+      res.json({ id: req.params.id, ticket, cliente_id, tipo, estado, asignado_a, titulo, notas, activo_id, datos_json });
     });
 });
 
