@@ -1488,4 +1488,1462 @@
                             <div className="form-group">
                                 <label>Técnico</label>
                                 <select value={visitaForm.tecnico_id} onChange={(e) => setVisitaForm({ ...visitaForm, tecnico_id: parseInt(e.target.value) })}>
-                          
+                                    {tecnicosDisponibles.map(u => <option key={u.id} value={u.id}>{u.nombre}</option>)}
+                                </select>
+                            </div>
+                            <div className="form-group"><label>Hora inicio</label><input type="time" value={visitaForm.hora_inicio} onChange={(e) => setVisitaForm({ ...visitaForm, hora_inicio: e.target.value })} /></div>
+                            <div className="form-group"><label>Hora fin</label><input type="time" value={visitaForm.hora_fin} onChange={(e) => setVisitaForm({ ...visitaForm, hora_fin: e.target.value })} /></div>
+                            <div className="form-group"><label>ID Mantis / Ticket</label><input type="text" value={visitaForm.id_mantis} onChange={(e) => setVisitaForm({ ...visitaForm, id_mantis: e.target.value })} /></div>
+                            <div className="form-group"><label>Proyecto</label><input type="text" value={visitaForm.proyecto} onChange={(e) => setVisitaForm({ ...visitaForm, proyecto: e.target.value })} /></div>
+                            <div className="form-group"><label>Descripción</label><textarea value={visitaForm.descripcion} onChange={(e) => setVisitaForm({ ...visitaForm, descripcion: e.target.value })}></textarea></div>
+
+                            {otSeleccionada && otSeleccionada.tipo === 'preventivo' && otSeleccionada.activo_tipo && (
+                                <div className="checklist-section">
+                                    <div className="checklist-section-title">✅ Checklist: {otSeleccionada.activo_tipo}</div>
+                                    <DynamicChecklistForm tipoActivo={otSeleccionada.activo_tipo} value={visitaForm.checklist_json} onChange={(v) => setVisitaForm({ ...visitaForm, checklist_json: v })} />
+                                </div>
+                            )}
+
+                            {otSeleccionada && otSeleccionada.tipo === 'obra' && (
+                                <div className="checklist-section">
+                                    <div className="checklist-section-title">📝 Parte de Trabajo</div>
+                                    <ParteTrabajoForm
+                                        value={{ medioAmbiente: visitaForm.medio_ambiente_json, seguridad: visitaForm.seguridad_json, desplazamientos: visitaForm.desplazamientos_json }}
+                                        onChange={(v) => setVisitaForm({ ...visitaForm, medio_ambiente_json: v.medioAmbiente || [], seguridad_json: v.seguridad || {}, desplazamientos_json: v.desplazamientos || [] })}
+                                    />
+                                    <div className="checklist-section-title" style={{ marginTop: '10px' }}>✍️ Firma</div>
+                                    <div className="form-group"><label>Firmado por</label><input type="text" value={visitaForm.firma_nombre} onChange={(e) => setVisitaForm({ ...visitaForm, firma_nombre: e.target.value })} /></div>
+                                    <SignaturePad value={visitaForm.firma} onChange={(v) => setVisitaForm({ ...visitaForm, firma: v })} />
+                                </div>
+                            )}
+
+                            {otSeleccionada && otSeleccionada.tipo === 'guardia' && (
+                                <div className="checklist-section">
+                                    <div className="checklist-section-title">🚗 Desplazamientos</div>
+                                    <DesplazamientosForm value={visitaForm.desplazamientos_json} onChange={(v) => setVisitaForm({ ...visitaForm, desplazamientos_json: v })} />
+                                </div>
+                            )}
+
+                            <div className="checklist-section">
+                                <div className="checklist-section-title">📦 Materiales Utilizados</div>
+                                <MaterialesPicker value={visitaForm.materiales_json} onChange={(v) => setVisitaForm({ ...visitaForm, materiales_json: v })} materiales={materiales} clienteId={otSeleccionada ? otSeleccionada.cliente_id : ''} />
+                            </div>
+
+                            <div className="checklist-section">
+                                <div className="checklist-section-title">📷 Fotos</div>
+                                <PhotoCapture value={visitaForm.fotos_json} onChange={(v) => setVisitaForm({ ...visitaForm, fotos_json: v })} />
+                            </div>
+
+                            <div className="form-group" style={{ marginTop: '10px' }}>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <input type="checkbox" checked={visitaForm.finalizado} onChange={(e) => setVisitaForm({ ...visitaForm, finalizado: e.target.checked })} />
+                                    Marcar como finalizada (resuelve la OT)
+                                </label>
+                            </div>
+
+                            <div className="btn-group">
+                                <button className="btn btn-success" onClick={guardarVisita}>{editingVisitId ? 'Guardar' : 'Crear'}</button>
+                                <button className="btn btn-secondary" onClick={() => setMode('detail')}>Cancelar</button>
+                            </div>
+                        </div>
+                    </div>
+                );
+            }
+
+            // ============ RENDER: VIEW VISITA (solo lectura) ============
+            if (mode === 'view-visita') {
+                if (!visitaViendo) return <div className="empty-state">Visita no encontrada</div>;
+                let checklist = {}, mats = [], fotos = [], medio = {}, seg = {}, desp = [];
+                try { checklist = visitaViendo.checklist_json ? JSON.parse(visitaViendo.checklist_json) : {}; } catch {}
+                try { mats = visitaViendo.materiales_json ? JSON.parse(visitaViendo.materiales_json) : []; } catch {}
+                try { fotos = visitaViendo.fotos_json ? JSON.parse(visitaViendo.fotos_json) : []; } catch {}
+                try { medio = visitaViendo.medio_ambiente_json ? JSON.parse(visitaViendo.medio_ambiente_json) : {}; } catch {}
+                try { seg = visitaViendo.seguridad_json ? JSON.parse(visitaViendo.seguridad_json) : {}; } catch {}
+                try { desp = visitaViendo.desplazamientos_json ? JSON.parse(visitaViendo.desplazamientos_json) : []; } catch {}
+
+                return (
+                    <div>
+                        <button className="btn btn-secondary" onClick={() => setMode('detail')}>← Volver</button>
+                        <div className="card" style={{ marginTop: '10px' }}>
+                            <h4 className="card-title">👁️ Visita del {visitaViendo.fecha}</h4>
+                            <div className="readonly-view">
+                                <div className="rv-row"><span className="rv-label">Técnico</span><span className="rv-value">{visitaViendo.tecnico_nombre || '—'}</span></div>
+                                <div className="rv-row"><span className="rv-label">Horario</span><span className="rv-value">{visitaViendo.hora_inicio || '—'}{visitaViendo.hora_fin ? ' - ' + visitaViendo.hora_fin : ''}</span></div>
+                                {visitaViendo.id_mantis && <div className="rv-row"><span className="rv-label">ID Mantis</span><span className="rv-value">{visitaViendo.id_mantis}</span></div>}
+                                {visitaViendo.proyecto && <div className="rv-row"><span className="rv-label">Proyecto</span><span className="rv-value">{visitaViendo.proyecto}</span></div>}
+                            </div>
+                            {visitaViendo.descripcion && <p className="card-text" style={{ marginTop: '8px' }}>{visitaViendo.descripcion}</p>}
+
+                            {otSeleccionada && otSeleccionada.tipo === 'preventivo' && visitaViendo.checklist_tipo && (
+                                <div className="checklist-section">
+                                    <div className="checklist-section-title">✅ Checklist: {visitaViendo.checklist_tipo}</div>
+                                    <DynamicChecklistForm tipoActivo={visitaViendo.checklist_tipo} value={checklist} onChange={() => {}} readOnly={true} />
+                                </div>
+                            )}
+
+                            {otSeleccionada && otSeleccionada.tipo === 'obra' && (
+                                <div className="checklist-section">
+                                    <div className="checklist-section-title">📝 Parte de Trabajo</div>
+                                    <ParteTrabajoForm value={{ medioAmbiente: medio, seguridad: seg, desplazamientos: desp }} onChange={() => {}} readOnly={true} />
+                                    <div className="checklist-section-title" style={{ marginTop: '10px' }}>✍️ Firma</div>
+                                    {visitaViendo.firma_nombre && <p className="card-text">Firmado por: {visitaViendo.firma_nombre}</p>}
+                                    <SignaturePad value={visitaViendo.firma} onChange={() => {}} readOnly={true} />
+                                </div>
+                            )}
+
+                            {otSeleccionada && otSeleccionada.tipo === 'guardia' && (
+                                <div className="checklist-section">
+                                    <div className="checklist-section-title">🚗 Desplazamientos</div>
+                                    <DesplazamientosForm value={desp} onChange={() => {}} readOnly={true} />
+                                </div>
+                            )}
+
+                            <div className="checklist-section">
+                                <div className="checklist-section-title">📦 Materiales Utilizados</div>
+                                <MaterialesPicker value={mats} onChange={() => {}} materiales={materiales} clienteId="" readOnly={true} />
+                            </div>
+
+                            <div className="checklist-section">
+                                <div className="checklist-section-title">📷 Fotos</div>
+                                <PhotoCapture value={fotos} onChange={() => {}} readOnly={true} />
+                            </div>
+
+                            <p className="card-text" style={{ marginTop: '10px' }}>
+                                <span className="badge" style={{ background: visitaViendo.finalizado ? 'var(--bg-success)' : 'var(--bg-warning)', color: visitaViendo.finalizado ? 'var(--fill-success)' : '#b8860b' }}>
+                                    {visitaViendo.finalizado ? 'Finalizada / OT resuelta' : 'En curso'}
+                                </span>
+                            </p>
+
+                            <div className="btn-group">
+                                {(esGestor || visitaViendo.tecnico_id === user.id) && <button className="btn btn-primary" onClick={() => abrirEditarVisita(visitaViendo)}>Editar Visita</button>}
+                                <button className="btn btn-secondary" onClick={() => setMode('detail')}>Cerrar</button>
+                            </div>
+                        </div>
+                    </div>
+                );
+            }
+
+            return null;
+        }
+
+        // ===== HELPERS EXCEL (SheetJS) =====
+        function exportToExcel(data, filename, columns) {
+            if (!data || data.length === 0) {
+                alert('No hay datos para exportar');
+                return;
+            }
+            const rows = data.map(item => {
+                const row = {};
+                columns.forEach(col => { row[col.label] = item[col.key] ?? ''; });
+                return row;
+            });
+            const ws = XLSX.utils.json_to_sheet(rows);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, 'Datos');
+            XLSX.writeFile(wb, `${filename}.xlsx`);
+        }
+
+        function ExcelImportButton({ onRows, label }) {
+            const inputRef = React.useRef(null);
+            const handleFile = (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = (evt) => {
+                    const wb = XLSX.read(evt.target.result, { type: 'binary' });
+                    const ws = wb.Sheets[wb.SheetNames[0]];
+                    const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
+                    onRows(rows);
+                };
+                reader.readAsBinaryString(file);
+                e.target.value = '';
+            };
+            return (
+                <label className="btn btn-import" style={{ cursor: 'pointer' }}>
+                    📥 {label || 'Importar Excel'}
+                    <input ref={inputRef} type="file" accept=".xlsx,.xls" className="file-input-hidden" onChange={handleFile} />
+                </label>
+            );
+        }
+
+        // ===== ZONAS =====
+        function ZonasView({ user, zonas, clientes, contratos, onRefresh }) {
+            const [showForm, setShowForm] = useState(false);
+            const [editingId, setEditingId] = useState(null);
+            const [selectedCliente, setSelectedCliente] = useState('');
+            const [formData, setFormData] = useState({ contrato_id: '', nombre: '' });
+            const [importMsg, setImportMsg] = useState('');
+
+            const contratosFiltrados = selectedCliente ? contratos.filter(c => c.cliente_id === parseInt(selectedCliente)) : contratos;
+
+            const handleAdd = async () => {
+                if (!formData.nombre.trim() || !formData.contrato_id) { alert('Selecciona contrato y nombre'); return; }
+                try {
+                    const url = editingId ? `${API_URL}/api/zonas/${editingId}` : `${API_URL}/api/zonas`;
+                    const method = editingId ? 'PUT' : 'POST';
+                    await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(formData) });
+                    setFormData({ contrato_id: '', nombre: '' });
+                    setSelectedCliente('');
+                    setEditingId(null);
+                    setShowForm(false);
+                    onRefresh();
+                } catch (err) { alert('Error al guardar zona'); }
+            };
+
+            const handleDelete = async (id) => {
+                if (!confirm('¿Eliminar esta zona? Esto puede afectar emplazamientos vinculados.')) return;
+                await fetch(`${API_URL}/api/zonas/${id}`, { method: 'DELETE' });
+                onRefresh();
+            };
+
+            const handleEdit = (z) => {
+                setFormData({ contrato_id: z.contrato_id, nombre: z.nombre });
+                setSelectedCliente(String(z.cliente_id || ''));
+                setEditingId(z.id);
+                setShowForm(true);
+            };
+
+            const handleImportRows = async (rows) => {
+                let ok = 0, fail = 0;
+                for (const row of rows) {
+                    const contratoNombre = row['Contrato'] || row['contrato'];
+                    const clienteNombre = row['Cliente'] || row['cliente'];
+                    const nombre = row['Zona'] || row['nombre'] || row['Nombre'];
+                    const contrato = contratos.find(c => c.nombre === contratoNombre && (!clienteNombre || c.cliente_nombre === clienteNombre));
+                    if (!contrato || !nombre) { fail++; continue; }
+                    try {
+                        await fetch(`${API_URL}/api/zonas`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contrato_id: contrato.id, nombre }) });
+                        ok++;
+                    } catch { fail++; }
+                }
+                setImportMsg(`✅ Importadas: ${ok} | ❌ Fallidas: ${fail}`);
+                onRefresh();
+            };
+
+            return (
+                <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '8px' }}>
+                        <h3 className="section-title" style={{ margin: 0 }}>🗺️ Zonas</h3>
+                        <div className="toolbar">
+                            <button className="btn btn-excel" onClick={() => exportToExcel(zonas, 'zonas', [
+                                { key: 'cliente_nombre', label: 'Cliente' },
+                                { key: 'contrato_nombre', label: 'Contrato' },
+                                { key: 'nombre', label: 'Zona' }
+                            ])}>📤 Exportar</button>
+                            <ExcelImportButton onRows={handleImportRows} />
+                            <button className="btn btn-primary" onClick={() => { setShowForm(!showForm); setEditingId(null); }}>+ Nueva</button>
+                        </div>
+                    </div>
+
+                    {importMsg && <div className="import-summary">{importMsg}</div>}
+
+                    {showForm && (
+                        <div className="card" style={{ marginBottom: '1rem' }}>
+                            <div className="form-group">
+                                <label>Cliente</label>
+                                <select value={selectedCliente} onChange={(e) => { setSelectedCliente(e.target.value); setFormData({ ...formData, contrato_id: '' }); }}>
+                                    <option value="">-- Selecciona un cliente --</option>
+                                    {clientes.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                                </select>
+                            </div>
+                            <div className="form-group">
+                                <label>Contrato</label>
+                                <select value={formData.contrato_id} disabled={!selectedCliente} className={!selectedCliente ? 'select-disabled' : ''} onChange={(e) => setFormData({ ...formData, contrato_id: e.target.value })}>
+                                    <option value="">-- Selecciona un contrato --</option>
+                                    {contratosFiltrados.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                                </select>
+                            </div>
+                            <div className="form-group">
+                                <label>Nombre de la Zona</label>
+                                <input type="text" placeholder="Ej: Asturias, Andalucía..." value={formData.nombre} onChange={(e) => setFormData({ ...formData, nombre: e.target.value })} />
+                            </div>
+                            <div className="btn-group">
+                                <button className="btn btn-success" onClick={handleAdd}>{editingId ? 'Guardar' : 'Crear'}</button>
+                                <button className="btn btn-secondary" onClick={() => { setShowForm(false); setEditingId(null); }}>Cancelar</button>
+                            </div>
+                        </div>
+                    )}
+
+                    <div className="list">
+                        {zonas.length === 0 ? <div className="empty-state">No hay zonas</div> : zonas.map(z => (
+                            <div key={z.id} className="list-item">
+                                <p className="card-title">🗺️ {z.nombre}</p>
+                                <p className="breadcrumb-path">{z.cliente_nombre} › {z.contrato_nombre}</p>
+                                <div style={{ marginTop: '8px', display: 'flex', gap: '8px' }}>
+                                    <button className="btn btn-primary" onClick={() => handleEdit(z)}>Editar</button>
+                                    <button className="btn btn-danger" onClick={() => handleDelete(z.id)}>Eliminar</button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            );
+        }
+
+        // ===== EMPLAZAMIENTOS =====
+        function EmplazamientosView({ user, emplazamientos, zonas, clientes, contratos, onRefresh }) {
+            const [showForm, setShowForm] = useState(false);
+            const [editingId, setEditingId] = useState(null);
+            const [selectedCliente, setSelectedCliente] = useState('');
+            const [selectedContrato, setSelectedContrato] = useState('');
+            const [formData, setFormData] = useState({ zona_id: '', nombre: '', direccion: '' });
+            const [importMsg, setImportMsg] = useState('');
+
+            const contratosFiltrados = selectedCliente ? contratos.filter(c => c.cliente_id === parseInt(selectedCliente)) : contratos;
+            const zonasFiltradas = selectedContrato ? zonas.filter(z => z.contrato_id === parseInt(selectedContrato)) : zonas;
+
+            const handleAdd = async () => {
+                if (!formData.nombre.trim() || !formData.zona_id) { alert('Selecciona zona y nombre'); return; }
+                try {
+                    const url = editingId ? `${API_URL}/api/emplazamientos/${editingId}` : `${API_URL}/api/emplazamientos`;
+                    const method = editingId ? 'PUT' : 'POST';
+                    await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(formData) });
+                    setFormData({ zona_id: '', nombre: '', direccion: '' });
+                    setSelectedCliente(''); setSelectedContrato('');
+                    setEditingId(null);
+                    setShowForm(false);
+                    onRefresh();
+                } catch (err) { alert('Error al guardar emplazamiento'); }
+            };
+
+            const handleDelete = async (id) => {
+                if (!confirm('¿Eliminar este emplazamiento? Esto puede afectar activos vinculados.')) return;
+                await fetch(`${API_URL}/api/emplazamientos/${id}`, { method: 'DELETE' });
+                onRefresh();
+            };
+
+            const handleEdit = (e) => {
+                setFormData({ zona_id: e.zona_id, nombre: e.nombre, direccion: e.direccion || '' });
+                setSelectedCliente(String(e.cliente_id || ''));
+                setSelectedContrato(String(e.contrato_id || ''));
+                setEditingId(e.id);
+                setShowForm(true);
+            };
+
+            const handleImportRows = async (rows) => {
+                let ok = 0, fail = 0;
+                for (const row of rows) {
+                    const zonaNombre = row['Zona'] || row['zona'];
+                    const nombre = row['Emplazamiento'] || row['nombre'] || row['Nombre'];
+                    const direccion = row['Dirección'] || row['direccion'] || '';
+                    const zona = zonas.find(z => z.nombre === zonaNombre);
+                    if (!zona || !nombre) { fail++; continue; }
+                    try {
+                        await fetch(`${API_URL}/api/emplazamientos`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ zona_id: zona.id, nombre, direccion }) });
+                        ok++;
+                    } catch { fail++; }
+                }
+                setImportMsg(`✅ Importados: ${ok} | ❌ Fallidos: ${fail}`);
+                onRefresh();
+            };
+
+            return (
+                <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '8px' }}>
+                        <h3 className="section-title" style={{ margin: 0 }}>📍 Emplazamientos</h3>
+                        <div className="toolbar">
+                            <button className="btn btn-excel" onClick={() => exportToExcel(emplazamientos, 'emplazamientos', [
+                                { key: 'cliente_nombre', label: 'Cliente' },
+                                { key: 'contrato_nombre', label: 'Contrato' },
+                                { key: 'zona_nombre', label: 'Zona' },
+                                { key: 'nombre', label: 'Emplazamiento' },
+                                { key: 'direccion', label: 'Dirección' }
+                            ])}>📤 Exportar</button>
+                            <ExcelImportButton onRows={handleImportRows} />
+                            <button className="btn btn-primary" onClick={() => { setShowForm(!showForm); setEditingId(null); }}>+ Nuevo</button>
+                        </div>
+                    </div>
+
+                    {importMsg && <div className="import-summary">{importMsg}</div>}
+
+                    {showForm && (
+                        <div className="card" style={{ marginBottom: '1rem' }}>
+                            <div className="form-group">
+                                <label>Cliente</label>
+                                <select value={selectedCliente} onChange={(e) => { setSelectedCliente(e.target.value); setSelectedContrato(''); setFormData({ ...formData, zona_id: '' }); }}>
+                                    <option value="">-- Selecciona un cliente --</option>
+                                    {clientes.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                                </select>
+                            </div>
+                            <div className="form-group">
+                                <label>Contrato</label>
+                                <select value={selectedContrato} disabled={!selectedCliente} className={!selectedCliente ? 'select-disabled' : ''} onChange={(e) => { setSelectedContrato(e.target.value); setFormData({ ...formData, zona_id: '' }); }}>
+                                    <option value="">-- Selecciona un contrato --</option>
+                                    {contratosFiltrados.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                                </select>
+                            </div>
+                            <div className="form-group">
+                                <label>Zona</label>
+                                <select value={formData.zona_id} disabled={!selectedContrato} className={!selectedContrato ? 'select-disabled' : ''} onChange={(e) => setFormData({ ...formData, zona_id: e.target.value })}>
+                                    <option value="">-- Selecciona una zona --</option>
+                                    {zonasFiltradas.map(z => <option key={z.id} value={z.id}>{z.nombre}</option>)}
+                                </select>
+                            </div>
+                            <div className="form-group">
+                                <label>Nombre del Emplazamiento</label>
+                                <input type="text" placeholder="Ej: Estación Avilés" value={formData.nombre} onChange={(e) => setFormData({ ...formData, nombre: e.target.value })} />
+                            </div>
+                            <div className="form-group">
+                                <label>Dirección (opcional)</label>
+                                <input type="text" placeholder="Dirección" value={formData.direccion} onChange={(e) => setFormData({ ...formData, direccion: e.target.value })} />
+                            </div>
+                            <div className="btn-group">
+                                <button className="btn btn-success" onClick={handleAdd}>{editingId ? 'Guardar' : 'Crear'}</button>
+                                <button className="btn btn-secondary" onClick={() => { setShowForm(false); setEditingId(null); }}>Cancelar</button>
+                            </div>
+                        </div>
+                    )}
+
+                    <div className="list">
+                        {emplazamientos.length === 0 ? <div className="empty-state">No hay emplazamientos</div> : emplazamientos.map(e => (
+                            <div key={e.id} className="list-item">
+                                <p className="card-title">📍 {e.nombre}</p>
+                                <p className="breadcrumb-path">{e.cliente_nombre} › {e.contrato_nombre} › {e.zona_nombre}</p>
+                                {e.direccion && <p className="card-text">🏠 {e.direccion}</p>}
+                                <div style={{ marginTop: '8px', display: 'flex', gap: '8px' }}>
+                                    <button className="btn btn-primary" onClick={() => handleEdit(e)}>Editar</button>
+                                    <button className="btn btn-danger" onClick={() => handleDelete(e.id)}>Eliminar</button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            );
+        }
+
+        // ===== ACTIVOS =====
+        // ===== INVENTARIO (envoltorio con submenús: Zonas / Emplazamientos / Activos) =====
+        function InventarioView(props) {
+            const [subTab, setSubTab] = useState('activos');
+            const subTabs = [
+                { id: 'activos', label: 'Activos' },
+                { id: 'emplazamientos', label: 'Emplazamientos' },
+                { id: 'zonas', label: 'Zonas' }
+            ];
+            return (
+                <div>
+                    <div className="tipo-filter-bar">
+                        {subTabs.map(t => (
+                            <button key={t.id} className={`tipo-filter-btn ${subTab === t.id ? 'active' : ''}`} onClick={() => setSubTab(t.id)}>
+                                {t.label}
+                            </button>
+                        ))}
+                    </div>
+                    {subTab === 'activos' && <ActivosView {...props} />}
+                    {subTab === 'emplazamientos' && <EmplazamientosView {...props} />}
+                    {subTab === 'zonas' && <ZonasView {...props} />}
+                </div>
+            );
+        }
+
+        function ActivosView({ user, activos, emplazamientos, clientes, contratos, onRefresh }) {
+            const [showForm, setShowForm] = useState(false);
+            const [editingId, setEditingId] = useState(null);
+            const [selectedCliente, setSelectedCliente] = useState('');
+            const [emplazamientoSearch, setEmplazamientoSearch] = useState('');
+            const [formData, setFormData] = useState({ emplazamiento_id: '', contrato_id: '', tipo: '', nombre: '', fabricante: '', modelo: '', estado: 'Activo', observaciones: '' });
+            const [importMsg, setImportMsg] = useState('');
+
+            const contratosFiltrados = selectedCliente ? contratos.filter(c => c.cliente_id === parseInt(selectedCliente)) : contratos;
+            const emplazamientosFiltrados = emplazamientoSearch
+                ? emplazamientos.filter(e => e.nombre.toLowerCase().includes(emplazamientoSearch.toLowerCase()))
+                : emplazamientos;
+
+            const tiposActivo = ['Puerta Automática', 'Persiana Motorizada', 'CCTV', 'Control Acceso Peatonal', 'Control Acceso Vehicular', 'Otro'];
+
+            const handleAdd = async () => {
+                if (!formData.nombre.trim() || !formData.emplazamiento_id || !formData.contrato_id) {
+                    alert('Selecciona emplazamiento, contrato y nombre'); return;
+                }
+                try {
+                    const url = editingId ? `${API_URL}/api/activos/${editingId}` : `${API_URL}/api/activos`;
+                    const method = editingId ? 'PUT' : 'POST';
+                    await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(formData) });
+                    setFormData({ emplazamiento_id: '', contrato_id: '', tipo: '', nombre: '', fabricante: '', modelo: '', estado: 'Activo', observaciones: '' });
+                    setSelectedCliente(''); setEmplazamientoSearch('');
+                    setEditingId(null);
+                    setShowForm(false);
+                    onRefresh();
+                } catch (err) { alert('Error al guardar activo'); }
+            };
+
+            const handleDelete = async (id) => {
+                if (!confirm('¿Eliminar este activo?')) return;
+                await fetch(`${API_URL}/api/activos/${id}`, { method: 'DELETE' });
+                onRefresh();
+            };
+
+            const handleEdit = (a) => {
+                setFormData({
+                    emplazamiento_id: a.emplazamiento_id, contrato_id: a.contrato_id, tipo: a.tipo || '',
+                    nombre: a.nombre, fabricante: a.fabricante || '', modelo: a.modelo || '',
+                    estado: a.estado, observaciones: a.observaciones || ''
+                });
+                setSelectedCliente(String(a.cliente_id || ''));
+                setEditingId(a.id);
+                setShowForm(true);
+            };
+
+            const handleImportRows = async (rows) => {
+                let ok = 0, fail = 0;
+                for (const row of rows) {
+                    const emplazamientoNombre = row['Emplazamiento'] || row['emplazamiento'];
+                    const contratoNombre = row['Contrato'] || row['contrato'];
+                    const nombre = row['Activo'] || row['nombre'] || row['Nombre'];
+                    const emplazamiento = emplazamientos.find(e => e.nombre === emplazamientoNombre);
+                    const contrato = contratos.find(c => c.nombre === contratoNombre);
+                    if (!emplazamiento || !contrato || !nombre) { fail++; continue; }
+                    try {
+                        await fetch(`${API_URL}/api/activos`, {
+                            method: 'POST', headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                emplazamiento_id: emplazamiento.id, contrato_id: contrato.id,
+                                tipo: row['Tipo'] || row['tipo'] || '', nombre,
+                                fabricante: row['Fabricante'] || row['fabricante'] || '',
+                                modelo: row['Modelo'] || row['modelo'] || '',
+                                estado: row['Estado'] || row['estado'] || 'Activo',
+                                observaciones: row['Observaciones'] || row['observaciones'] || ''
+                            })
+                        });
+                        ok++;
+                    } catch { fail++; }
+                }
+                setImportMsg(`✅ Importados: ${ok} | ❌ Fallidos: ${fail}`);
+                onRefresh();
+            };
+
+            return (
+                <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '8px' }}>
+                        <h3 className="section-title" style={{ margin: 0 }}>⚙️ Activos</h3>
+                        <div className="toolbar">
+                            <button className="btn btn-excel" onClick={() => exportToExcel(activos, 'activos', [
+                                { key: 'cliente_nombre', label: 'Cliente' },
+                                { key: 'contrato_nombre', label: 'Contrato' },
+                                { key: 'zona_nombre', label: 'Zona' },
+                                { key: 'emplazamiento_nombre', label: 'Emplazamiento' },
+                                { key: 'tipo', label: 'Tipo' },
+                                { key: 'nombre', label: 'Activo' },
+                                { key: 'fabricante', label: 'Fabricante' },
+                                { key: 'modelo', label: 'Modelo' },
+                                { key: 'estado', label: 'Estado' },
+                                { key: 'observaciones', label: 'Observaciones' }
+                            ])}>📤 Exportar</button>
+                            <ExcelImportButton onRows={handleImportRows} />
+                            <button className="btn btn-primary" onClick={() => { setShowForm(!showForm); setEditingId(null); }}>+ Nuevo</button>
+                        </div>
+                    </div>
+
+                    {importMsg && <div className="import-summary">{importMsg}</div>}
+
+                    {showForm && (
+                        <div className="card" style={{ marginBottom: '1rem' }}>
+                            <p className="card-text" style={{ marginBottom: '10px' }}>
+                                💡 Un mismo emplazamiento puede tener activos de distintos contratos. Selecciona el contrato al que pertenece <strong>este activo</strong> de forma independiente al emplazamiento.
+                            </p>
+
+                            <div className="form-group">
+                                <label>Cliente (del contrato)</label>
+                                <select value={selectedCliente} onChange={(e) => { setSelectedCliente(e.target.value); setFormData({ ...formData, contrato_id: '' }); }}>
+                                    <option value="">-- Selecciona un cliente --</option>
+                                    {clientes.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                                </select>
+                            </div>
+                            <div className="form-group">
+                                <label>Contrato de este Activo</label>
+                                <select value={formData.contrato_id} disabled={!selectedCliente} className={!selectedCliente ? 'select-disabled' : ''} onChange={(e) => setFormData({ ...formData, contrato_id: e.target.value })}>
+                                    <option value="">-- Selecciona un contrato --</option>
+                                    {contratosFiltrados.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                                </select>
+                            </div>
+
+                            <div className="form-group">
+                                <label>Buscar Emplazamiento</label>
+                                <input type="text" placeholder="Escribe para filtrar..." value={emplazamientoSearch} onChange={(e) => setEmplazamientoSearch(e.target.value)} />
+                            </div>
+                            <div className="form-group">
+                                <label>Emplazamiento</label>
+                                <select value={formData.emplazamiento_id} onChange={(e) => setFormData({ ...formData, emplazamiento_id: e.target.value })}>
+                                    <option value="">-- Selecciona un emplazamiento --</option>
+                                    {emplazamientosFiltrados.map(e => (
+                                        <option key={e.id} value={e.id}>{e.nombre} ({e.cliente_nombre} › {e.zona_nombre})</option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <div className="form-group">
+                                <label>Tipo de Activo</label>
+                                <select value={formData.tipo} onChange={(e) => setFormData({ ...formData, tipo: e.target.value })}>
+                                    <option value="">-- Selecciona tipo --</option>
+                                    {tiposActivo.map(t => <option key={t} value={t}>{t}</option>)}
+                                </select>
+                            </div>
+                            <div className="form-group">
+                                <label>Nombre / Identificador</label>
+                                <input type="text" placeholder="Ej: Puerta Andén 1" value={formData.nombre} onChange={(e) => setFormData({ ...formData, nombre: e.target.value })} />
+                            </div>
+                            <div className="form-group">
+                                <label>Fabricante</label>
+                                <input type="text" placeholder="Fabricante" value={formData.fabricante} onChange={(e) => setFormData({ ...formData, fabricante: e.target.value })} />
+                            </div>
+                            <div className="form-group">
+                                <label>Modelo</label>
+                                <input type="text" placeholder="Modelo" value={formData.modelo} onChange={(e) => setFormData({ ...formData, modelo: e.target.value })} />
+                            </div>
+                            <div className="form-group">
+                                <label>Estado</label>
+                                <select value={formData.estado} onChange={(e) => setFormData({ ...formData, estado: e.target.value })}>
+                                    <option value="Activo">Activo</option>
+                                    <option value="Inactivo">Inactivo</option>
+                                    <option value="En reparación">En reparación</option>
+                                    <option value="Dado de baja">Dado de baja</option>
+                                </select>
+                            </div>
+                            <div className="form-group">
+                                <label>Observaciones</label>
+                                <textarea placeholder="Observaciones" value={formData.observaciones} onChange={(e) => setFormData({ ...formData, observaciones: e.target.value })}></textarea>
+                            </div>
+
+                            <div className="btn-group">
+                                <button className="btn btn-success" onClick={handleAdd}>{editingId ? 'Guardar' : 'Crear'}</button>
+                                <button className="btn btn-secondary" onClick={() => { setShowForm(false); setEditingId(null); }}>Cancelar</button>
+                            </div>
+                        </div>
+                    )}
+
+                    <div className="list">
+                        {activos.length === 0 ? <div className="empty-state">No hay activos</div> : activos.map(a => (
+                            <div key={a.id} className="list-item">
+                                <div className="list-item-header">
+                                    <div>
+                                        <p className="card-title">⚙️ {a.nombre}</p>
+                                        <p className="breadcrumb-path">{a.cliente_nombre} › {a.contrato_nombre} › {a.zona_nombre} › {a.emplazamiento_nombre}</p>
+                                    </div>
+                                    {a.tipo && <span className="badge" style={{ background: 'var(--bg-accent)', color: 'var(--fill-accent)' }}>{a.tipo}</span>}
+                                </div>
+                                <p className="card-text">🏭 {a.fabricante || '—'} | 🔧 {a.modelo || '—'}</p>
+                                <p className="card-text">✓ Estado: {a.estado}</p>
+                                {a.observaciones && <p className="card-text">📝 {a.observaciones}</p>}
+                                <div style={{ marginTop: '8px', display: 'flex', gap: '8px' }}>
+                                    <button className="btn btn-primary" onClick={() => handleEdit(a)}>Editar</button>
+                                    <button className="btn btn-danger" onClick={() => handleDelete(a.id)}>Eliminar</button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            );
+        }
+
+        function ContratosView({ user, contratos, clientes, onRefresh }) {
+            const [showForm, setShowForm] = useState(false);
+            const [editingId, setEditingId] = useState(null);
+            const [formData, setFormData] = useState({
+                cliente_id: clientes.length > 0 ? clientes[0].id : 1,
+                nombre: '',
+                descripcion: '',
+                fecha_inicio: '',
+                fecha_fin: '',
+                estado: 'Activo'
+            });
+
+            const handleAdd = async () => {
+                if (!formData.nombre.trim()) return;
+
+                try {
+                    const url = editingId ? `${API_URL}/api/contratos/${editingId}` : `${API_URL}/api/contratos`;
+                    const method = editingId ? 'PUT' : 'POST';
+
+                    await fetch(url, {
+                        method,
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(formData)
+                    });
+
+                    setFormData({
+                        cliente_id: clientes[0]?.id || 1,
+                        nombre: '',
+                        descripcion: '',
+                        fecha_inicio: '',
+                        fecha_fin: '',
+                        estado: 'Activo'
+                    });
+                    setEditingId(null);
+                    setShowForm(false);
+                    onRefresh();
+                } catch (err) {
+                    alert('Error al guardar contrato');
+                }
+            };
+
+            const handleDelete = async (id) => {
+                if (!confirm('¿Eliminar este contrato?')) return;
+
+                try {
+                    await fetch(`${API_URL}/api/contratos/${id}`, { method: 'DELETE' });
+                    onRefresh();
+                } catch (err) {
+                    alert('Error al eliminar contrato');
+                }
+            };
+
+            const handleEdit = (contrato) => {
+                setFormData(contrato);
+                setEditingId(contrato.id);
+                setShowForm(true);
+            };
+
+            const [importMsg, setImportMsg] = useState('');
+            const handleImportRows = async (rows) => {
+                let ok = 0, fail = 0;
+                for (const row of rows) {
+                    const clienteNombre = row['Cliente'] || row['cliente'];
+                    const nombre = row['Contrato'] || row['nombre'] || row['Nombre'];
+                    const cliente = clientes.find(c => c.nombre === clienteNombre);
+                    if (!cliente || !nombre) { fail++; continue; }
+                    try {
+                        await fetch(`${API_URL}/api/contratos`, {
+                            method: 'POST', headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                cliente_id: cliente.id, nombre,
+                                descripcion: row['Descripción'] || row['descripcion'] || '',
+                                fecha_inicio: row['Fecha Inicio'] || row['fecha_inicio'] || '',
+                                fecha_fin: row['Fecha Fin'] || row['fecha_fin'] || '',
+                                estado: row['Estado'] || row['estado'] || 'Activo'
+                            })
+                        });
+                        ok++;
+                    } catch { fail++; }
+                }
+                setImportMsg(`✅ Importados: ${ok} | ❌ Fallidos: ${fail}`);
+                onRefresh();
+            };
+
+            return (
+                <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '8px' }}>
+                        <h3 className="section-title" style={{ margin: 0 }}>📋 Contratos</h3>
+                        <div className="toolbar">
+                            <button className="btn btn-excel" onClick={() => exportToExcel(contratos, 'contratos', [
+                                { key: 'cliente_nombre', label: 'Cliente' },
+                                { key: 'nombre', label: 'Contrato' },
+                                { key: 'descripcion', label: 'Descripción' },
+                                { key: 'fecha_inicio', label: 'Fecha Inicio' },
+                                { key: 'fecha_fin', label: 'Fecha Fin' },
+                                { key: 'estado', label: 'Estado' }
+                            ])}>📤 Exportar</button>
+                            <ExcelImportButton onRows={handleImportRows} />
+                            <button className="btn btn-primary" onClick={() => { setShowForm(!showForm); setEditingId(null); }}>
+                                + Nuevo
+                            </button>
+                        </div>
+                    </div>
+
+                    {importMsg && <div className="import-summary">{importMsg}</div>}
+
+                    {showForm && (
+                        <div className="card" style={{ marginBottom: '1rem' }}>
+                            <div className="form-group">
+                                <label>Cliente</label>
+                                <select value={formData.cliente_id} onChange={(e) => setFormData({ ...formData, cliente_id: parseInt(e.target.value) })}>
+                                    {clientes.map(c => (
+                                        <option key={c.id} value={c.id}>{c.nombre}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div className="form-group">
+                                <label>Nombre del Contrato</label>
+                                <input type="text" placeholder="Nombre" value={formData.nombre} onChange={(e) => setFormData({ ...formData, nombre: e.target.value })} />
+                            </div>
+                            <div className="form-group">
+                                <label>Descripción</label>
+                                <textarea placeholder="Descripción" value={formData.descripcion} onChange={(e) => setFormData({ ...formData, descripcion: e.target.value })}></textarea>
+                            </div>
+                            <div className="form-group">
+                                <label>Fecha Inicio</label>
+                                <input type="date" value={formData.fecha_inicio} onChange={(e) => setFormData({ ...formData, fecha_inicio: e.target.value })} />
+                            </div>
+                            <div className="form-group">
+                                <label>Fecha Fin</label>
+                                <input type="date" value={formData.fecha_fin} onChange={(e) => setFormData({ ...formData, fecha_fin: e.target.value })} />
+                            </div>
+                            <div className="form-group">
+                                <label>Estado</label>
+                                <select value={formData.estado} onChange={(e) => setFormData({ ...formData, estado: e.target.value })}>
+                                    <option value="Activo">Activo</option>
+                                    <option value="Inactivo">Inactivo</option>
+                                    <option value="Pausado">Pausado</option>
+                                </select>
+                            </div>
+                            <div className="btn-group">
+                                <button className="btn btn-success" onClick={handleAdd}>{editingId ? 'Guardar' : 'Crear'}</button>
+                                <button className="btn btn-secondary" onClick={() => { setShowForm(false); setEditingId(null); }}>Cancelar</button>
+                            </div>
+                        </div>
+                    )}
+
+                    <div className="list">
+                        {contratos.length === 0 ? (
+                            <div className="empty-state">No hay contratos</div>
+                        ) : (
+                            contratos.map(contrato => (
+                                <div key={contrato.id} className="list-item">
+                                    <div className="list-item-header">
+                                        <div>
+                                            <p className="card-title">📄 {contrato.nombre}</p>
+                                            <p className="card-text">🏢 {contrato.cliente_nombre}</p>
+                                        </div>
+                                        <span className="badge" style={{ background: 'var(--bg-accent)', color: 'var(--fill-accent)' }}>{contrato.estado}</span>
+                                    </div>
+                                    <p className="card-text">{contrato.descripcion}</p>
+                                    <p className="card-text">📅 {contrato.fecha_inicio} a {contrato.fecha_fin}</p>
+                                    <div style={{ marginTop: '8px', display: 'flex', gap: '8px' }}>
+                                        <button className="btn btn-primary" onClick={() => handleEdit(contrato)}>Editar</button>
+                                        <button className="btn btn-danger" onClick={() => handleDelete(contrato.id)}>Eliminar</button>
+                                    </div>
+                                </div>
+                            ))
+                        )}
+                    </div>
+                </div>
+            );
+        }
+
+        function ClientesView({ user, clientes, onRefresh }) {
+            const [showForm, setShowForm] = useState(false);
+            const [editingId, setEditingId] = useState(null);
+            const [formData, setFormData] = useState({
+                nombre: '',
+                contacto: '',
+                telefono: ''
+            });
+
+            const handleAdd = async () => {
+                if (!formData.nombre.trim()) return;
+
+                try {
+                    const url = editingId ? `${API_URL}/api/clientes/${editingId}` : `${API_URL}/api/clientes`;
+                    const method = editingId ? 'PUT' : 'POST';
+
+                    await fetch(url, {
+                        method,
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(formData)
+                    });
+
+                    setFormData({ nombre: '', contacto: '', telefono: '' });
+                    setEditingId(null);
+                    setShowForm(false);
+                    onRefresh();
+                } catch (err) {
+                    alert('Error al guardar cliente');
+                }
+            };
+
+            const handleDelete = async (id) => {
+                if (!confirm('¿Eliminar este cliente?')) return;
+
+                try {
+                    await fetch(`${API_URL}/api/clientes/${id}`, { method: 'DELETE' });
+                    onRefresh();
+                } catch (err) {
+                    alert('Error al eliminar cliente');
+                }
+            };
+
+            const handleEdit = (cliente) => {
+                setFormData(cliente);
+                setEditingId(cliente.id);
+                setShowForm(true);
+            };
+
+            const [importMsg, setImportMsg] = useState('');
+            const handleImportRows = async (rows) => {
+                let ok = 0, fail = 0;
+                for (const row of rows) {
+                    const nombre = row['Cliente'] || row['nombre'] || row['Nombre'];
+                    if (!nombre) { fail++; continue; }
+                    try {
+                        await fetch(`${API_URL}/api/clientes`, {
+                            method: 'POST', headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                nombre,
+                                contacto: row['Contacto'] || row['contacto'] || '',
+                                telefono: row['Teléfono'] || row['telefono'] || ''
+                            })
+                        });
+                        ok++;
+                    } catch { fail++; }
+                }
+                setImportMsg(`✅ Importados: ${ok} | ❌ Fallidos: ${fail}`);
+                onRefresh();
+            };
+
+            return (
+                <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '8px' }}>
+                        <h3 className="section-title" style={{ margin: 0 }}>👥 Clientes</h3>
+                        <div className="toolbar">
+                            <button className="btn btn-excel" onClick={() => exportToExcel(clientes, 'clientes', [
+                                { key: 'nombre', label: 'Cliente' },
+                                { key: 'contacto', label: 'Contacto' },
+                                { key: 'telefono', label: 'Teléfono' }
+                            ])}>📤 Exportar</button>
+                            <ExcelImportButton onRows={handleImportRows} />
+                            <button className="btn btn-primary" onClick={() => { setShowForm(!showForm); setEditingId(null); }}>
+                                + Nuevo
+                            </button>
+                        </div>
+                    </div>
+
+                    {importMsg && <div className="import-summary">{importMsg}</div>}
+
+                    {showForm && (
+                        <div className="card" style={{ marginBottom: '1rem' }}>
+                            <div className="form-group">
+                                <label>Nombre</label>
+                                <input type="text" placeholder="Nombre" value={formData.nombre} onChange={(e) => setFormData({ ...formData, nombre: e.target.value })} />
+                            </div>
+                            <div className="form-group">
+                                <label>Contacto</label>
+                                <input type="email" placeholder="email@ejemplo.com" value={formData.contacto} onChange={(e) => setFormData({ ...formData, contacto: e.target.value })} />
+                            </div>
+                            <div className="form-group">
+                                <label>Teléfono</label>
+                                <input type="tel" placeholder="Teléfono" value={formData.telefono} onChange={(e) => setFormData({ ...formData, telefono: e.target.value })} />
+                            </div>
+                            <div className="btn-group">
+                                <button className="btn btn-success" onClick={handleAdd}>{editingId ? 'Guardar' : 'Agregar'}</button>
+                                <button className="btn btn-secondary" onClick={() => { setShowForm(false); setEditingId(null); }}>Cancelar</button>
+                            </div>
+                        </div>
+                    )}
+
+                    <div className="list">
+                        {clientes.length === 0 ? (
+                            <div className="empty-state">No hay clientes</div>
+                        ) : (
+                            clientes.map(cliente => (
+                                <div key={cliente.id} className="list-item">
+                                    <p className="card-title">🏢 {cliente.nombre}</p>
+                                    <p className="card-text">📧 {cliente.contacto}</p>
+                                    <p className="card-text">📱 {cliente.telefono}</p>
+                                    <div style={{ marginTop: '8px', display: 'flex', gap: '8px' }}>
+                                        <button className="btn btn-primary" onClick={() => handleEdit(cliente)}>Editar</button>
+                                        <button className="btn btn-danger" onClick={() => handleDelete(cliente.id)}>Eliminar</button>
+                                    </div>
+                                </div>
+                            ))
+                        )}
+                    </div>
+                </div>
+            );
+        }
+
+        function UsuariosView({ user, usuarios, onRefresh }) {
+            const [showForm, setShowForm] = useState(false);
+            const [editingId, setEditingId] = useState(null);
+            const [formData, setFormData] = useState({
+                nombre: '',
+                email: '',
+                password: '',
+                rol: 'tecnico',
+                activo: 1
+            });
+            const [error, setError] = useState('');
+
+            const handleAdd = async () => {
+                setError('');
+                
+                if (!formData.nombre.trim() || !formData.email.trim()) {
+                    setError('Nombre y email requeridos');
+                    return;
+                }
+
+                if (!editingId && !formData.password.trim()) {
+                    setError('Contraseña requerida para nuevo usuario');
+                    return;
+                }
+
+                if (formData.password && formData.password.length < 6) {
+                    setError('La contraseña debe tener al menos 6 caracteres');
+                    return;
+                }
+
+                // Supervisor no puede crear admin
+                if (user.rol === 'supervisor' && formData.rol === 'admin') {
+                    setError('Supervisor no puede crear administradores');
+                    return;
+                }
+
+                try {
+                    const url = editingId ? `${API_URL}/api/usuarios/${editingId}` : `${API_URL}/api/usuarios`;
+                    const method = editingId ? 'PUT' : 'POST';
+
+                    const response = await fetch(url, {
+                        method,
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(formData)
+                    });
+
+                    if (response.ok) {
+                        setFormData({ nombre: '', email: '', password: '', rol: 'tecnico', activo: 1 });
+                        setEditingId(null);
+                        setShowForm(false);
+                        onRefresh();
+                    } else {
+                        const data = await response.json();
+                        setError(data.error || 'Error al guardar usuario');
+                    }
+                } catch (err) {
+                    setError('Error al guardar usuario');
+                }
+            };
+
+            const handleDelete = async (id) => {
+                if (!confirm('¿Eliminar este usuario?')) return;
+
+                try {
+                    await fetch(`${API_URL}/api/usuarios/${id}`, { method: 'DELETE' });
+                    onRefresh();
+                } catch (err) {
+                    alert('Error al eliminar usuario');
+                }
+            };
+
+            const handleEdit = (u) => {
+                setFormData({ ...u, password: '' });
+                setEditingId(u.id);
+                setShowForm(true);
+            };
+
+            const handleDisable = async (id) => {
+                try {
+                    await fetch(`${API_URL}/api/usuarios/${id}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ ...usuarios.find(u => u.id === id), activo: 0 })
+                    });
+                    onRefresh();
+                } catch (err) {
+                    alert('Error al inhabilitar usuario');
+                }
+            };
+
+            return (
+                <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                        <h3 className="section-title" style={{ margin: 0 }}>👥 Usuarios</h3>
+                        <button className="btn btn-primary" onClick={() => { setShowForm(!showForm); setEditingId(null); setError(''); }}>
+                            + Nuevo
+                        </button>
+                    </div>
+
+                    {showForm && (
+                        <div className="card" style={{ marginBottom: '1rem' }}>
+                            <div className="form-group">
+                                <label>Nombre</label>
+                                <input type="text" placeholder="Nombre completo" value={formData.nombre} onChange={(e) => setFormData({ ...formData, nombre: e.target.value })} />
+                            </div>
+
+                            <div className="form-group">
+                                <label>Email</label>
+                                <input type="email" placeholder="usuario@ejemplo.com" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} />
+                            </div>
+
+                            {!editingId && (
+                                <div className="form-group">
+                                    <label>Contraseña</label>
+                                    <input type="password" placeholder="Mínimo 6 caracteres" value={formData.password} onChange={(e) => setFormData({ ...formData, password: e.target.value })} />
+                                </div>
+                            )}
+
+                            {editingId && (
+                                <div className="form-group">
+                                    <label>Nueva Contraseña (dejar vacío para no cambiar)</label>
+                                    <input type="password" placeholder="Dejar vacío para no cambiar" value={formData.password} onChange={(e) => setFormData({ ...formData, password: e.target.value })} />
+                                </div>
+                            )}
+
+                            <div className="form-group">
+                                <label>Rol</label>
+                                <select value={formData.rol} onChange={(e) => setFormData({ ...formData, rol: e.target.value })}>
+                                    {user.rol === 'admin' && <option value="admin">Administrador</option>}
+                                    <option value="supervisor">Supervisor</option>
+                                    <option value="tecnico">Técnico</option>
+                                </select>
+                            </div>
+
+                            {error && <p style={{ color: 'var(--fill-danger)', fontSize: '12px', marginBottom: '12px' }}>❌ {error}</p>}
+
+                            <div className="btn-group">
+                                <button className="btn btn-success" onClick={handleAdd}>{editingId ? 'Guardar' : 'Crear'}</button>
+                                <button className="btn btn-secondary" onClick={() => { setShowForm(false); setEditingId(null); setError(''); }}>Cancelar</button>
+                            </div>
+                        </div>
+                    )}
+
+                    <div className="list">
+                        {usuarios.length === 0 ? (
+                            <div className="empty-state">No hay usuarios</div>
+                        ) : (
+                            usuarios.map(u => (
+                                <div key={u.id} className="list-item" style={{ opacity: u.activo ? 1 : 0.5 }}>
+                                    <div className="list-item-header">
+                                        <div>
+                                            <p className="card-title">👤 {u.nombre}</p>
+                                            <p className="card-text">📧 {u.email}</p>
+                                        </div>
+                                        <span className={`badge ${u.rol}`}>{u.rol}</span>
+                                    </div>
+                                    <p className="card-text">✓ Estado: {u.activo ? 'Activo' : 'Inactivo'}</p>
+                                    <div style={{ marginTop: '8px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                                        <button className="btn btn-primary" onClick={() => handleEdit(u)}>Editar</button>
+                                        {u.activo && <button className="btn btn-secondary" onClick={() => handleDisable(u.id)}>Inhabilitar</button>}
+                                        <button className="btn btn-danger" onClick={() => handleDelete(u.id)}>Eliminar</button>
+                                    </div>
+                                </div>
+                            ))
+                        )}
+                    </div>
+                </div>
+            );
+        }
+
+        // ===== CALENDARIO DE PLANIFICACIÓN =====
+        const WEEKDAY_LABELS = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
+        const MONTH_LABELS = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+
+        function CalendarView({ user, ordenes, usuarios, activos, onRefresh }) {
+            const [year, setYear] = useState(new Date().getFullYear());
+            const [month, setMonth] = useState(new Date().getMonth());
+            const [filtroTecnico, setFiltroTecnico] = useState('todos');
+            const [diaSeleccionado, setDiaSeleccionado] = useState(null);
+            const [importMsg, setImportMsg] = useState('');
+
+            const tecnicos = usuarios.filter(u => u.activo);
+            const firstOfMonth = new Date(year, month, 1);
+            const startWeekday = (firstOfMonth.getDay() + 6) % 7;
+            const daysInMonth = new Date(year, month + 1, 0).getDate();
+            const cells = [];
+            for (let i = 0; i < startWeekday; i++) cells.push(null);
+            for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+
+            let planificables = ordenes.filter(o => o.tipo !== 'guardia' && o.fecha_programada);
+            if (filtroTecnico !== 'todos') {
+                planificables = planificables.filter(o => o.asignado_a === parseInt(filtroTecnico) || (() => {
+                    try { return JSON.parse(o.tecnicos_apoyo || '[]').includes(parseInt(filtroTecnico)); } catch { return false; }
+                })());
+            }
+            const byDay = {};
+            planificables.forEach(o => { (byDay[o.fecha_programada] = byDay[o.fecha_programada] || []).push(o); });
+
+            const hoy = new Date().toISOString().slice(0, 10);
+            const prevMonth = () => { if (month === 0) { setMonth(11); setYear(year - 1); } else setMonth(month - 1); };
+            const nextMonth = () => { if (month === 11) { setMonth(0); setYear(year + 1); } else setMonth(month + 1); };
+
+            const exportarPlantilla = () => {
+                const rows = activos.map(a => ({
+                    id_activo: a.id, activo: a.nombre, cliente: a.cliente_nombre, contrato: a.contrato_nombre,
+                    emplazamiento: a.emplazamiento_nombre, fecha_planificada: '', tecnico: '', tecnicos_apoyo: '', prioridad: 'media',
+                    titulo: `Preventivo ${a.nombre}`, descripcion: ''
+                }));
+                exportToExcel(rows, 'plantilla_preventivos', [
+                    { key: 'id_activo', label: 'id_activo' }, { key: 'activo', label: 'activo' }, { key: 'cliente', label: 'cliente' },
+                    { key: 'contrato', label: 'contrato' }, { key: 'emplazamiento', label: 'emplazamiento' },
+                    { key: 'fecha_planificada', label: 'fecha_planificada' }, { key: 'tecnico', label: 'tecnico' },
+                    { key: 'tecnicos_apoyo', label: 'tecnicos_apoyo' }, { key: 'prioridad', label: 'prioridad' },
+                    { key: 'titulo', label: 'titulo' }, { key: 'descripcion', label: 'descripcion' }
+                ]);
+            };
+
+            const importarPlan = async (rows) => {
+                let creados = 0, saltados = 0;
+                for (const row of rows) {
+                    const fecha = row['fecha_planificada'];
+                    if (!fecha) { saltados++; continue; }
+                    let activo = null;
+                    if (row['id_activo']) activo = activos.find(a => a.id === parseInt(row['id_activo']));
+                    if (!activo && row['activo']) activo = activos.find(a => a.nombre.trim().toLowerCase() === String(row['activo']).trim().toLowerCase());
+                    if (!activo) { saltados++; continue; }
+
+                    let tecnico = null;
+                    if (row['tecnico']) tecnico = tecnicos.find(u => u.nombre.trim().toLowerCase() === String(row['tecnico']).trim().toLowerCase());
+                    const apoyoIds = String(row['tecnicos_apoyo'] || '').split(',').map(s => s.trim()).filter(Boolean).map(n => {
+                        const u = tecnicos.find(u => u.nombre.trim().toLowerCase() === n.toLowerCase());
+                        return u ? u.id : null;
+                    }).filter(Boolean);
+
+                    let fechaISO = fecha;
+                    if (fecha instanceof Date) fechaISO = fecha.toISOString().slice(0, 10);
+
+                    try {
+                        await fetch(`${API_URL}/api/ordenes`, {
+                            method: 'POST', headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                titulo: row['titulo'] || `Preventivo ${activo.nombre}`,
+                                tipo: 'preventivo', cliente_id: activo.cliente_id, activo_id: activo.id,
+                                estado: tecnico ? 'abierta' : 'pendiente', prioridad: row['prioridad'] || 'media',
+                                asignado_a: tecnico ? tecnico.id : null, tecnicos_apoyo: JSON.stringify(apoyoIds),
+                                fecha_programada: fechaISO, notas: row['descripcion'] || ''
+                            })
+                        });
+                        creados++;
+                    } catch { saltados++; }
+                }
+                setImportMsg(`✅ OTs preventivas creadas: ${creados}${saltados ? ` | ⚠️ Filas omitidas: ${saltados}` : ''}`);
+                onRefresh();
+            };
+
+            return (
+                <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '8px' }}>
+                        <h3 className="section-title" style={{ margin: 0 }}>📅 Calendario de Planificación</h3>
+                        <div className="toolbar">
+                            <button className="btn btn-excel" onClick={exportarPlantilla}>📤 Plantilla anual</button>
+                            <ExcelImportButton onRows={importarPlan} label="Importar plan" />
+                        </div>
+                    </div>
+
+                    {importMsg && <div className="import-summary">{importMsg}</div>}
+
+                    <div className="form-group">
+                        <select value={filtroTecnico} onChange={(e) => setFiltroTecnico(e.target.value)}>
+                            <option value="todos">Todos los trabajadores</option>
+                            {tecnicos.map(u => <option key={u.id} value={u.id}>{u.nombre}</option>)}
+                        </select>
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                        <button className="btn btn-secondary" onClick={prevMonth}>‹</button>
+                        <span style={{ fontWeight: 700 }}>{MONTH_LABELS[month]} {year}</span>
+                        <button className="btn btn-secondary" onClick={nextMonth}>›</button>
+                    </div>
+
+                    <div className="cal-legend">
+                        <span><i style={{ background: 'var(--fill-success)' }}></i>Preventivo</span>
+                        <span><i style={{ background: 'var(--fill-danger)' }}></i>Correctivo</span>
+                        <span><i style={{ background: 'var(--fill-accent)' }}></i>Obra</span>
+                    </div>
+
+                    <div className="cal-grid">
+                        {WEEKDAY_LABELS.map(w => <div key={w} className="cal-weekday">{w}</div>)}
+                        {cells.map((d, i) => {
+                            if (d === null) return <div key={i} className="cal-cell empty"></div>;
+                            const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                            const dayOts = byDay[dateStr] || [];
+                            const isToday = dateStr === hoy;
+                            return (
+                                <button key={i} className={`cal-cell ${isToday ? 'today' : ''}`} onClick={() => setDiaSeleccionado(dateStr)}>
+                                    <span className="cal-daynum">{d}</span>
+                                    <span className="cal-dots">
+                                        {dayOts.slice(0, 4).map((o, j) => (
+                                            <i key={j} style={{ background: o.tipo === 'preventivo' ? 'var(--fill-success)' : o.tipo === 'correctivo' ? 'var(--fill-danger)' : 'var(--fill-accent)' }}></i>
+                                        ))}
+                                    </span>
+                                </button>
+                            );
+                        })}
+                    </div>
+
+                    {diaSeleccionado && (
+                        <div className="card" style={{ marginTop: '1rem' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                                <h4 className="card-title">📅 {diaSeleccionado}</h4>
+                                <button className="btn btn-secondary" onClick={() => setDiaSeleccionado(null)}>Cerrar</button>
+                            </div>
+                            <div className="list">
+                                {(byDay[diaSeleccionado] || []).length === 0 ? (
+                                    <div className="empty-state">No hay ninguna OT planificada este día.</div>
+                                ) : (
+                                    (byDay[diaSeleccionado] || []).map(o => (
+                                        <div key={o.id} className="list-item">
+                                            <div className="list-item-header">
+                                                <p className="card-title">{o.titulo}</p>
+                                                <span className={`badge ${o.tipo}`}>{o.tipo}</span>
+                                            </div>
+                                            <p className="card-text">👤 {o.tecnico_nombre || 'Sin asignar'}</p>
+                                        </div>
+                                    ))
+                                )}
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        // ===== PRECIARIO (con historial de precios) =====
+        function PreciarioView({ user, materiales, clientes, onRefresh }) {
+            const [showForm, setShowForm] = useState(false);
+            const [search, setSearch] = useState('');
+            const [filtroCliente, setFiltroCliente] = useState('todos');
+            const [verHistorialId, setVerHistorialId] = useState(null);
+            const [precioNuevo, setPrecioNuevo] = useState({});
+            const [formData, setFormData] = useState({ cliente_id: '', tipo: '', descripcion: '', unidad: 'ud', precio: '' });
+            const [importMsg, setImportMsg] = useState('');
+
+            const getHistorial = (m) => { try { return JSON.parse(m.historial_json || '[]'); } catch { return []; } };
+            const getPrecioActual = (m) => { const h = getHistorial(m); return h.length ? h[h.length - 1].precio : null; };
+
+            let filtrados = materiales;
+            if (filtroCliente !== 'todos') filtrados = filtrados.filter(m => m.cliente_id === parseInt(filtroCliente));
+            if (search) filtrados = filtrados.filter(m => m.descripcion.toLowerCase().includes(search.toLowerCase()) || (m.tipo || '').toLowerCase().includes(search.toLowerCase()));
+
+            const handleAdd = async () => {
+                if (!formData.descripcion.trim()) { alert('La descripción es obligatoria'); return; }
+                try {
+                    await fetch(`${API_URL}/api/materiales`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(formData) });
+                    setFormData({ cliente_id: '', tipo: '', descripcion: '', unidad: 'ud', precio: '' });
+                    setShowForm(false);
+                    onRefresh();
+                } catch { alert('Error al guardar material'); }
+            };
+
+            const handleDelete = async (id) => {
+                if (!confirm('¿Eliminar este material del preciario?')) return;
+                await fetch(`${API_URL}/api/materiales/${id}`, { method: 'DELETE' });
+                onRefresh();
+            };
+
+            const handleAddPrecio = async (id) => {
+                const precio = precioNuevo[id];
+                if (!precio) { alert('Introduce un precio'); return; }
+                await fetch(`${API_URL}/api/materiales/${id}/precio`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ precio }) });
+                setPrecioNuevo({ ...precioNuevo, [id]: '' });
+                onRefresh();
+            };
+
+            const handleImportRows = async (rows) => {
+                let ok = 0, fail = 0;
+                for (const row of rows) {
+                    const descripcion = row['Descripción'] || row['descripcion'];
+                    const clienteNombre = row['Cliente'] || row['cliente'];
+                    const cliente = clientes.find(c => c.nombre === clienteNombre);
+                    if (!descripcion) { fail++; continue; }
+                    try {
+                        await fetch(`${API_URL}/api/materiales`, {
+                            method: 'POST', headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                cliente_id: cliente ? cliente.id : null, tipo: row['Tipo'] || row['tipo'] || '',
+                                descripcion, unidad: row['Unidad'] || row['unidad'] || 'ud',
+                                precio: row['Precio'] || row['precio'] || row['Precio Actual'] || ''
+                            })
+                        });
+                        ok++;
+                    } catch { fail++; }
+                }
+                setImportMsg(`✅ Importados: ${ok} | ❌ Fallidos: ${fail}`);
+                onRefresh();
+            };
+
+            return (
+                <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '8px' }}>
+                        <h3 className="section-title" style={{ margin: 0 }}>💰 Preciario</h3>
+                        <div className="toolbar">
+                            <button className="btn btn-excel" onClick={() => exportToExcel(materiales.map(m => ({ ...m, cliente_nombre: (clientes.find(c => c.id === m.cliente_id) || {}).nombre || '', precio_actual: getPrecioActual(m) })), 'preciario', [
+                                { key: 'cliente_nombre', label: 'Cliente' }, { key: 'tipo', label: 'Tipo' }, { key: 'descripcion', label: 'Descripción' },
+                                { key: 'unidad', label: 'Unidad' }, { key: 'precio_actual', label: 'Precio Actual' }
+                            ])}>📤 Exportar</button>
+                            <ExcelImportButton onRows={handleImportRows} />
+                            <button className="btn btn-primary" onClick={() => setShowForm(!showForm)}>+ Nuevo</button>
+                        </div>
+                    </div>
+
+                    {importMsg && <div className="import-summary">{importMsg}</div>}
+
+                    <div className="form-group">
+                        <input type="text" placeholder="🔍 Buscar material..." value={search} onChange={(e) => setSearch(e.target.value)} />
+                    </div>
+                    <div className="form-group">
+                        <select value={filtroCliente} onChange={(e) => setFiltroCliente(e.target.value)}>
+                            <option value="todos">Todos los clientes</option>
+                            {clientes.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                        </select>
+                    </div>
+
+                    {showForm && (
+                        <div className="card" style={{ marginBottom: '1rem' }}>
+                            <div className="form-group">
+                                <label>Cliente</label>
+                                <select value={formData.cliente_id} onChange={(e) => setFormData({ ...formData, cliente_id: e.target.value })}>
+                                    <option value="">-- Sin cliente específico --</option>
+                                    {clientes.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                                </select>
+                            </div>
+                            <div className="form-group"><label>Tipo / Categoría</label><input type="text" placeholder="Ej: Accesorios Puertas" value={formData.tipo} onChange={(e) => setFormData({ ...formData, tipo: e.target.value })} /></div>
+                            <div className="form-group"><label>Descripción</label><input type="text" placeholder="Descripción del material" value={formData.descripcion} onChange={(e) => setFormData({ ...formData, descripcion: e.target.value })} /></div>
+                            <div className="form-group"><label>Unidad</label><input type="text" placeholder="ud, m, kg..." value={formData.unidad} onChange={(e) => setFormData({ ...formData, unidad: e.target.value })} /></div>
+                            <div className="form-group"><label>Precio inicial (€)</label><input type="number" step="0.01" placeholder="0.00" value={formData.precio} onChange={(e) => setFormData({ ...formData, precio: e.target.value })} /></div>
+                            <div className="btn-group">
+                                <button className="btn btn-success" onClick={handleAdd}>Crear</button>
+                                <button className="btn btn-secondary" onClick={() => setShowForm(false)}>Cancelar</button>
+                            </div>
+                        </div>
+                    )}
+
+                    <div className="list">
+                        {filtrados.length === 0 ? <div className="empty-state">No hay materiales</div> : filtrados.map(m => {
+                            const historial = getHistorial(m);
+                            const precioActual = getPrecioActual(m);
+                            return (
+                                <div key={m.id} className="list-item">
+                                    <div className="list-item-header">
+                                        <div>
+                                            <p className="card-title">{m.descripcion}</p>
+                                            <p className="card-text">{m.tipo} {m.cliente_nombre ? `· ${m.cliente_nombre}` : ''}</p>
+                                        </div>
+                                        <span className="badge" style={{ background: 'var(--bg-accent)', color: 'var(--fill-accent)' }}>
+                                            {precioActual !== null ? `${precioActual.toFixed(2)} €` : 'Sin precio'} / {m.unidad}
+                                        </span>
+                                    </div>
+
+                                    <div style={{ marginTop: '8px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                                        <button className="btn btn-secondary" onClick={() => setVerHistorialId(verHistorialId === m.id ? null : m.id)}>
+                                            {verHistorialId === m.id ? 'Ocultar historial' : `Ver historial (${historial.length})`}
+                                        </button>
+                                        <button className="btn btn-danger" onClick={() => handleDelete(m.id)}>Eliminar</button>
+                                    </div>
+
+                                    {verHistorialId === m.id && (
+                                        <div style={{ marginTop: '10px' }}>
+                                            {historial.length === 0 ? <p className="card-text">Sin historial de precios.</p> : (
+                                                [...historial].reverse().map((h, i) => (
+                                                    <div key={i} className="price-history-row"><span>{h.fecha}</span><span>{parseFloat(h.precio).toFixed(2)} €</span></div>
+                                                ))
+                                            )}
+                                            <div style={{ display: 'flex', gap: '6px', marginTop: '8px' }}>
+                                                <input type="number" step="0.01" placeholder="Nuevo precio" value={precioNuevo[m.id] || ''} onChange={(e) => setPrecioNuevo({ ...precioNuevo, [m.id]: e.target.value })} />
+                                                <button className="btn btn-success" onClick={() => handleAddPrecio(m.id)}>Añadir</button>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            );
+        }
+
+        function App() {
+            const [user, setUser] = useState(null);
+
+            useEffect(() => {
+                const savedTheme = localStorage.getItem('gmao-theme') || 'light';
+                document.body.classList.add(savedTheme + '-theme');
+            }, []);
+
+            return user ? (
+                <Dashboard user={user} onLogout={() => setUser(null)} />
+            ) : (
+                <LoginScreen onLogin={setUser} />
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
