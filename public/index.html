@@ -194,6 +194,11 @@
         .price-history-row { display: flex; justify-content: space-between; font-size: 12px; padding: 4px 0; border-bottom: 1px dashed var(--border); }
         .campo-badge-visible { background: var(--bg-success); color: var(--fill-success); }
         .campo-badge-oculto { background: var(--bg-danger); color: var(--fill-danger); }
+        .tipo-count-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+        .tipo-count-pill { font-size: 11px; padding: 3px 8px; border-radius: 12px; border: 1px solid; font-weight: 600; }
+        .bar-chart-wrap { width: 100%; }
+        .tecnico-dash-card { margin-bottom: 10px; }
+        .tecnico-dash-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
         .grid-row-card { margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
         .grid-row-title { font-weight: 600; font-size: 13px; margin-bottom: 6px; }
         .grid-radio-wrap { display: flex; flex-wrap: wrap; gap: 10px; }
@@ -528,7 +533,7 @@
                     </div>
 
                     <div className="content">
-                        {activeTab === 'dashboard' && <DashboardView ordenes={ordenes} clientes={clientes} activos={activos} contratos={contratos} />}
+                        {activeTab === 'dashboard' && <DashboardView user={user} usuarios={usuarios} ordenes={ordenes} clientes={clientes} activos={activos} contratos={contratos} />}
                         {activeTab === 'ordenes' && <OrdenesView user={user} ordenes={ordenes} clientes={clientes} contratos={contratos} activos={activos} tiposActivo={tiposActivo} usuarios={usuarios} materiales={materiales} onRefresh={cargarDatos} />}
                         {activeTab === 'guardias' && (user.rol === 'admin' || user.rol === 'supervisor') && <OrdenesView user={user} ordenes={ordenes} clientes={clientes} contratos={contratos} activos={activos} tiposActivo={tiposActivo} usuarios={usuarios} materiales={materiales} onRefresh={cargarDatos} filtroInicialTipo="guardia" />}
                         {activeTab === 'calendario' && (user.rol === 'admin' || user.rol === 'supervisor') && <CalendarView user={user} ordenes={ordenes} usuarios={usuarios} activos={activos} onRefresh={cargarDatos} />}
@@ -540,13 +545,90 @@
             );
         }
 
-        function DashboardView({ ordenes, clientes, activos, contratos }) {
+        function BarChart({ data, height = 110 }) {
+            const max = Math.max(1, ...data.map(d => d.value));
+            const n = data.length || 1;
+            const barSlot = 100 / n;
+            const chartH = height - 22;
+            return (
+                <div className="bar-chart-wrap">
+                    <svg viewBox={`0 0 100 ${height}`} preserveAspectRatio="none" style={{ width: '100%', height: height + 'px' }}>
+                        {data.map((d, i) => {
+                            const barH = max > 0 ? (d.value / max) * chartH : 0;
+                            const x = i * barSlot + barSlot * 0.18;
+                            const w = barSlot * 0.64;
+                            const y = chartH - barH;
+                            return (
+                                <g key={i}>
+                                    <rect x={x} y={y} width={w} height={Math.max(barH, d.value > 0 ? 1.5 : 0)} fill={d.color} rx="1" />
+                                    <text x={x + w / 2} y={y - 2} fontSize="7" textAnchor="middle" fill="var(--text-primary)">{d.value}</text>
+                                    <text x={x + w / 2} y={height - 6} fontSize="5.5" textAnchor="middle" fill="var(--text-secondary)">{d.label}</text>
+                                </g>
+                            );
+                        })}
+                    </svg>
+                </div>
+            );
+        }
+
+        const TIPOS_OT_DASHBOARD = [
+            { key: 'correctivo', label: 'Correctivo', color: 'var(--fill-danger)' },
+            { key: 'preventivo', label: 'Preventivo', color: 'var(--fill-success)' },
+            { key: 'obra', label: 'Obra', color: 'var(--fill-accent)' },
+            { key: 'guardia', label: 'Guardia', color: 'var(--fill-orange)' }
+        ];
+        const ESTADOS_ABIERTOS_DASHBOARD = ['pendiente', 'abierta', 'en_curso'];
+
+        function DashboardView({ user, usuarios, ordenes, clientes, activos, contratos }) {
+            const esGestor = user.rol === 'admin' || user.rol === 'supervisor';
+            const contarPorTipo = (lista) => TIPOS_OT_DASHBOARD.map(t => ({ label: t.label, color: t.color, value: lista.filter(o => o.tipo === t.key).length }));
+
+            if (!esGestor) {
+                const misOrdenes = ordenes.filter(o => o.asignado_a === user.id);
+                const pendientes = misOrdenes.filter(o => ESTADOS_ABIERTOS_DASHBOARD.includes(o.estado));
+                const datosTipo = contarPorTipo(misOrdenes);
+
+                return (
+                    <div>
+                        <h3 className="section-title">Mi Dashboard</h3>
+                        <div className="metrics-grid">
+                            <div className="metric-card"><div className="metric-label">Total Asignadas</div><div className="metric-value">{misOrdenes.length}</div></div>
+                            <div className="metric-card"><div className="metric-label">Pendientes</div><div className="metric-value">{pendientes.length}</div></div>
+                        </div>
+
+                        <div className="card">
+                            <h4 className="card-title">Mis Órdenes por Tipo</h4>
+                            <BarChart data={datosTipo} />
+                            <div className="tipo-count-row">
+                                {datosTipo.map(d => <span key={d.label} className="tipo-count-pill" style={{ borderColor: d.color, color: d.color }}>{d.label}: {d.value}</span>)}
+                            </div>
+                        </div>
+
+                        <div className="card">
+                            <h4 className="card-title">📋 Últimas Órdenes</h4>
+                            {misOrdenes.slice(0, 3).length === 0 ? (
+                                <p className="card-text">No tienes órdenes asignadas</p>
+                            ) : (
+                                misOrdenes.slice(0, 3).map(order => (
+                                    <div key={order.id} style={{ paddingBottom: '8px', borderBottom: '1px solid var(--border)' }}>
+                                        <p style={{ margin: '0', fontSize: '13px', fontWeight: '600' }}>{order.id}</p>
+                                        <p className="card-text">{order.titulo}</p>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    </div>
+                );
+            }
+
             const stats = [
                 { label: 'Órdenes Totales', value: ordenes.length },
                 { label: 'Clientes', value: clientes.length },
                 { label: 'Activos', value: activos.length },
                 { label: 'Contratos', value: contratos.length }
             ];
+            const datosTipoGlobal = contarPorTipo(ordenes);
+            const tecnicos = usuarios.filter(u => u.activo);
 
             return (
                 <div>
@@ -558,6 +640,33 @@
                                 <div className="metric-value">{stat.value}</div>
                             </div>
                         ))}
+                    </div>
+
+                    <div className="card">
+                        <h4 className="card-title">Órdenes por Tipo</h4>
+                        <BarChart data={datosTipoGlobal} />
+                        <div className="tipo-count-row">
+                            {datosTipoGlobal.map(d => <span key={d.label} className="tipo-count-pill" style={{ borderColor: d.color, color: d.color }}>{d.label}: {d.value}</span>)}
+                        </div>
+                    </div>
+
+                    <div className="card">
+                        <h4 className="card-title">Órdenes por Técnico</h4>
+                        <div className="list">
+                            {tecnicos.length === 0 ? <p className="card-text">No hay usuarios activos</p> : tecnicos.map(t => {
+                                const suyas = ordenes.filter(o => o.asignado_a === t.id);
+                                const datosT = contarPorTipo(suyas);
+                                return (
+                                    <div key={t.id} className="tecnico-dash-card">
+                                        <div className="tecnico-dash-header">
+                                            <p className="card-title" style={{ margin: 0 }}>{t.nombre}</p>
+                                            <span className="badge" style={{ background: 'var(--bg-accent)', color: 'var(--fill-accent)' }}>{suyas.length} total</span>
+                                        </div>
+                                        <BarChart data={datosT} height={80} />
+                                    </div>
+                                );
+                            })}
+                        </div>
                     </div>
 
                     <div className="card">
