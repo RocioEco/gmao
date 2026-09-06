@@ -192,6 +192,8 @@
         .cal-legend { display: flex; gap: 12px; font-size: 11px; margin-bottom: 8px; color: var(--text-secondary); }
         .cal-legend i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 4px; }
         .price-history-row { display: flex; justify-content: space-between; font-size: 12px; padding: 4px 0; border-bottom: 1px dashed var(--border); }
+        .campo-badge-visible { background: var(--bg-success); color: var(--fill-success); }
+        .campo-badge-oculto { background: var(--bg-danger); color: var(--fill-danger); }
         .grid-row-card { margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
         .grid-row-title { font-weight: 600; font-size: 13px; margin-bottom: 6px; }
         .grid-radio-wrap { display: flex; flex-wrap: wrap; gap: 10px; }
@@ -276,7 +278,7 @@
             return (
                 <div className="login-screen">
                     <div className="login-card">
-                        <div className="login-logo"><img src="/assets/logo.jpeg" alt="eco computer Facilities" /></div>
+                        <div className="login-logo"><img src="/assets/logo.png" alt="eco computer Facilities" /></div>
                         <h1>GMAO</h1>
                         <p>Sistema de Gestión de Órdenes de Trabajo</p>
 
@@ -352,6 +354,7 @@
             const [ordenes, setOrdenes] = useState([]);
             const [usuarios, setUsuarios] = useState([]);
             const [materiales, setMateriales] = useState([]);
+            const [camposConfig, setCamposConfig] = useState([]);
             const [isDarkMode, setIsDarkMode] = useState(document.body.classList.contains('dark-theme'));
             const [notifPermission, setNotifPermission] = useState(typeof Notification !== 'undefined' ? Notification.permission : 'unsupported');
             const [toasts, setToasts] = useState([]);
@@ -419,7 +422,7 @@
 
             const cargarDatos = async () => {
                 try {
-                    const [clientesRes, contratosRes, zonasRes, emplazamientosRes, activosRes, tiposActivoRes, ordenesRes, usuariosRes, materialesRes] = await Promise.all([
+                    const [clientesRes, contratosRes, zonasRes, emplazamientosRes, activosRes, tiposActivoRes, ordenesRes, usuariosRes, materialesRes, camposConfigRes] = await Promise.all([
                         fetch(`${API_URL}/api/clientes`),
                         fetch(`${API_URL}/api/contratos`),
                         fetch(`${API_URL}/api/zonas`),
@@ -428,7 +431,8 @@
                         fetch(`${API_URL}/api/tipos-activo`),
                         fetch(`${API_URL}/api/ordenes`),
                         fetch(`${API_URL}/api/usuarios`),
-                        fetch(`${API_URL}/api/materiales`)
+                        fetch(`${API_URL}/api/materiales`),
+                        fetch(`${API_URL}/api/campos-config`)
                     ]);
 
                     setClientes(await clientesRes.json());
@@ -440,6 +444,7 @@
                     setOrdenes(await ordenesRes.json());
                     setUsuarios(await usuariosRes.json());
                     setMateriales(await materialesRes.json());
+                    setCamposConfig(await camposConfigRes.json());
                 } catch (err) {
                     console.error('Error cargando datos:', err);
                 }
@@ -486,7 +491,7 @@
                     )}                    <div className="header">
                         <div className="header-top">
                             <div className="header-left">
-                                <div className="header-logo"><img src="/assets/logo.jpeg" alt="eco computer Facilities" /></div>
+                                <div className="header-logo"><img src="/assets/logo.png" alt="eco computer Facilities" /></div>
                                 <div className="header-user">
                                     <h2>{user.nombre}</h2>
                                     <p>📍 {user.rol}</p>
@@ -527,7 +532,7 @@
                         {activeTab === 'ordenes' && <OrdenesView user={user} ordenes={ordenes} clientes={clientes} contratos={contratos} activos={activos} tiposActivo={tiposActivo} usuarios={usuarios} materiales={materiales} onRefresh={cargarDatos} />}
                         {activeTab === 'guardias' && (user.rol === 'admin' || user.rol === 'supervisor') && <OrdenesView user={user} ordenes={ordenes} clientes={clientes} contratos={contratos} activos={activos} tiposActivo={tiposActivo} usuarios={usuarios} materiales={materiales} onRefresh={cargarDatos} filtroInicialTipo="guardia" />}
                         {activeTab === 'calendario' && (user.rol === 'admin' || user.rol === 'supervisor') && <CalendarView user={user} ordenes={ordenes} usuarios={usuarios} activos={activos} onRefresh={cargarDatos} />}
-                        {activeTab === 'inventario' && (user.rol === 'admin' || user.rol === 'supervisor') && <InventarioView user={user} activos={activos} emplazamientos={emplazamientos} zonas={zonas} clientes={clientes} contratos={contratos} tiposActivo={tiposActivo} onRefresh={cargarDatos} />}
+                        {activeTab === 'inventario' && (user.rol === 'admin' || user.rol === 'supervisor') && <InventarioView user={user} activos={activos} emplazamientos={emplazamientos} zonas={zonas} clientes={clientes} contratos={contratos} tiposActivo={tiposActivo} camposConfig={camposConfig} onRefresh={cargarDatos} />}
                         {activeTab === 'preciario' && (user.rol === 'admin' || user.rol === 'supervisor') && <PreciarioView user={user} materiales={materiales} clientes={clientes} onRefresh={cargarDatos} />}
                         {activeTab === 'usuarios' && (user.rol === 'admin' || user.rol === 'supervisor') && <UsuariosView user={user} usuarios={usuarios} onRefresh={cargarDatos} />}
                     </div>
@@ -1194,6 +1199,14 @@
                 onRefresh();
             };
 
+            const asignarmeOt = async (o) => {
+                await fetch(`${API_URL}/api/ordenes/${o.id}`, {
+                    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ...o, asignado_a: user.id })
+                });
+                onRefresh();
+            };
+
             const abrirNuevaVisita = () => {
                 setVisitaForm(blankVisita());
                 setEditingVisitId(null);
@@ -1254,12 +1267,8 @@
                 onRefresh();
             };
 
-            let ordenesBase = ordenes;
-            if (!esGestor) {
-                ordenesBase = ordenes.filter(o => o.asignado_a === user.id || (() => {
-                    try { return (JSON.parse(o.tecnicos_apoyo || '[]')).includes(user.id); } catch { return false; }
-                })());
-            }
+            // El técnico puede VER todas las órdenes (la edición se restringe aparte, según asignación)
+            const ordenesBase = ordenes;
             let ordenesFiltradas = filtroTipo === 'todas' ? ordenesBase : ordenesBase.filter(o => o.tipo === filtroTipo);
             if (filtroEstado !== 'todas') ordenesFiltradas = ordenesFiltradas.filter(o => o.estado === filtroEstado);
 
@@ -1366,16 +1375,16 @@
                                 </select>
                             </div>
 
-                            {(otForm.tipo === 'preventivo' || otForm.tipo === 'guardia') && (
+                            {(otForm.tipo === 'preventivo' || otForm.tipo === 'guardia' || otForm.tipo === 'correctivo') && (
                                 <>
                                     {puedeEditarTodo && (
                                         <div className="form-group">
-                                            <label>Buscar Activo{otForm.tipo === 'guardia' ? ' (opcional)' : ''}</label>
+                                            <label>Buscar Activo{otForm.tipo !== 'preventivo' ? ' (opcional)' : ''}</label>
                                             <input type="text" placeholder="Escribe para filtrar..." value={activoSearch} onChange={(e) => setActivoSearch(e.target.value)} />
                                         </div>
                                     )}
                                     <div className={`form-group ${!puedeEditarTodo ? 'field-locked' : ''}`}>
-                                        <label>Activo{otForm.tipo === 'guardia' ? ' Relacionado (opcional, indica el tipo)' : ' a Revisar'}</label>
+                                        <label>Activo{otForm.tipo !== 'preventivo' ? ' Relacionado (opcional, indica el tipo y su checklist)' : ' a Revisar'}</label>
                                         <select value={otForm.activo_id} disabled={!puedeEditarTodo} onChange={(e) => setOtForm({ ...otForm, activo_id: e.target.value })}>
                                             <option value="">-- Selecciona un activo --</option>
                                             {activosFiltrados.map(a => (
@@ -1488,16 +1497,30 @@
                                 <div className="rv-row"><span className="rv-label">Estado</span><span className="rv-value">{otSeleccionada.estado}</span></div>
                                 {otSeleccionada.notas && <div className="rv-row"><span className="rv-label">Notas</span><span className="rv-value">{otSeleccionada.notas}</span></div>}
                             </div>
-                            <div style={{ marginTop: '10px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                                {(esGestor || otSeleccionada.asignado_a === user.id) && <button className="btn btn-primary" onClick={() => abrirEditarOt(otSeleccionada)}>Editar</button>}
-                                {esGestor && otSeleccionada.tipo === 'guardia' && <button className="btn btn-success" onClick={() => abrirConvertirGuardia(otSeleccionada)}>Convertir a Correctivo</button>}
-                                {esGestor && <button className="btn btn-danger" onClick={() => eliminarOt(otSeleccionada.id)}>Eliminar OT</button>}
-                            </div>
+                            {(() => {
+                                const puedeGestionar = esGestor || otSeleccionada.asignado_a === user.id;
+                                const sinAsignar = !otSeleccionada.asignado_a;
+                                return (
+                                    <div style={{ marginTop: '10px' }}>
+                                        {!esGestor && !puedeGestionar && !sinAsignar && (
+                                            <p className="lock-note">🔒 Esta orden está asignada a otro técnico ({otSeleccionada.tecnico_nombre}). Solo puedes verla.</p>
+                                        )}
+                                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                                            {puedeGestionar && <button className="btn btn-primary" onClick={() => abrirEditarOt(otSeleccionada)}>Editar</button>}
+                                            {!esGestor && !puedeGestionar && sinAsignar && (
+                                                <button className="btn btn-crear" onClick={() => asignarmeOt(otSeleccionada)}>Asignarme para Gestionar</button>
+                                            )}
+                                            {esGestor && otSeleccionada.tipo === 'guardia' && <button className="btn btn-success" onClick={() => abrirConvertirGuardia(otSeleccionada)}>Convertir a Correctivo</button>}
+                                            {esGestor && <button className="btn btn-danger" onClick={() => eliminarOt(otSeleccionada.id)}>Eliminar OT</button>}
+                                        </div>
+                                    </div>
+                                );
+                            })()}
                         </div>
 
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '14px 0 8px' }}>
                             <h4 className="card-title" style={{ margin: 0 }}>📋 Visitas ({visitas.length})</h4>
-                            <button className="btn btn-crear" onClick={abrirNuevaVisita}>+ Nueva Visita</button>
+                            {(esGestor || otSeleccionada.asignado_a === user.id) && <button className="btn btn-crear" onClick={abrirNuevaVisita}>+ Nueva Visita</button>}
                         </div>
 
                         <div className="list">
@@ -1550,7 +1573,7 @@
                             <div className="form-group"><label>Proyecto</label><input type="text" value={visitaForm.proyecto} onChange={(e) => setVisitaForm({ ...visitaForm, proyecto: e.target.value })} /></div>
                             <div className="form-group"><label>Descripción</label><textarea value={visitaForm.descripcion} onChange={(e) => setVisitaForm({ ...visitaForm, descripcion: e.target.value })}></textarea></div>
 
-                            {otSeleccionada && otSeleccionada.tipo === 'preventivo' && otSeleccionada.activo_tipo && (
+                            {otSeleccionada && otSeleccionada.activo_tipo && (
                                 <div className="checklist-section">
                                     <div className="checklist-section-title">✅ Checklist: {otSeleccionada.activo_tipo}</div>
                                     <DynamicChecklistForm sections={getSeccionesTipo(otSeleccionada.activo_tipo)} value={visitaForm.checklist_json} onChange={(v) => setVisitaForm({ ...visitaForm, checklist_json: v })} />
@@ -1632,7 +1655,7 @@
                             </div>
                             {visitaViendo.descripcion && <p className="card-text" style={{ marginTop: '8px' }}>{visitaViendo.descripcion}</p>}
 
-                            {otSeleccionada && otSeleccionada.tipo === 'preventivo' && visitaViendo.checklist_tipo && (
+                            {otSeleccionada && visitaViendo.checklist_tipo && (
                                 <div className="checklist-section">
                                     <div className="checklist-section-title">✅ Checklist: {visitaViendo.checklist_tipo}</div>
                                     <DynamicChecklistForm sections={getSeccionesTipo(visitaViendo.checklist_tipo)} value={checklist} onChange={() => {}} readOnly={true} />
@@ -2195,7 +2218,7 @@
             const [editingId, setEditingId] = useState(null);
             const [selectedCliente, setSelectedCliente] = useState('');
             const [selectedZona, setSelectedZona] = useState('');
-            const [formData, setFormData] = useState({ emplazamiento_id: '', contrato_id: '', tipo: '', nombre: '', fabricante: '', modelo: '', estado: 'Activo', observaciones: '' });
+            const [formData, setFormData] = useState({ emplazamiento_id: '', contrato_id: '', tipo: '', nombre: '', fabricante: '', modelo: '', estado: 'Activo', observaciones: '', campos_extra: {} });
             const [importMsg, setImportMsg] = useState('');
 
             const contratosFiltrados = selectedCliente ? contratos.filter(c => c.cliente_id === parseInt(selectedCliente)) : contratos;
@@ -2241,8 +2264,8 @@
                 try {
                     const url = editingId ? `${API_URL}/api/activos/${editingId}` : `${API_URL}/api/activos`;
                     const method = editingId ? 'PUT' : 'POST';
-                    await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(formData) });
-                    setFormData({ emplazamiento_id: '', contrato_id: '', tipo: '', nombre: '', fabricante: '', modelo: '', estado: 'Activo', observaciones: '' });
+                    await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...formData, campos_extra: JSON.stringify(formData.campos_extra || {}) }) });
+                    setFormData({ emplazamiento_id: '', contrato_id: '', tipo: '', nombre: '', fabricante: '', modelo: '', estado: 'Activo', observaciones: '', campos_extra: {} });
                     setSelectedCliente(''); setSelectedZona('');
                     setEditingId(null);
                     setShowForm(false);
@@ -2257,10 +2280,12 @@
             };
 
             const handleEdit = (a) => {
+                let extra = {};
+                try { extra = a.campos_extra ? JSON.parse(a.campos_extra) : {}; } catch { extra = {}; }
                 setFormData({
                     emplazamiento_id: a.emplazamiento_id, contrato_id: a.contrato_id, tipo: a.tipo || '',
                     nombre: a.nombre, fabricante: a.fabricante || '', modelo: a.modelo || '',
-                    estado: a.estado, observaciones: a.observaciones || ''
+                    estado: a.estado, observaciones: a.observaciones || '', campos_extra: extra
                 });
                 setSelectedCliente(String(a.cliente_id || ''));
                 setSelectedZona(a.zona_id ? String(a.zona_id) : '');
@@ -2315,14 +2340,16 @@
                             ])}>📤 Exportar</button>
                             <ExcelImportButton onRows={handleImportRows} />
                             <button className="btn btn-secondary" onClick={() => setShowTiposManager(!showTiposManager)}>⚙️ Tipos de Activo</button>
+                            <button className="btn btn-secondary" onClick={() => setShowCamposManager(!showCamposManager)}>⚙️ Campos</button>
                             <button className="btn btn-crear" onClick={() => {
-                                if (!showForm) { setFormData({ emplazamiento_id: '', contrato_id: '', tipo: '', nombre: '', fabricante: '', modelo: '', estado: 'Activo', observaciones: '' }); setSelectedCliente(''); setSelectedZona(''); }
+                                if (!showForm) { setFormData({ emplazamiento_id: '', contrato_id: '', tipo: '', nombre: '', fabricante: '', modelo: '', estado: 'Activo', observaciones: '', campos_extra: {} }); setSelectedCliente(''); setSelectedZona(''); }
                                 setShowForm(!showForm); setEditingId(null);
                             }}>+ Nuevo</button>
                         </div>
                     </div>
 
                     {showTiposManager && <TiposActivoManager tiposActivo={tiposActivo} onRefresh={onRefresh} onClose={() => setShowTiposManager(false)} />}
+                    {showCamposManager && <CamposConfigManager entidad="activo" camposConfig={camposConfig} onRefresh={onRefresh} onClose={() => setShowCamposManager(false)} />}
 
                     {importMsg && <div className="import-summary">{importMsg}</div>}
 
@@ -2409,27 +2436,7 @@
                                 <label>Nombre / Identificador</label>
                                 <input type="text" placeholder="Ej: Puerta Andén 1" value={formData.nombre} onChange={(e) => setFormData({ ...formData, nombre: e.target.value })} />
                             </div>
-                            <div className="form-group">
-                                <label>Fabricante</label>
-                                <input type="text" placeholder="Fabricante" value={formData.fabricante} onChange={(e) => setFormData({ ...formData, fabricante: e.target.value })} />
-                            </div>
-                            <div className="form-group">
-                                <label>Modelo</label>
-                                <input type="text" placeholder="Modelo" value={formData.modelo} onChange={(e) => setFormData({ ...formData, modelo: e.target.value })} />
-                            </div>
-                            <div className="form-group">
-                                <label>Estado</label>
-                                <select value={formData.estado} onChange={(e) => setFormData({ ...formData, estado: e.target.value })}>
-                                    <option value="Activo">Activo</option>
-                                    <option value="Inactivo">Inactivo</option>
-                                    <option value="En reparación">En reparación</option>
-                                    <option value="Dado de baja">Dado de baja</option>
-                                </select>
-                            </div>
-                            <div className="form-group">
-                                <label>Observaciones</label>
-                                <textarea placeholder="Observaciones" value={formData.observaciones} onChange={(e) => setFormData({ ...formData, observaciones: e.target.value })}></textarea>
-                            </div>
+                            <DynamicExtraFields entidad="activo" camposConfig={camposConfig} formData={formData} setFormData={setFormData} />
 
                             <div className="btn-group">
                                 <button className="btn btn-success" onClick={handleAdd}>{editingId ? 'Guardar' : 'Crear'}</button>
@@ -2462,16 +2469,18 @@
             );
         }
 
-        function ContratosView({ user, contratos, clientes, onRefresh }) {
+        function ContratosView({ user, contratos, clientes, camposConfig, onRefresh }) {
             const [showForm, setShowForm] = useState(false);
             const [editingId, setEditingId] = useState(null);
+            const [showCamposManager, setShowCamposManager] = useState(false);
             const [formData, setFormData] = useState({
                 cliente_id: clientes.length > 0 ? clientes[0].id : 1,
                 nombre: '',
                 descripcion: '',
                 fecha_inicio: '',
                 fecha_fin: '',
-                estado: 'Activo'
+                estado: 'Activo',
+                campos_extra: {}
             });
 
             const handleAdd = async () => {
@@ -2484,7 +2493,7 @@
                     await fetch(url, {
                         method,
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(formData)
+                        body: JSON.stringify({ ...formData, campos_extra: JSON.stringify(formData.campos_extra || {}) })
                     });
 
                     setFormData({
@@ -2493,7 +2502,8 @@
                         descripcion: '',
                         fecha_inicio: '',
                         fecha_fin: '',
-                        estado: 'Activo'
+                        estado: 'Activo',
+                        campos_extra: {}
                     });
                     setEditingId(null);
                     setShowForm(false);
@@ -2515,7 +2525,9 @@
             };
 
             const handleEdit = (contrato) => {
-                setFormData(contrato);
+                let extra = {};
+                try { extra = contrato.campos_extra ? JSON.parse(contrato.campos_extra) : {}; } catch { extra = {}; }
+                setFormData({ ...contrato, campos_extra: extra });
                 setEditingId(contrato.id);
                 setShowForm(true);
             };
@@ -2560,11 +2572,14 @@
                                 { key: 'estado', label: 'Estado' }
                             ])}>📤 Exportar</button>
                             <ExcelImportButton onRows={handleImportRows} />
+                            <button className="btn btn-secondary" onClick={() => setShowCamposManager(!showCamposManager)}>⚙️ Campos</button>
                             <button className="btn btn-crear" onClick={() => { setShowForm(!showForm); setEditingId(null); }}>
                                 + Nuevo
                             </button>
                         </div>
                     </div>
+
+                    {showCamposManager && <CamposConfigManager entidad="contrato" camposConfig={camposConfig} onRefresh={onRefresh} onClose={() => setShowCamposManager(false)} />}
 
                     {importMsg && <div className="import-summary">{importMsg}</div>}
 
@@ -2582,26 +2597,7 @@
                                 <label>Nombre del Contrato</label>
                                 <input type="text" placeholder="Nombre" value={formData.nombre} onChange={(e) => setFormData({ ...formData, nombre: e.target.value })} />
                             </div>
-                            <div className="form-group">
-                                <label>Descripción</label>
-                                <textarea placeholder="Descripción" value={formData.descripcion} onChange={(e) => setFormData({ ...formData, descripcion: e.target.value })}></textarea>
-                            </div>
-                            <div className="form-group">
-                                <label>Fecha Inicio</label>
-                                <input type="date" value={formData.fecha_inicio} onChange={(e) => setFormData({ ...formData, fecha_inicio: e.target.value })} />
-                            </div>
-                            <div className="form-group">
-                                <label>Fecha Fin</label>
-                                <input type="date" value={formData.fecha_fin} onChange={(e) => setFormData({ ...formData, fecha_fin: e.target.value })} />
-                            </div>
-                            <div className="form-group">
-                                <label>Estado</label>
-                                <select value={formData.estado} onChange={(e) => setFormData({ ...formData, estado: e.target.value })}>
-                                    <option value="Activo">Activo</option>
-                                    <option value="Inactivo">Inactivo</option>
-                                    <option value="Pausado">Pausado</option>
-                                </select>
-                            </div>
+                            <DynamicExtraFields entidad="contrato" camposConfig={camposConfig} formData={formData} setFormData={setFormData} />
                             <div className="btn-group">
                                 <button className="btn btn-success" onClick={handleAdd}>{editingId ? 'Guardar' : 'Crear'}</button>
                                 <button className="btn btn-secondary" onClick={() => { setShowForm(false); setEditingId(null); }}>Cancelar</button>
@@ -2636,13 +2632,133 @@
             );
         }
 
-        function ClientesView({ user, clientes, onRefresh }) {
+        // ===== CAMPOS PERSONALIZABLES (Cliente / Contrato / Activo) =====
+        function DynamicExtraFields({ entidad, camposConfig, formData, setFormData, readOnly }) {
+            const campos = camposConfig.filter(c => c.entidad === entidad && c.visible).sort((a, b) => a.orden - b.orden);
+
+            const getValue = (campo) => campo.es_sistema ? (formData[campo.clave] ?? '') : ((formData.campos_extra || {})[campo.clave] ?? '');
+            const setValue = (campo, val) => {
+                if (campo.es_sistema) setFormData({ ...formData, [campo.clave]: val });
+                else setFormData({ ...formData, campos_extra: { ...(formData.campos_extra || {}), [campo.clave]: val } });
+            };
+
+            return (
+                <React.Fragment>
+                    {campos.map(campo => {
+                        let opciones = [];
+                        try { opciones = JSON.parse(campo.opciones || '[]'); } catch { opciones = []; }
+                        const val = getValue(campo);
+                        return (
+                            <div className="form-group" key={campo.id}>
+                                <label>{campo.etiqueta}</label>
+                                {readOnly ? (
+                                    <p className="card-text">{val || '—'}</p>
+                                ) : campo.tipo === 'select' ? (
+                                    <select value={val} onChange={(e) => setValue(campo, e.target.value)}>
+                                        <option value="">-- Selecciona --</option>
+                                        {opciones.map(o => <option key={o} value={o}>{o}</option>)}
+                                    </select>
+                                ) : campo.tipo === 'textarea' ? (
+                                    <textarea value={val} onChange={(e) => setValue(campo, e.target.value)}></textarea>
+                                ) : (
+                                    <input type={campo.tipo === 'date' ? 'date' : campo.tipo === 'number' ? 'number' : 'text'} value={val} onChange={(e) => setValue(campo, e.target.value)} />
+                                )}
+                            </div>
+                        );
+                    })}
+                </React.Fragment>
+            );
+        }
+
+        function CamposConfigManager({ entidad, camposConfig, onRefresh, onClose }) {
+            const [nuevaEtiqueta, setNuevaEtiqueta] = useState('');
+            const [nuevoTipo, setNuevoTipo] = useState('text');
+            const [nuevasOpciones, setNuevasOpciones] = useState('');
+
+            const campos = camposConfig.filter(c => c.entidad === entidad).sort((a, b) => a.orden - b.orden);
+
+            const toggleVisible = async (campo) => {
+                await fetch(`${API_URL}/api/campos-config/${campo.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ visible: !campo.visible }) });
+                onRefresh();
+            };
+
+            const renombrar = async (campo) => {
+                const nuevo = prompt('Nueva etiqueta:', campo.etiqueta);
+                if (!nuevo) return;
+                await fetch(`${API_URL}/api/campos-config/${campo.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ etiqueta: nuevo }) });
+                onRefresh();
+            };
+
+            const eliminar = async (campo) => {
+                if (!confirm('¿Eliminar este campo personalizado? Se perderán los valores guardados en él.')) return;
+                const res = await fetch(`${API_URL}/api/campos-config/${campo.id}`, { method: 'DELETE' });
+                const data = await res.json();
+                if (!res.ok) { alert(data.error); return; }
+                onRefresh();
+            };
+
+            const crear = async () => {
+                if (!nuevaEtiqueta.trim()) { alert('Escribe una etiqueta'); return; }
+                const opciones = nuevoTipo === 'select' ? nuevasOpciones.split(',').map(s => s.trim()).filter(Boolean) : [];
+                await fetch(`${API_URL}/api/campos-config`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ entidad, etiqueta: nuevaEtiqueta, tipo: nuevoTipo, opciones }) });
+                setNuevaEtiqueta(''); setNuevoTipo('text'); setNuevasOpciones('');
+                onRefresh();
+            };
+
+            return (
+                <div className="card" style={{ marginBottom: '1rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                        <h4 className="card-title">⚙️ Campos</h4>
+                        <button className="btn btn-secondary" onClick={onClose}>Cerrar</button>
+                    </div>
+
+                    <div className="list">
+                        {campos.map(campo => (
+                            <div key={campo.id} className="list-item">
+                                <div className="list-item-header">
+                                    <div>
+                                        <p className="card-title">{campo.etiqueta}</p>
+                                        <p className="card-text">{campo.es_sistema ? 'Campo de sistema' : 'Campo personalizado'} · Tipo: {campo.tipo}</p>
+                                    </div>
+                                    <span className={`badge ${campo.visible ? 'campo-badge-visible' : 'campo-badge-oculto'}`}>
+                                        {campo.visible ? 'Visible' : 'Oculto'}
+                                    </span>
+                                </div>
+                                <div style={{ display: 'flex', gap: '8px', marginTop: '8px', flexWrap: 'wrap' }}>
+                                    <button className="btn btn-secondary" onClick={() => toggleVisible(campo)}>{campo.visible ? 'Ocultar' : 'Mostrar'}</button>
+                                    <button className="btn btn-primary" onClick={() => renombrar(campo)}>Renombrar</button>
+                                    {!campo.es_sistema && <button className="btn btn-danger" onClick={() => eliminar(campo)}>Eliminar</button>}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+
+                    <div className="quickadd-box" style={{ marginTop: '12px' }}>
+                        <p className="card-text" style={{ fontWeight: 600, marginBottom: '6px' }}>+ Añadir Campo Nuevo</p>
+                        <input type="text" placeholder="Etiqueta (ej: Nº de Serie)" value={nuevaEtiqueta} onChange={(e) => setNuevaEtiqueta(e.target.value)} />
+                        <select value={nuevoTipo} onChange={(e) => setNuevoTipo(e.target.value)}>
+                            <option value="text">Texto</option>
+                            <option value="number">Número</option>
+                            <option value="date">Fecha</option>
+                            <option value="textarea">Texto largo</option>
+                            <option value="select">Lista desplegable</option>
+                        </select>
+                        {nuevoTipo === 'select' && <input type="text" placeholder="Opciones separadas por coma" value={nuevasOpciones} onChange={(e) => setNuevasOpciones(e.target.value)} />}
+                        <button className="btn-add-row" onClick={crear}>+ Crear campo</button>
+                    </div>
+                </div>
+            );
+        }
+
+        function ClientesView({ user, clientes, camposConfig, onRefresh }) {
             const [showForm, setShowForm] = useState(false);
             const [editingId, setEditingId] = useState(null);
+            const [showCamposManager, setShowCamposManager] = useState(false);
             const [formData, setFormData] = useState({
                 nombre: '',
                 contacto: '',
-                telefono: ''
+                telefono: '',
+                campos_extra: {}
             });
 
             const handleAdd = async () => {
@@ -2655,10 +2771,10 @@
                     await fetch(url, {
                         method,
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(formData)
+                        body: JSON.stringify({ ...formData, campos_extra: JSON.stringify(formData.campos_extra || {}) })
                     });
 
-                    setFormData({ nombre: '', contacto: '', telefono: '' });
+                    setFormData({ nombre: '', contacto: '', telefono: '', campos_extra: {} });
                     setEditingId(null);
                     setShowForm(false);
                     onRefresh();
@@ -2679,7 +2795,9 @@
             };
 
             const handleEdit = (cliente) => {
-                setFormData(cliente);
+                let extra = {};
+                try { extra = cliente.campos_extra ? JSON.parse(cliente.campos_extra) : {}; } catch { extra = {}; }
+                setFormData({ ...cliente, campos_extra: extra });
                 setEditingId(cliente.id);
                 setShowForm(true);
             };
@@ -2717,11 +2835,14 @@
                                 { key: 'telefono', label: 'Teléfono' }
                             ])}>📤 Exportar</button>
                             <ExcelImportButton onRows={handleImportRows} />
+                            <button className="btn btn-secondary" onClick={() => setShowCamposManager(!showCamposManager)}>⚙️ Campos</button>
                             <button className="btn btn-crear" onClick={() => { setShowForm(!showForm); setEditingId(null); }}>
                                 + Nuevo
                             </button>
                         </div>
                     </div>
+
+                    {showCamposManager && <CamposConfigManager entidad="cliente" camposConfig={camposConfig} onRefresh={onRefresh} onClose={() => setShowCamposManager(false)} />}
 
                     {importMsg && <div className="import-summary">{importMsg}</div>}
 
@@ -2731,14 +2852,7 @@
                                 <label>Nombre</label>
                                 <input type="text" placeholder="Nombre" value={formData.nombre} onChange={(e) => setFormData({ ...formData, nombre: e.target.value })} />
                             </div>
-                            <div className="form-group">
-                                <label>Contacto</label>
-                                <input type="email" placeholder="email@ejemplo.com" value={formData.contacto} onChange={(e) => setFormData({ ...formData, contacto: e.target.value })} />
-                            </div>
-                            <div className="form-group">
-                                <label>Teléfono</label>
-                                <input type="tel" placeholder="Teléfono" value={formData.telefono} onChange={(e) => setFormData({ ...formData, telefono: e.target.value })} />
-                            </div>
+                            <DynamicExtraFields entidad="cliente" camposConfig={camposConfig} formData={formData} setFormData={setFormData} />
                             <div className="btn-group">
                                 <button className="btn btn-success" onClick={handleAdd}>{editingId ? 'Guardar' : 'Agregar'}</button>
                                 <button className="btn btn-secondary" onClick={() => { setShowForm(false); setEditingId(null); }}>Cancelar</button>
