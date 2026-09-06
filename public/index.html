@@ -7,6 +7,7 @@
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         :root { color-scheme: light dark; }
@@ -118,6 +119,14 @@
         .badge.supervisor { background: #e8f0ff; color: #0052a3; }
         .badge.tecnico { background: #f0f0f0; color: #666; }
         @media (max-width: 768px) { .metrics-grid { grid-template-columns: repeat(2, 1fr); } .nav-tabs { grid-template-columns: repeat(2, 1fr); } }
+        .toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+        .btn-excel { background: #1e7e34; color: white; display: inline-flex; align-items: center; gap: 4px; }
+        .btn-excel:hover { opacity: 0.9; }
+        .btn-import { background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary); }
+        .file-input-hidden { display: none; }
+        .breadcrumb-path { font-size: 11px; color: var(--text-muted); margin: 2px 0; }
+        .select-disabled { opacity: 0.5; cursor: not-allowed; }
+        .import-summary { background: var(--bg-accent); border-radius: 8px; padding: 10px; font-size: 12px; margin-top: 8px; color: var(--text-primary); }
     </style>
 </head>
 <body class="light-theme">
@@ -216,7 +225,9 @@
             const [activeTab, setActiveTab] = useState('dashboard');
             const [clientes, setClientes] = useState([]);
             const [contratos, setContratos] = useState([]);
-            const [inventario, setInventario] = useState([]);
+            const [zonas, setZonas] = useState([]);
+            const [emplazamientos, setEmplazamientos] = useState([]);
+            const [activos, setActivos] = useState([]);
             const [ordenes, setOrdenes] = useState([]);
             const [usuarios, setUsuarios] = useState([]);
             const [isDarkMode, setIsDarkMode] = useState(document.body.classList.contains('dark-theme'));
@@ -227,17 +238,21 @@
 
             const cargarDatos = async () => {
                 try {
-                    const [clientesRes, contratosRes, inventarioRes, ordenesRes, usuariosRes] = await Promise.all([
+                    const [clientesRes, contratosRes, zonasRes, emplazamientosRes, activosRes, ordenesRes, usuariosRes] = await Promise.all([
                         fetch(`${API_URL}/api/clientes`),
                         fetch(`${API_URL}/api/contratos`),
-                        fetch(`${API_URL}/api/inventario`),
+                        fetch(`${API_URL}/api/zonas`),
+                        fetch(`${API_URL}/api/emplazamientos`),
+                        fetch(`${API_URL}/api/activos`),
                         fetch(`${API_URL}/api/ordenes`),
                         fetch(`${API_URL}/api/usuarios`)
                     ]);
 
                     setClientes(await clientesRes.json());
                     setContratos(await contratosRes.json());
-                    setInventario(await inventarioRes.json());
+                    setZonas(await zonasRes.json());
+                    setEmplazamientos(await emplazamientosRes.json());
+                    setActivos(await activosRes.json());
                     setOrdenes(await ordenesRes.json());
                     setUsuarios(await usuariosRes.json());
                 } catch (err) {
@@ -256,20 +271,13 @@
             const getTabs = () => {
                 const common = [{ id: 'dashboard', label: 'Dashboard' }];
 
-                if (user.rol === 'admin') {
+                if (user.rol === 'admin' || user.rol === 'supervisor') {
                     return [
                         ...common,
                         { id: 'ordenes', label: 'Órdenes' },
-                        { id: 'inventario', label: 'Inventario' },
-                        { id: 'contratos', label: 'Contratos' },
-                        { id: 'clientes', label: 'Clientes' },
-                        { id: 'usuarios', label: 'Usuarios' }
-                    ];
-                } else if (user.rol === 'supervisor') {
-                    return [
-                        ...common,
-                        { id: 'ordenes', label: 'Órdenes' },
-                        { id: 'inventario', label: 'Inventario' },
+                        { id: 'activos', label: 'Activos' },
+                        { id: 'emplazamientos', label: 'Emplazam.' },
+                        { id: 'zonas', label: 'Zonas' },
                         { id: 'contratos', label: 'Contratos' },
                         { id: 'clientes', label: 'Clientes' },
                         { id: 'usuarios', label: 'Usuarios' }
@@ -313,9 +321,11 @@
                     </div>
 
                     <div className="content">
-                        {activeTab === 'dashboard' && <DashboardView ordenes={ordenes} clientes={clientes} inventario={inventario} contratos={contratos} />}
+                        {activeTab === 'dashboard' && <DashboardView ordenes={ordenes} clientes={clientes} activos={activos} contratos={contratos} />}
                         {activeTab === 'ordenes' && <OrdenesView user={user} ordenes={ordenes} clientes={clientes} onRefresh={cargarDatos} />}
-                        {activeTab === 'inventario' && <InventarioView user={user} inventario={inventario} onRefresh={cargarDatos} />}
+                        {activeTab === 'activos' && (user.rol === 'admin' || user.rol === 'supervisor') && <ActivosView user={user} activos={activos} emplazamientos={emplazamientos} clientes={clientes} contratos={contratos} onRefresh={cargarDatos} />}
+                        {activeTab === 'emplazamientos' && (user.rol === 'admin' || user.rol === 'supervisor') && <EmplazamientosView user={user} emplazamientos={emplazamientos} zonas={zonas} clientes={clientes} contratos={contratos} onRefresh={cargarDatos} />}
+                        {activeTab === 'zonas' && (user.rol === 'admin' || user.rol === 'supervisor') && <ZonasView user={user} zonas={zonas} clientes={clientes} contratos={contratos} onRefresh={cargarDatos} />}
                         {activeTab === 'contratos' && (user.rol === 'admin' || user.rol === 'supervisor') && <ContratosView user={user} contratos={contratos} clientes={clientes} onRefresh={cargarDatos} />}
                         {activeTab === 'clientes' && (user.rol === 'admin' || user.rol === 'supervisor') && <ClientesView user={user} clientes={clientes} onRefresh={cargarDatos} />}
                         {activeTab === 'usuarios' && (user.rol === 'admin' || user.rol === 'supervisor') && <UsuariosView user={user} usuarios={usuarios} onRefresh={cargarDatos} />}
@@ -324,11 +334,11 @@
             );
         }
 
-        function DashboardView({ ordenes, clientes, inventario, contratos }) {
+        function DashboardView({ ordenes, clientes, activos, contratos }) {
             const stats = [
                 { label: 'Órdenes Totales', value: ordenes.length },
                 { label: 'Clientes', value: clientes.length },
-                { label: 'Equipos', value: inventario.length },
+                { label: 'Activos', value: activos.length },
                 { label: 'Contratos', value: contratos.length }
             ];
 
@@ -468,80 +478,486 @@
             );
         }
 
-        function InventarioView({ user, inventario, onRefresh }) {
-            const [showForm, setShowForm] = useState(false);
-            const [formData, setFormData] = useState({
-                contrato: '',
-                zona: '',
-                equipo: '',
-                tipo: '',
-                estado: 'Activo'
+        // ===== HELPERS EXCEL (SheetJS) =====
+        function exportToExcel(data, filename, columns) {
+            if (!data || data.length === 0) {
+                alert('No hay datos para exportar');
+                return;
+            }
+            const rows = data.map(item => {
+                const row = {};
+                columns.forEach(col => { row[col.label] = item[col.key] ?? ''; });
+                return row;
             });
+            const ws = XLSX.utils.json_to_sheet(rows);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, 'Datos');
+            XLSX.writeFile(wb, `${filename}.xlsx`);
+        }
+
+        function ExcelImportButton({ onRows, label }) {
+            const inputRef = React.useRef(null);
+            const handleFile = (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = (evt) => {
+                    const wb = XLSX.read(evt.target.result, { type: 'binary' });
+                    const ws = wb.Sheets[wb.SheetNames[0]];
+                    const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
+                    onRows(rows);
+                };
+                reader.readAsBinaryString(file);
+                e.target.value = '';
+            };
+            return (
+                <label className="btn btn-import" style={{ cursor: 'pointer' }}>
+                    📥 {label || 'Importar Excel'}
+                    <input ref={inputRef} type="file" accept=".xlsx,.xls" className="file-input-hidden" onChange={handleFile} />
+                </label>
+            );
+        }
+
+        // ===== ZONAS =====
+        function ZonasView({ user, zonas, clientes, contratos, onRefresh }) {
+            const [showForm, setShowForm] = useState(false);
+            const [editingId, setEditingId] = useState(null);
+            const [selectedCliente, setSelectedCliente] = useState('');
+            const [formData, setFormData] = useState({ contrato_id: '', nombre: '' });
+            const [importMsg, setImportMsg] = useState('');
+
+            const contratosFiltrados = selectedCliente ? contratos.filter(c => c.cliente_id === parseInt(selectedCliente)) : contratos;
 
             const handleAdd = async () => {
-                if (!formData.equipo.trim()) return;
-
+                if (!formData.nombre.trim() || !formData.contrato_id) { alert('Selecciona contrato y nombre'); return; }
                 try {
-                    await fetch(`${API_URL}/api/inventario`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(formData)
-                    });
-
-                    setFormData({ contrato: '', zona: '', equipo: '', tipo: '', estado: 'Activo' });
+                    const url = editingId ? `${API_URL}/api/zonas/${editingId}` : `${API_URL}/api/zonas`;
+                    const method = editingId ? 'PUT' : 'POST';
+                    await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(formData) });
+                    setFormData({ contrato_id: '', nombre: '' });
+                    setSelectedCliente('');
+                    setEditingId(null);
                     setShowForm(false);
                     onRefresh();
-                } catch (err) {
-                    alert('Error al agregar inventario');
+                } catch (err) { alert('Error al guardar zona'); }
+            };
+
+            const handleDelete = async (id) => {
+                if (!confirm('¿Eliminar esta zona? Esto puede afectar emplazamientos vinculados.')) return;
+                await fetch(`${API_URL}/api/zonas/${id}`, { method: 'DELETE' });
+                onRefresh();
+            };
+
+            const handleEdit = (z) => {
+                setFormData({ contrato_id: z.contrato_id, nombre: z.nombre });
+                setSelectedCliente(String(z.cliente_id || ''));
+                setEditingId(z.id);
+                setShowForm(true);
+            };
+
+            const handleImportRows = async (rows) => {
+                let ok = 0, fail = 0;
+                for (const row of rows) {
+                    const contratoNombre = row['Contrato'] || row['contrato'];
+                    const clienteNombre = row['Cliente'] || row['cliente'];
+                    const nombre = row['Zona'] || row['nombre'] || row['Nombre'];
+                    const contrato = contratos.find(c => c.nombre === contratoNombre && (!clienteNombre || c.cliente_nombre === clienteNombre));
+                    if (!contrato || !nombre) { fail++; continue; }
+                    try {
+                        await fetch(`${API_URL}/api/zonas`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contrato_id: contrato.id, nombre }) });
+                        ok++;
+                    } catch { fail++; }
                 }
+                setImportMsg(`✅ Importadas: ${ok} | ❌ Fallidas: ${fail}`);
+                onRefresh();
             };
 
             return (
                 <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-                        <h3 className="section-title" style={{ margin: 0 }}>📦 Inventario</h3>
-                        <button className="btn btn-primary" onClick={() => setShowForm(!showForm)}>
-                            + Agregar
-                        </button>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '8px' }}>
+                        <h3 className="section-title" style={{ margin: 0 }}>🗺️ Zonas</h3>
+                        <div className="toolbar">
+                            <button className="btn btn-excel" onClick={() => exportToExcel(zonas, 'zonas', [
+                                { key: 'cliente_nombre', label: 'Cliente' },
+                                { key: 'contrato_nombre', label: 'Contrato' },
+                                { key: 'nombre', label: 'Zona' }
+                            ])}>📤 Exportar</button>
+                            <ExcelImportButton onRows={handleImportRows} />
+                            <button className="btn btn-primary" onClick={() => { setShowForm(!showForm); setEditingId(null); }}>+ Nueva</button>
+                        </div>
                     </div>
+
+                    {importMsg && <div className="import-summary">{importMsg}</div>}
 
                     {showForm && (
                         <div className="card" style={{ marginBottom: '1rem' }}>
                             <div className="form-group">
+                                <label>Cliente</label>
+                                <select value={selectedCliente} onChange={(e) => { setSelectedCliente(e.target.value); setFormData({ ...formData, contrato_id: '' }); }}>
+                                    <option value="">-- Selecciona un cliente --</option>
+                                    {clientes.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                                </select>
+                            </div>
+                            <div className="form-group">
                                 <label>Contrato</label>
-                                <input type="text" placeholder="Contrato" value={formData.contrato} onChange={(e) => setFormData({ ...formData, contrato: e.target.value })} />
+                                <select value={formData.contrato_id} disabled={!selectedCliente} className={!selectedCliente ? 'select-disabled' : ''} onChange={(e) => setFormData({ ...formData, contrato_id: e.target.value })}>
+                                    <option value="">-- Selecciona un contrato --</option>
+                                    {contratosFiltrados.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                                </select>
                             </div>
                             <div className="form-group">
-                                <label>Zona</label>
-                                <input type="text" placeholder="Zona" value={formData.zona} onChange={(e) => setFormData({ ...formData, zona: e.target.value })} />
-                            </div>
-                            <div className="form-group">
-                                <label>Equipo</label>
-                                <input type="text" placeholder="Equipo" value={formData.equipo} onChange={(e) => setFormData({ ...formData, equipo: e.target.value })} />
-                            </div>
-                            <div className="form-group">
-                                <label>Tipo</label>
-                                <input type="text" placeholder="Tipo" value={formData.tipo} onChange={(e) => setFormData({ ...formData, tipo: e.target.value })} />
+                                <label>Nombre de la Zona</label>
+                                <input type="text" placeholder="Ej: Asturias, Andalucía..." value={formData.nombre} onChange={(e) => setFormData({ ...formData, nombre: e.target.value })} />
                             </div>
                             <div className="btn-group">
-                                <button className="btn btn-success" onClick={handleAdd}>Agregar</button>
-                                <button className="btn btn-secondary" onClick={() => setShowForm(false)}>Cancelar</button>
+                                <button className="btn btn-success" onClick={handleAdd}>{editingId ? 'Guardar' : 'Crear'}</button>
+                                <button className="btn btn-secondary" onClick={() => { setShowForm(false); setEditingId(null); }}>Cancelar</button>
                             </div>
                         </div>
                     )}
 
                     <div className="list">
-                        {inventario.length === 0 ? (
-                            <div className="empty-state">No hay inventario</div>
-                        ) : (
-                            inventario.map(item => (
-                                <div key={item.id} className="list-item">
-                                    <p className="card-title">⚙️ {item.equipo}</p>
-                                    <p className="card-text">📋 Contrato: {item.contrato} | 📍 Zona: {item.zona}</p>
-                                    <p className="card-text">🏷️ Tipo: {item.tipo} | ✓ Estado: {item.estado}</p>
+                        {zonas.length === 0 ? <div className="empty-state">No hay zonas</div> : zonas.map(z => (
+                            <div key={z.id} className="list-item">
+                                <p className="card-title">🗺️ {z.nombre}</p>
+                                <p className="breadcrumb-path">{z.cliente_nombre} › {z.contrato_nombre}</p>
+                                <div style={{ marginTop: '8px', display: 'flex', gap: '8px' }}>
+                                    <button className="btn btn-primary" onClick={() => handleEdit(z)}>Editar</button>
+                                    <button className="btn btn-danger" onClick={() => handleDelete(z.id)}>Eliminar</button>
                                 </div>
-                            ))
-                        )}
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            );
+        }
+
+        // ===== EMPLAZAMIENTOS =====
+        function EmplazamientosView({ user, emplazamientos, zonas, clientes, contratos, onRefresh }) {
+            const [showForm, setShowForm] = useState(false);
+            const [editingId, setEditingId] = useState(null);
+            const [selectedCliente, setSelectedCliente] = useState('');
+            const [selectedContrato, setSelectedContrato] = useState('');
+            const [formData, setFormData] = useState({ zona_id: '', nombre: '', direccion: '' });
+            const [importMsg, setImportMsg] = useState('');
+
+            const contratosFiltrados = selectedCliente ? contratos.filter(c => c.cliente_id === parseInt(selectedCliente)) : contratos;
+            const zonasFiltradas = selectedContrato ? zonas.filter(z => z.contrato_id === parseInt(selectedContrato)) : zonas;
+
+            const handleAdd = async () => {
+                if (!formData.nombre.trim() || !formData.zona_id) { alert('Selecciona zona y nombre'); return; }
+                try {
+                    const url = editingId ? `${API_URL}/api/emplazamientos/${editingId}` : `${API_URL}/api/emplazamientos`;
+                    const method = editingId ? 'PUT' : 'POST';
+                    await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(formData) });
+                    setFormData({ zona_id: '', nombre: '', direccion: '' });
+                    setSelectedCliente(''); setSelectedContrato('');
+                    setEditingId(null);
+                    setShowForm(false);
+                    onRefresh();
+                } catch (err) { alert('Error al guardar emplazamiento'); }
+            };
+
+            const handleDelete = async (id) => {
+                if (!confirm('¿Eliminar este emplazamiento? Esto puede afectar activos vinculados.')) return;
+                await fetch(`${API_URL}/api/emplazamientos/${id}`, { method: 'DELETE' });
+                onRefresh();
+            };
+
+            const handleEdit = (e) => {
+                setFormData({ zona_id: e.zona_id, nombre: e.nombre, direccion: e.direccion || '' });
+                setSelectedCliente(String(e.cliente_id || ''));
+                setSelectedContrato(String(e.contrato_id || ''));
+                setEditingId(e.id);
+                setShowForm(true);
+            };
+
+            const handleImportRows = async (rows) => {
+                let ok = 0, fail = 0;
+                for (const row of rows) {
+                    const zonaNombre = row['Zona'] || row['zona'];
+                    const nombre = row['Emplazamiento'] || row['nombre'] || row['Nombre'];
+                    const direccion = row['Dirección'] || row['direccion'] || '';
+                    const zona = zonas.find(z => z.nombre === zonaNombre);
+                    if (!zona || !nombre) { fail++; continue; }
+                    try {
+                        await fetch(`${API_URL}/api/emplazamientos`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ zona_id: zona.id, nombre, direccion }) });
+                        ok++;
+                    } catch { fail++; }
+                }
+                setImportMsg(`✅ Importados: ${ok} | ❌ Fallidos: ${fail}`);
+                onRefresh();
+            };
+
+            return (
+                <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '8px' }}>
+                        <h3 className="section-title" style={{ margin: 0 }}>📍 Emplazamientos</h3>
+                        <div className="toolbar">
+                            <button className="btn btn-excel" onClick={() => exportToExcel(emplazamientos, 'emplazamientos', [
+                                { key: 'cliente_nombre', label: 'Cliente' },
+                                { key: 'contrato_nombre', label: 'Contrato' },
+                                { key: 'zona_nombre', label: 'Zona' },
+                                { key: 'nombre', label: 'Emplazamiento' },
+                                { key: 'direccion', label: 'Dirección' }
+                            ])}>📤 Exportar</button>
+                            <ExcelImportButton onRows={handleImportRows} />
+                            <button className="btn btn-primary" onClick={() => { setShowForm(!showForm); setEditingId(null); }}>+ Nuevo</button>
+                        </div>
+                    </div>
+
+                    {importMsg && <div className="import-summary">{importMsg}</div>}
+
+                    {showForm && (
+                        <div className="card" style={{ marginBottom: '1rem' }}>
+                            <div className="form-group">
+                                <label>Cliente</label>
+                                <select value={selectedCliente} onChange={(e) => { setSelectedCliente(e.target.value); setSelectedContrato(''); setFormData({ ...formData, zona_id: '' }); }}>
+                                    <option value="">-- Selecciona un cliente --</option>
+                                    {clientes.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                                </select>
+                            </div>
+                            <div className="form-group">
+                                <label>Contrato</label>
+                                <select value={selectedContrato} disabled={!selectedCliente} className={!selectedCliente ? 'select-disabled' : ''} onChange={(e) => { setSelectedContrato(e.target.value); setFormData({ ...formData, zona_id: '' }); }}>
+                                    <option value="">-- Selecciona un contrato --</option>
+                                    {contratosFiltrados.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                                </select>
+                            </div>
+                            <div className="form-group">
+                                <label>Zona</label>
+                                <select value={formData.zona_id} disabled={!selectedContrato} className={!selectedContrato ? 'select-disabled' : ''} onChange={(e) => setFormData({ ...formData, zona_id: e.target.value })}>
+                                    <option value="">-- Selecciona una zona --</option>
+                                    {zonasFiltradas.map(z => <option key={z.id} value={z.id}>{z.nombre}</option>)}
+                                </select>
+                            </div>
+                            <div className="form-group">
+                                <label>Nombre del Emplazamiento</label>
+                                <input type="text" placeholder="Ej: Estación Avilés" value={formData.nombre} onChange={(e) => setFormData({ ...formData, nombre: e.target.value })} />
+                            </div>
+                            <div className="form-group">
+                                <label>Dirección (opcional)</label>
+                                <input type="text" placeholder="Dirección" value={formData.direccion} onChange={(e) => setFormData({ ...formData, direccion: e.target.value })} />
+                            </div>
+                            <div className="btn-group">
+                                <button className="btn btn-success" onClick={handleAdd}>{editingId ? 'Guardar' : 'Crear'}</button>
+                                <button className="btn btn-secondary" onClick={() => { setShowForm(false); setEditingId(null); }}>Cancelar</button>
+                            </div>
+                        </div>
+                    )}
+
+                    <div className="list">
+                        {emplazamientos.length === 0 ? <div className="empty-state">No hay emplazamientos</div> : emplazamientos.map(e => (
+                            <div key={e.id} className="list-item">
+                                <p className="card-title">📍 {e.nombre}</p>
+                                <p className="breadcrumb-path">{e.cliente_nombre} › {e.contrato_nombre} › {e.zona_nombre}</p>
+                                {e.direccion && <p className="card-text">🏠 {e.direccion}</p>}
+                                <div style={{ marginTop: '8px', display: 'flex', gap: '8px' }}>
+                                    <button className="btn btn-primary" onClick={() => handleEdit(e)}>Editar</button>
+                                    <button className="btn btn-danger" onClick={() => handleDelete(e.id)}>Eliminar</button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            );
+        }
+
+        // ===== ACTIVOS =====
+        function ActivosView({ user, activos, emplazamientos, clientes, contratos, onRefresh }) {
+            const [showForm, setShowForm] = useState(false);
+            const [editingId, setEditingId] = useState(null);
+            const [selectedCliente, setSelectedCliente] = useState('');
+            const [emplazamientoSearch, setEmplazamientoSearch] = useState('');
+            const [formData, setFormData] = useState({ emplazamiento_id: '', contrato_id: '', tipo: '', nombre: '', fabricante: '', modelo: '', estado: 'Activo', observaciones: '' });
+            const [importMsg, setImportMsg] = useState('');
+
+            const contratosFiltrados = selectedCliente ? contratos.filter(c => c.cliente_id === parseInt(selectedCliente)) : contratos;
+            const emplazamientosFiltrados = emplazamientoSearch
+                ? emplazamientos.filter(e => e.nombre.toLowerCase().includes(emplazamientoSearch.toLowerCase()))
+                : emplazamientos;
+
+            const tiposActivo = ['Puerta Automática', 'Persiana Motorizada', 'CCTV', 'Control Acceso Peatonal', 'Control Acceso Vehicular', 'Otro'];
+
+            const handleAdd = async () => {
+                if (!formData.nombre.trim() || !formData.emplazamiento_id || !formData.contrato_id) {
+                    alert('Selecciona emplazamiento, contrato y nombre'); return;
+                }
+                try {
+                    const url = editingId ? `${API_URL}/api/activos/${editingId}` : `${API_URL}/api/activos`;
+                    const method = editingId ? 'PUT' : 'POST';
+                    await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(formData) });
+                    setFormData({ emplazamiento_id: '', contrato_id: '', tipo: '', nombre: '', fabricante: '', modelo: '', estado: 'Activo', observaciones: '' });
+                    setSelectedCliente(''); setEmplazamientoSearch('');
+                    setEditingId(null);
+                    setShowForm(false);
+                    onRefresh();
+                } catch (err) { alert('Error al guardar activo'); }
+            };
+
+            const handleDelete = async (id) => {
+                if (!confirm('¿Eliminar este activo?')) return;
+                await fetch(`${API_URL}/api/activos/${id}`, { method: 'DELETE' });
+                onRefresh();
+            };
+
+            const handleEdit = (a) => {
+                setFormData({
+                    emplazamiento_id: a.emplazamiento_id, contrato_id: a.contrato_id, tipo: a.tipo || '',
+                    nombre: a.nombre, fabricante: a.fabricante || '', modelo: a.modelo || '',
+                    estado: a.estado, observaciones: a.observaciones || ''
+                });
+                setSelectedCliente(String(a.cliente_id || ''));
+                setEditingId(a.id);
+                setShowForm(true);
+            };
+
+            const handleImportRows = async (rows) => {
+                let ok = 0, fail = 0;
+                for (const row of rows) {
+                    const emplazamientoNombre = row['Emplazamiento'] || row['emplazamiento'];
+                    const contratoNombre = row['Contrato'] || row['contrato'];
+                    const nombre = row['Activo'] || row['nombre'] || row['Nombre'];
+                    const emplazamiento = emplazamientos.find(e => e.nombre === emplazamientoNombre);
+                    const contrato = contratos.find(c => c.nombre === contratoNombre);
+                    if (!emplazamiento || !contrato || !nombre) { fail++; continue; }
+                    try {
+                        await fetch(`${API_URL}/api/activos`, {
+                            method: 'POST', headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                emplazamiento_id: emplazamiento.id, contrato_id: contrato.id,
+                                tipo: row['Tipo'] || row['tipo'] || '', nombre,
+                                fabricante: row['Fabricante'] || row['fabricante'] || '',
+                                modelo: row['Modelo'] || row['modelo'] || '',
+                                estado: row['Estado'] || row['estado'] || 'Activo',
+                                observaciones: row['Observaciones'] || row['observaciones'] || ''
+                            })
+                        });
+                        ok++;
+                    } catch { fail++; }
+                }
+                setImportMsg(`✅ Importados: ${ok} | ❌ Fallidos: ${fail}`);
+                onRefresh();
+            };
+
+            return (
+                <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '8px' }}>
+                        <h3 className="section-title" style={{ margin: 0 }}>⚙️ Activos</h3>
+                        <div className="toolbar">
+                            <button className="btn btn-excel" onClick={() => exportToExcel(activos, 'activos', [
+                                { key: 'cliente_nombre', label: 'Cliente' },
+                                { key: 'contrato_nombre', label: 'Contrato' },
+                                { key: 'zona_nombre', label: 'Zona' },
+                                { key: 'emplazamiento_nombre', label: 'Emplazamiento' },
+                                { key: 'tipo', label: 'Tipo' },
+                                { key: 'nombre', label: 'Activo' },
+                                { key: 'fabricante', label: 'Fabricante' },
+                                { key: 'modelo', label: 'Modelo' },
+                                { key: 'estado', label: 'Estado' },
+                                { key: 'observaciones', label: 'Observaciones' }
+                            ])}>📤 Exportar</button>
+                            <ExcelImportButton onRows={handleImportRows} />
+                            <button className="btn btn-primary" onClick={() => { setShowForm(!showForm); setEditingId(null); }}>+ Nuevo</button>
+                        </div>
+                    </div>
+
+                    {importMsg && <div className="import-summary">{importMsg}</div>}
+
+                    {showForm && (
+                        <div className="card" style={{ marginBottom: '1rem' }}>
+                            <p className="card-text" style={{ marginBottom: '10px' }}>
+                                💡 Un mismo emplazamiento puede tener activos de distintos contratos. Selecciona el contrato al que pertenece <strong>este activo</strong> de forma independiente al emplazamiento.
+                            </p>
+
+                            <div className="form-group">
+                                <label>Cliente (del contrato)</label>
+                                <select value={selectedCliente} onChange={(e) => { setSelectedCliente(e.target.value); setFormData({ ...formData, contrato_id: '' }); }}>
+                                    <option value="">-- Selecciona un cliente --</option>
+                                    {clientes.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                                </select>
+                            </div>
+                            <div className="form-group">
+                                <label>Contrato de este Activo</label>
+                                <select value={formData.contrato_id} disabled={!selectedCliente} className={!selectedCliente ? 'select-disabled' : ''} onChange={(e) => setFormData({ ...formData, contrato_id: e.target.value })}>
+                                    <option value="">-- Selecciona un contrato --</option>
+                                    {contratosFiltrados.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                                </select>
+                            </div>
+
+                            <div className="form-group">
+                                <label>Buscar Emplazamiento</label>
+                                <input type="text" placeholder="Escribe para filtrar..." value={emplazamientoSearch} onChange={(e) => setEmplazamientoSearch(e.target.value)} />
+                            </div>
+                            <div className="form-group">
+                                <label>Emplazamiento</label>
+                                <select value={formData.emplazamiento_id} onChange={(e) => setFormData({ ...formData, emplazamiento_id: e.target.value })}>
+                                    <option value="">-- Selecciona un emplazamiento --</option>
+                                    {emplazamientosFiltrados.map(e => (
+                                        <option key={e.id} value={e.id}>{e.nombre} ({e.cliente_nombre} › {e.zona_nombre})</option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <div className="form-group">
+                                <label>Tipo de Activo</label>
+                                <select value={formData.tipo} onChange={(e) => setFormData({ ...formData, tipo: e.target.value })}>
+                                    <option value="">-- Selecciona tipo --</option>
+                                    {tiposActivo.map(t => <option key={t} value={t}>{t}</option>)}
+                                </select>
+                            </div>
+                            <div className="form-group">
+                                <label>Nombre / Identificador</label>
+                                <input type="text" placeholder="Ej: Puerta Andén 1" value={formData.nombre} onChange={(e) => setFormData({ ...formData, nombre: e.target.value })} />
+                            </div>
+                            <div className="form-group">
+                                <label>Fabricante</label>
+                                <input type="text" placeholder="Fabricante" value={formData.fabricante} onChange={(e) => setFormData({ ...formData, fabricante: e.target.value })} />
+                            </div>
+                            <div className="form-group">
+                                <label>Modelo</label>
+                                <input type="text" placeholder="Modelo" value={formData.modelo} onChange={(e) => setFormData({ ...formData, modelo: e.target.value })} />
+                            </div>
+                            <div className="form-group">
+                                <label>Estado</label>
+                                <select value={formData.estado} onChange={(e) => setFormData({ ...formData, estado: e.target.value })}>
+                                    <option value="Activo">Activo</option>
+                                    <option value="Inactivo">Inactivo</option>
+                                    <option value="En reparación">En reparación</option>
+                                    <option value="Dado de baja">Dado de baja</option>
+                                </select>
+                            </div>
+                            <div className="form-group">
+                                <label>Observaciones</label>
+                                <textarea placeholder="Observaciones" value={formData.observaciones} onChange={(e) => setFormData({ ...formData, observaciones: e.target.value })}></textarea>
+                            </div>
+
+                            <div className="btn-group">
+                                <button className="btn btn-success" onClick={handleAdd}>{editingId ? 'Guardar' : 'Crear'}</button>
+                                <button className="btn btn-secondary" onClick={() => { setShowForm(false); setEditingId(null); }}>Cancelar</button>
+                            </div>
+                        </div>
+                    )}
+
+                    <div className="list">
+                        {activos.length === 0 ? <div className="empty-state">No hay activos</div> : activos.map(a => (
+                            <div key={a.id} className="list-item">
+                                <div className="list-item-header">
+                                    <div>
+                                        <p className="card-title">⚙️ {a.nombre}</p>
+                                        <p className="breadcrumb-path">{a.cliente_nombre} › {a.contrato_nombre} › {a.zona_nombre} › {a.emplazamiento_nombre}</p>
+                                    </div>
+                                    {a.tipo && <span className="badge" style={{ background: 'var(--bg-accent)', color: 'var(--fill-accent)' }}>{a.tipo}</span>}
+                                </div>
+                                <p className="card-text">🏭 {a.fabricante || '—'} | 🔧 {a.modelo || '—'}</p>
+                                <p className="card-text">✓ Estado: {a.estado}</p>
+                                {a.observaciones && <p className="card-text">📝 {a.observaciones}</p>}
+                                <div style={{ marginTop: '8px', display: 'flex', gap: '8px' }}>
+                                    <button className="btn btn-primary" onClick={() => handleEdit(a)}>Editar</button>
+                                    <button className="btn btn-danger" onClick={() => handleDelete(a.id)}>Eliminar</button>
+                                </div>
+                            </div>
+                        ))}
                     </div>
                 </div>
             );
@@ -605,14 +1021,53 @@
                 setShowForm(true);
             };
 
+            const [importMsg, setImportMsg] = useState('');
+            const handleImportRows = async (rows) => {
+                let ok = 0, fail = 0;
+                for (const row of rows) {
+                    const clienteNombre = row['Cliente'] || row['cliente'];
+                    const nombre = row['Contrato'] || row['nombre'] || row['Nombre'];
+                    const cliente = clientes.find(c => c.nombre === clienteNombre);
+                    if (!cliente || !nombre) { fail++; continue; }
+                    try {
+                        await fetch(`${API_URL}/api/contratos`, {
+                            method: 'POST', headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                cliente_id: cliente.id, nombre,
+                                descripcion: row['Descripción'] || row['descripcion'] || '',
+                                fecha_inicio: row['Fecha Inicio'] || row['fecha_inicio'] || '',
+                                fecha_fin: row['Fecha Fin'] || row['fecha_fin'] || '',
+                                estado: row['Estado'] || row['estado'] || 'Activo'
+                            })
+                        });
+                        ok++;
+                    } catch { fail++; }
+                }
+                setImportMsg(`✅ Importados: ${ok} | ❌ Fallidos: ${fail}`);
+                onRefresh();
+            };
+
             return (
                 <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '8px' }}>
                         <h3 className="section-title" style={{ margin: 0 }}>📋 Contratos</h3>
-                        <button className="btn btn-primary" onClick={() => { setShowForm(!showForm); setEditingId(null); }}>
-                            + Nuevo
-                        </button>
+                        <div className="toolbar">
+                            <button className="btn btn-excel" onClick={() => exportToExcel(contratos, 'contratos', [
+                                { key: 'cliente_nombre', label: 'Cliente' },
+                                { key: 'nombre', label: 'Contrato' },
+                                { key: 'descripcion', label: 'Descripción' },
+                                { key: 'fecha_inicio', label: 'Fecha Inicio' },
+                                { key: 'fecha_fin', label: 'Fecha Fin' },
+                                { key: 'estado', label: 'Estado' }
+                            ])}>📤 Exportar</button>
+                            <ExcelImportButton onRows={handleImportRows} />
+                            <button className="btn btn-primary" onClick={() => { setShowForm(!showForm); setEditingId(null); }}>
+                                + Nuevo
+                            </button>
+                        </div>
                     </div>
+
+                    {importMsg && <div className="import-summary">{importMsg}</div>}
 
                     {showForm && (
                         <div className="card" style={{ marginBottom: '1rem' }}>
@@ -730,14 +1185,46 @@
                 setShowForm(true);
             };
 
+            const [importMsg, setImportMsg] = useState('');
+            const handleImportRows = async (rows) => {
+                let ok = 0, fail = 0;
+                for (const row of rows) {
+                    const nombre = row['Cliente'] || row['nombre'] || row['Nombre'];
+                    if (!nombre) { fail++; continue; }
+                    try {
+                        await fetch(`${API_URL}/api/clientes`, {
+                            method: 'POST', headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                nombre,
+                                contacto: row['Contacto'] || row['contacto'] || '',
+                                telefono: row['Teléfono'] || row['telefono'] || ''
+                            })
+                        });
+                        ok++;
+                    } catch { fail++; }
+                }
+                setImportMsg(`✅ Importados: ${ok} | ❌ Fallidos: ${fail}`);
+                onRefresh();
+            };
+
             return (
                 <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '8px' }}>
                         <h3 className="section-title" style={{ margin: 0 }}>👥 Clientes</h3>
-                        <button className="btn btn-primary" onClick={() => { setShowForm(!showForm); setEditingId(null); }}>
-                            + Nuevo
-                        </button>
+                        <div className="toolbar">
+                            <button className="btn btn-excel" onClick={() => exportToExcel(clientes, 'clientes', [
+                                { key: 'nombre', label: 'Cliente' },
+                                { key: 'contacto', label: 'Contacto' },
+                                { key: 'telefono', label: 'Teléfono' }
+                            ])}>📤 Exportar</button>
+                            <ExcelImportButton onRows={handleImportRows} />
+                            <button className="btn btn-primary" onClick={() => { setShowForm(!showForm); setEditingId(null); }}>
+                                + Nuevo
+                            </button>
+                        </div>
                     </div>
+
+                    {importMsg && <div className="import-summary">{importMsg}</div>}
 
                     {showForm && (
                         <div className="card" style={{ marginBottom: '1rem' }}>
