@@ -2493,6 +2493,7 @@
 
             const [showTiposManager, setShowTiposManager] = useState(false);
             const [showCamposManager, setShowCamposManager] = useState(false);
+            const [viendoActivo, setViendoActivo] = useState(null);
 
             // ---- Creación rápida de dependencias (sin salir de este formulario) ----
             const crearClienteRapido = async (values) => {
@@ -2561,6 +2562,7 @@
                 setSelectedZona(a.zona_id ? String(a.zona_id) : '');
                 setEditingId(a.id);
                 setShowForm(true);
+                setViendoActivo(null);
             };
 
             const [fotosAbiertas, setFotosAbiertas] = useState({});
@@ -2621,7 +2623,7 @@
                             <button className="btn btn-secondary" onClick={() => setShowCamposManager(!showCamposManager)}>⚙️ Campos</button>
                             <button className="btn btn-crear" onClick={() => {
                                 if (!showForm) { setFormData({ emplazamiento_id: '', contrato_id: '', tipo: '', nombre: '', fabricante: '', modelo: '', estado: 'Activo', observaciones: '', campos_extra: {}, fotos_json: [] }); setSelectedCliente(''); setSelectedZona(''); }
-                                setShowForm(!showForm); setEditingId(null);
+                                setShowForm(!showForm); setEditingId(null); setViendoActivo(null);
                             }}>+ Nuevo</button>
                         </div>
                     </div>
@@ -2632,7 +2634,8 @@
                     {importMsg && <div className="import-summary">{importMsg}</div>}
 
                     {showForm && (
-                        <div className="card" ref={formRef} style={{ marginBottom: '1rem' }}>
+                        <div className="quickadd-box" ref={formRef} style={{ marginBottom: '1rem' }}>
+                            <p className="card-text" style={{ fontWeight: 600, marginBottom: '6px' }}>{editingId ? 'Editar Activo' : '+ Añadir Activo Nuevo'}</p>
                             <p className="card-text" style={{ marginBottom: '10px' }}>
                                 💡 Puedes crear el cliente, contrato, zona o emplazamiento aquí mismo con el botón <strong>＋</strong> si aún no existen.
                             </p>
@@ -2728,12 +2731,44 @@
                         </div>
                     )}
 
+                    {viendoActivo && (() => {
+                        let extraView = {}; try { extraView = viendoActivo.campos_extra ? JSON.parse(viendoActivo.campos_extra) : {}; } catch { extraView = {}; }
+                        let fotosView = []; try { fotosView = viendoActivo.fotos_json ? JSON.parse(viendoActivo.fotos_json) : []; } catch { fotosView = []; }
+                        return (
+                            <div className="card" style={{ marginBottom: '1rem' }}>
+                                <div className="list-item-header">
+                                    <div>
+                                        <p className="card-title">⚙️ {viendoActivo.nombre}</p>
+                                        <p className="breadcrumb-path">{viendoActivo.cliente_nombre} › {viendoActivo.contrato_nombre} › {viendoActivo.zona_nombre} › {viendoActivo.emplazamiento_nombre}</p>
+                                    </div>
+                                    {viendoActivo.tipo && <span className="badge" style={{ background: 'var(--bg-accent)', color: 'var(--fill-accent)' }}>{viendoActivo.tipo}</span>}
+                                </div>
+
+                                <DynamicExtraFields entidad="activo" camposConfig={camposConfig} formData={{ ...viendoActivo, campos_extra: extraView }} setFormData={() => {}} tipoActivo={viendoActivo.tipo} readOnly={true} />
+
+                                <div className="checklist-section">
+                                    <div className="checklist-section-title">📷 Fotos</div>
+                                    {fotosView.length > 0 ? (
+                                        <div className="photo-grid">
+                                            {fotosView.map((f, i) => <div key={i} className="photo-thumb"><img src={f} /></div>)}
+                                        </div>
+                                    ) : <p className="card-text">Sin fotos.</p>}
+                                </div>
+
+                                <div className="btn-group">
+                                    <button className="btn btn-primary" onClick={() => { handleEdit(viendoActivo); setViendoActivo(null); }}>Editar</button>
+                                    <button className="btn btn-secondary" onClick={() => setViendoActivo(null)}>Cerrar</button>
+                                </div>
+                            </div>
+                        );
+                    })()}
+
                     <div className="list">
                         {activos.length === 0 ? <div className="empty-state">No hay activos</div> : activos.map(a => {
                             let fotos = [];
                             try { fotos = a.fotos_json ? JSON.parse(a.fotos_json) : []; } catch { fotos = []; }
                             return (
-                                <div key={a.id} className="list-item">
+                                <div key={a.id} className="list-item" style={{ cursor: 'pointer' }} onClick={() => { setViendoActivo(a); setShowForm(false); }}>
                                     <div className="list-item-header">
                                         <div>
                                             <p className="card-title">⚙️ {a.nombre}</p>
@@ -2741,19 +2776,11 @@
                                         </div>
                                         {a.tipo && <span className="badge" style={{ background: 'var(--bg-accent)', color: 'var(--fill-accent)' }}>{a.tipo}</span>}
                                     </div>
-                                    <p className="card-text">🏭 {a.fabricante || '—'} | 🔧 {a.modelo || '—'}</p>
-                                    <p className="card-text">✓ Estado: {a.estado}</p>
-                                    {a.observaciones && <p className="card-text">📝 {a.observaciones}</p>}
-                                    <div style={{ marginTop: '8px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                                    <p className="card-text">✓ Estado: {a.estado}{fotos.length > 0 ? ` · 📷 ${fotos.length} foto${fotos.length === 1 ? '' : 's'}` : ''}</p>
+                                    <div style={{ marginTop: '8px', display: 'flex', gap: '8px', flexWrap: 'wrap' }} onClick={(e) => e.stopPropagation()}>
                                         <button className="btn btn-primary" onClick={() => handleEdit(a)}>Editar</button>
                                         <button className="btn btn-danger" onClick={() => handleDelete(a.id)}>Eliminar</button>
-                                        {fotos.length > 0 && <button className="btn btn-secondary" onClick={() => toggleFotos(a.id)}>{fotosAbiertas[a.id] ? 'Ocultar fotos' : `📷 Ver fotos (${fotos.length})`}</button>}
                                     </div>
-                                    {fotosAbiertas[a.id] && (
-                                        <div className="photo-grid" style={{ marginTop: '8px' }}>
-                                            {fotos.map((f, i) => <div key={i} className="photo-thumb"><img src={f} /></div>)}
-                                        </div>
-                                    )}
                                 </div>
                             );
                         })}
