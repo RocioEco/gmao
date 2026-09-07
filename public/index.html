@@ -2048,6 +2048,7 @@
             const [formData, setFormData] = useState({ zona_id: '', nombre: '', direccion: '' });
             const [importMsg, setImportMsg] = useState('');
             const formRef = useAutoScrollForm(showForm);
+            const [search, setSearch] = useState('');
 
             // Estado de la gestión en línea de Activos por cada tarjeta de Emplazamiento
             const [expandidoId, setExpandidoId] = useState(null);
@@ -2145,8 +2146,17 @@
                         </div>
                     )}
 
+                    <div className="form-group">
+                        <input type="text" placeholder="🔍 Buscar por nombre..." value={search} onChange={(e) => setSearch(e.target.value)} />
+                    </div>
+
                     <div className="list">
-                        {emplazamientos.length === 0 ? <div className="empty-state">No hay emplazamientos</div> : emplazamientos.map(e => {
+                        {(() => {
+                            const emplazamientosFiltrados = search
+                                ? emplazamientos.filter(e => (e.nombre || '').toLowerCase().includes(search.toLowerCase()))
+                                : emplazamientos;
+                            if (emplazamientosFiltrados.length === 0) return <div className="empty-state">No hay emplazamientos</div>;
+                            return emplazamientosFiltrados.map(e => {
                             const activosDeAqui = activos ? activos.filter(a => a.emplazamiento_id === e.id) : [];
                             const expandido = expandidoId === e.id;
                             return (
@@ -2227,7 +2237,8 @@
                                     )}
                                 </div>
                             );
-                        })}
+                            });
+                        })()}
                     </div>
                 </div>
             );
