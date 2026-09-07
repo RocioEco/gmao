@@ -2045,7 +2045,7 @@
         function EmplazamientosView({ user, emplazamientos, zonas, activos, clientes, contratos, tiposActivo, camposConfig, onRefresh }) {
             const [showForm, setShowForm] = useState(false);
             const [editingId, setEditingId] = useState(null);
-            const [formData, setFormData] = useState({ zona_id: '', nombre: '', direccion: '' });
+            const [formData, setFormData] = useState({ zona_id: '', nombre: '', direccion: '', lat: '', lon: '' });
             const [importMsg, setImportMsg] = useState('');
             const formRef = useAutoScrollForm(showForm);
             const [search, setSearch] = useState('');
@@ -2062,7 +2062,7 @@
                     const url = editingId ? `${API_URL}/api/emplazamientos/${editingId}` : `${API_URL}/api/emplazamientos`;
                     const method = editingId ? 'PUT' : 'POST';
                     await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(formData) });
-                    setFormData({ zona_id: '', nombre: '', direccion: '' });
+                    setFormData({ zona_id: '', nombre: '', direccion: '', lat: '', lon: '' });
                     setEditingId(null);
                     setShowForm(false);
                     onRefresh();
@@ -2076,7 +2076,7 @@
             };
 
             const handleEdit = (e) => {
-                setFormData({ zona_id: e.zona_id, nombre: e.nombre, direccion: e.direccion || '' });
+                setFormData({ zona_id: e.zona_id, nombre: e.nombre, direccion: e.direccion || '', lat: e.lat ?? '', lon: e.lon ?? '' });
                 setEditingId(e.id);
                 setShowForm(true);
             };
@@ -2139,6 +2139,14 @@
                                 <label>Dirección (opcional)</label>
                                 <input type="text" placeholder="Dirección" value={formData.direccion} onChange={(e) => setFormData({ ...formData, direccion: e.target.value })} />
                             </div>
+                            <div className="form-group">
+                                <label>Latitud (opcional)</label>
+                                <input type="text" placeholder="Ej: 43.591497" value={formData.lat} onChange={(e) => setFormData({ ...formData, lat: e.target.value })} />
+                            </div>
+                            <div className="form-group">
+                                <label>Longitud (opcional)</label>
+                                <input type="text" placeholder="Ej: -5.930617" value={formData.lon} onChange={(e) => setFormData({ ...formData, lon: e.target.value })} />
+                            </div>
                             <div className="btn-group">
                                 <button className="btn btn-success" onClick={handleAdd}>{editingId ? 'Guardar' : 'Crear'}</button>
                                 <button className="btn btn-secondary" onClick={() => { setShowForm(false); setEditingId(null); }}>Cancelar</button>
@@ -2196,6 +2204,12 @@
                                                         return (
                                                             <div className="quickadd-box" style={{ marginTop: '4px' }}>
                                                                 <DynamicExtraFields entidad="activo" camposConfig={camposConfig} formData={{ ...a, campos_extra: extraView }} setFormData={() => {}} tipoActivo={a.tipo} readOnly={true} />
+                                                                {e.lat != null && (
+                                                                    <a className="btn btn-primary" style={{ display: 'inline-block', marginTop: '8px', marginBottom: '4px', textDecoration: 'none' }}
+                                                                       href={`https://maps.google.com/?q=${e.lat},${e.lon}`} target="_blank" rel="noopener noreferrer">
+                                                                        📍 Abrir ubicación en Google Maps
+                                                                    </a>
+                                                                )}
                                                                 <p className="card-text" style={{ fontWeight: 600, marginTop: '8px' }}>📷 Fotos</p>
                                                                 {fotosView.length > 0 ? (
                                                                     <div className="photo-grid">
@@ -2777,6 +2791,13 @@
                                 </div>
 
                                 <DynamicExtraFields entidad="activo" camposConfig={camposConfig} formData={{ ...viendoActivo, campos_extra: extraView }} setFormData={() => {}} tipoActivo={viendoActivo.tipo} readOnly={true} />
+
+                                {viendoActivo.emplazamiento_lat != null && (
+                                    <a className="btn btn-primary" style={{ display: 'inline-block', marginTop: '10px', marginBottom: '10px', textDecoration: 'none' }}
+                                       href={`https://maps.google.com/?q=${viendoActivo.emplazamiento_lat},${viendoActivo.emplazamiento_lon}`} target="_blank" rel="noopener noreferrer">
+                                        📍 Abrir ubicación en Google Maps
+                                    </a>
+                                )}
 
                                 <div className="checklist-section">
                                     <div className="checklist-section-title">📷 Fotos</div>
