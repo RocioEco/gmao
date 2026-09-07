@@ -175,6 +175,7 @@
         .readonly-view .rv-label { color: var(--text-secondary); }
         .readonly-view .rv-value { font-weight: 600; text-align: right; }
         .photo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); gap: 8px; margin-top: 8px; }
+        .photo-grid-ficha { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; }
         .photo-thumb { position: relative; aspect-ratio: 1; border-radius: 8px; overflow: hidden; border: 1px solid var(--border); }
         .photo-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
         .photo-thumb .photo-remove { position: absolute; top: 2px; right: 2px; background: rgba(0,0,0,0.6); color: white; border: none; border-radius: 50%; width: 20px; height: 20px; font-size: 12px; cursor: pointer; line-height: 1; }
@@ -2157,7 +2158,7 @@
                     <div className="checklist-section">
                         <div className="checklist-section-title">📷 Fotos</div>
                         {fotos.length > 0 ? (
-                            <div className="photo-grid">
+                            <div className="photo-grid photo-grid-ficha">
                                 {fotos.map((f, i) => <div key={i} className="photo-thumb"><img src={f} /></div>)}
                             </div>
                         ) : <p className="card-text">Sin fotos.</p>}
@@ -2791,14 +2792,6 @@
                 onRefresh();
             };
 
-            const handleEdit = (a) => {
-                setEditingId(a.id);
-                setShowForm(true);
-                setViendoActivo(null);
-            };
-
-            const activoEditando = editingId ? activos.find(a => a.id === editingId) : null;
-
             const handleImportRows = async (rows) => {
                 let ok = 0, fail = 0;
                 for (const row of rows) {
@@ -2863,33 +2856,20 @@
 
                     {importMsg && <div className="import-summary">{importMsg}</div>}
 
-                    {showForm && (
+                    {showForm && !editingId && (
                         <div ref={formRef}>
                             <ActivoInlineForm
-                                key={editingId || 'nuevo'}
-                                activoExistente={activoEditando}
+                                key="nuevo"
+                                activoExistente={null}
                                 clientes={clientes}
                                 contratos={contratos}
                                 zonas={zonas}
                                 emplazamientos={emplazamientos}
                                 tiposActivo={tiposActivo}
                                 camposConfig={camposConfig}
-                                onSaved={() => { setShowForm(false); setEditingId(null); onRefresh(); }}
-                                onCancel={() => { setShowForm(false); setEditingId(null); }}
+                                onSaved={() => { setShowForm(false); onRefresh(); }}
+                                onCancel={() => setShowForm(false)}
                             />
-                        </div>
-                    )}
-
-                    {viendoActivo && (
-                        <div className="card" ref={viewRef} style={{ marginBottom: '1rem' }}>
-                            <p className="card-title" style={{ marginBottom: '10px' }}>⚙️ {viendoActivo.nombre}</p>
-
-                            <FichaActivo activo={viendoActivo} camposConfig={camposConfig} />
-
-                            <div className="btn-group">
-                                <button className="btn btn-primary" onClick={() => { handleEdit(viendoActivo); setViendoActivo(null); }}>Editar</button>
-                                <button className="btn btn-secondary" onClick={() => setViendoActivo(null)}>Cerrar</button>
-                            </div>
                         </div>
                     )}
 
@@ -2906,20 +2886,51 @@
                             return activosFiltrados.map(a => {
                                 let fotos = [];
                                 try { fotos = a.fotos_json ? JSON.parse(a.fotos_json) : []; } catch { fotos = []; }
+                                const viendoEste = viendoActivo && viendoActivo.id === a.id;
+                                const editandoEste = showForm && editingId === a.id;
                                 return (
-                                    <div key={a.id} className="list-item" style={{ cursor: 'pointer' }} onClick={() => { setViendoActivo(a); setShowForm(false); }}>
-                                        <div className="list-item-header">
-                                            <div>
-                                                <p className="card-title">⚙️ {a.emplazamiento_nombre ? `${a.emplazamiento_nombre} - ${a.nombre}` : a.nombre}</p>
-                                                <p className="breadcrumb-path">{a.cliente_nombre} › {a.contrato_nombre} › {a.zona_nombre} › {a.emplazamiento_nombre}</p>
+                                    <div key={a.id}>
+                                        <div className="list-item" style={{ cursor: 'pointer' }} onClick={() => { setViendoActivo(viendoEste ? null : a); setShowForm(false); setEditingId(null); }}>
+                                            <div className="list-item-header">
+                                                <div>
+                                                    <p className="card-title">⚙️ {a.emplazamiento_nombre ? `${a.emplazamiento_nombre} - ${a.nombre}` : a.nombre}</p>
+                                                    <p className="breadcrumb-path">{a.cliente_nombre} › {a.contrato_nombre} › {a.zona_nombre} › {a.emplazamiento_nombre}</p>
+                                                </div>
+                                                {a.tipo && <span className="badge" style={{ background: 'var(--bg-accent)', color: 'var(--fill-accent)' }}>{a.tipo}</span>}
                                             </div>
-                                            {a.tipo && <span className="badge" style={{ background: 'var(--bg-accent)', color: 'var(--fill-accent)' }}>{a.tipo}</span>}
+                                            <p className="card-text">✓ Estado: {a.estado}{fotos.length > 0 ? ` · 📷 ${fotos.length} foto${fotos.length === 1 ? '' : 's'}` : ''}</p>
+                                            <div style={{ marginTop: '8px', display: 'flex', gap: '8px', flexWrap: 'wrap' }} onClick={(e) => e.stopPropagation()}>
+                                                <button className="btn btn-primary" onClick={() => { setEditingId(a.id); setShowForm(true); setViendoActivo(null); }}>Editar</button>
+                                                <button className="btn btn-danger" onClick={() => handleDelete(a.id)}>Eliminar</button>
+                                            </div>
                                         </div>
-                                        <p className="card-text">✓ Estado: {a.estado}{fotos.length > 0 ? ` · 📷 ${fotos.length} foto${fotos.length === 1 ? '' : 's'}` : ''}</p>
-                                        <div style={{ marginTop: '8px', display: 'flex', gap: '8px', flexWrap: 'wrap' }} onClick={(e) => e.stopPropagation()}>
-                                            <button className="btn btn-primary" onClick={() => handleEdit(a)}>Editar</button>
-                                            <button className="btn btn-danger" onClick={() => handleDelete(a.id)}>Eliminar</button>
-                                        </div>
+
+                                        {viendoEste && (
+                                            <div className="quickadd-box" ref={viewRef} style={{ marginTop: '4px' }}>
+                                                <FichaActivo activo={a} camposConfig={camposConfig} />
+                                                <div className="btn-group">
+                                                    <button className="btn btn-primary" onClick={() => { setEditingId(a.id); setShowForm(true); setViendoActivo(null); }}>Editar</button>
+                                                    <button className="btn btn-secondary" onClick={() => setViendoActivo(null)}>Cerrar</button>
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {editandoEste && (
+                                            <div ref={formRef}>
+                                                <ActivoInlineForm
+                                                    key={a.id}
+                                                    activoExistente={a}
+                                                    clientes={clientes}
+                                                    contratos={contratos}
+                                                    zonas={zonas}
+                                                    emplazamientos={emplazamientos}
+                                                    tiposActivo={tiposActivo}
+                                                    camposConfig={camposConfig}
+                                                    onSaved={() => { setShowForm(false); setEditingId(null); onRefresh(); }}
+                                                    onCancel={() => { setShowForm(false); setEditingId(null); }}
+                                                />
+                                            </div>
+                                        )}
                                     </div>
                                 );
                             });
@@ -3128,26 +3139,44 @@
                 else setFormData({ ...formData, campos_extra: { ...(formData.campos_extra || {}), [campo.clave]: val } });
             };
 
+            const camposGrid = campos.filter(c => c.tipo !== 'textarea');
+            const camposTextarea = campos.filter(c => c.tipo === 'textarea');
+
             return (
                 <React.Fragment>
-                    {campos.map(campo => {
-                        let opciones = [];
-                        try { opciones = JSON.parse(campo.opciones || '[]'); } catch { opciones = []; }
+                    {camposGrid.length > 0 && (
+                        <div className="ficha-grid">
+                            {camposGrid.map(campo => {
+                                let opciones = [];
+                                try { opciones = JSON.parse(campo.opciones || '[]'); } catch { opciones = []; }
+                                const val = getValue(campo);
+                                return (
+                                    <div className="ficha-field" key={campo.id}>
+                                        <span className="ficha-field-label">{campo.etiqueta}</span>
+                                        {readOnly ? (
+                                            <span className="ficha-field-value">{val || '—'}</span>
+                                        ) : campo.tipo === 'select' ? (
+                                            <select value={val} onChange={(e) => setValue(campo, e.target.value)}>
+                                                <option value="">-- Selecciona --</option>
+                                                {opciones.map(o => <option key={o} value={o}>{o}</option>)}
+                                            </select>
+                                        ) : (
+                                            <input type={campo.tipo === 'date' ? 'date' : campo.tipo === 'number' ? 'number' : 'text'} value={val} onChange={(e) => setValue(campo, e.target.value)} />
+                                        )}
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
+                    {camposTextarea.map(campo => {
                         const val = getValue(campo);
                         return (
-                            <div className="form-group" key={campo.id}>
+                            <div className="form-group" key={campo.id} style={{ marginTop: '8px' }}>
                                 <label>{campo.etiqueta}</label>
                                 {readOnly ? (
-                                    <p className="card-text">{val || '—'}</p>
-                                ) : campo.tipo === 'select' ? (
-                                    <select value={val} onChange={(e) => setValue(campo, e.target.value)}>
-                                        <option value="">-- Selecciona --</option>
-                                        {opciones.map(o => <option key={o} value={o}>{o}</option>)}
-                                    </select>
-                                ) : campo.tipo === 'textarea' ? (
-                                    <textarea value={val} onChange={(e) => setValue(campo, e.target.value)}></textarea>
+                                    <p className="card-text" style={{ whiteSpace: 'pre-wrap' }}>{val || '—'}</p>
                                 ) : (
-                                    <input type={campo.tipo === 'date' ? 'date' : campo.tipo === 'number' ? 'number' : 'text'} value={val} onChange={(e) => setValue(campo, e.target.value)} />
+                                    <textarea rows="4" value={val} onChange={(e) => setValue(campo, e.target.value)}></textarea>
                                 )}
                             </div>
                         );
