@@ -2053,6 +2053,7 @@
             const [expandidoId, setExpandidoId] = useState(null);
             const [activoFormEmpId, setActivoFormEmpId] = useState(null); // emplazamiento en el que se está CREANDO un activo
             const [activoEditando, setActivoEditando] = useState(null); // activo que se está EDITANDO (objeto completo)
+            const [activoViendo, setActivoViendo] = useState(null); // activo mostrado en modo solo lectura
 
             const handleAdd = async () => {
                 if (!formData.nombre.trim() || !formData.zona_id) { alert('Selecciona zona y nombre'); return; }
@@ -2169,13 +2170,31 @@
                                                     <div className="list-item" style={{ background: 'var(--surface-2)' }}>
                                                         <p className="card-title">⚙️ {a.nombre}</p>
                                                         <p className="card-text">{a.tipo || 'Sin tipo'} · {a.cliente_nombre} › {a.contrato_nombre}</p>
-                                                        <div style={{ marginTop: '6px', display: 'flex', gap: '8px' }}>
-                                                            <button className="btn btn-primary" onClick={() => { setActivoEditando(activoEditando && activoEditando.id === a.id ? null : a); setActivoFormEmpId(null); }}>
+                                                        <div style={{ marginTop: '6px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                                                            <button className="btn btn-secondary" onClick={() => { setActivoViendo(activoViendo && activoViendo.id === a.id ? null : a); setActivoEditando(null); setActivoFormEmpId(null); }}>
+                                                                {activoViendo && activoViendo.id === a.id ? 'Cerrar' : 'Ver'}
+                                                            </button>
+                                                            <button className="btn btn-primary" onClick={() => { setActivoEditando(activoEditando && activoEditando.id === a.id ? null : a); setActivoFormEmpId(null); setActivoViendo(null); }}>
                                                                 {activoEditando && activoEditando.id === a.id ? 'Cerrar' : 'Editar'}
                                                             </button>
                                                             <button className="btn btn-danger" onClick={() => eliminarActivo(a.id)}>Eliminar</button>
                                                         </div>
                                                     </div>
+                                                    {activoViendo && activoViendo.id === a.id && (() => {
+                                                        let extraView = {}; try { extraView = a.campos_extra ? JSON.parse(a.campos_extra) : {}; } catch { extraView = {}; }
+                                                        let fotosView = []; try { fotosView = a.fotos_json ? JSON.parse(a.fotos_json) : []; } catch { fotosView = []; }
+                                                        return (
+                                                            <div className="quickadd-box" style={{ marginTop: '4px' }}>
+                                                                <DynamicExtraFields entidad="activo" camposConfig={camposConfig} formData={{ ...a, campos_extra: extraView }} setFormData={() => {}} tipoActivo={a.tipo} readOnly={true} />
+                                                                <p className="card-text" style={{ fontWeight: 600, marginTop: '8px' }}>📷 Fotos</p>
+                                                                {fotosView.length > 0 ? (
+                                                                    <div className="photo-grid">
+                                                                        {fotosView.map((f, i) => <div key={i} className="photo-thumb"><img src={f} /></div>)}
+                                                                    </div>
+                                                                ) : <p className="card-text">Sin fotos.</p>}
+                                                            </div>
+                                                        );
+                                                    })()}
                                                     {activoEditando && activoEditando.id === a.id && (
                                                         <ActivoInlineForm
                                                             emplazamientoId={e.id}
@@ -2494,6 +2513,7 @@
             const [showTiposManager, setShowTiposManager] = useState(false);
             const [showCamposManager, setShowCamposManager] = useState(false);
             const [viendoActivo, setViendoActivo] = useState(null);
+            const viewRef = useAutoScrollForm(!!viendoActivo);
 
             // ---- Creación rápida de dependencias (sin salir de este formulario) ----
             const crearClienteRapido = async (values) => {
@@ -2735,7 +2755,7 @@
                         let extraView = {}; try { extraView = viendoActivo.campos_extra ? JSON.parse(viendoActivo.campos_extra) : {}; } catch { extraView = {}; }
                         let fotosView = []; try { fotosView = viendoActivo.fotos_json ? JSON.parse(viendoActivo.fotos_json) : []; } catch { fotosView = []; }
                         return (
-                            <div className="card" style={{ marginBottom: '1rem' }}>
+                            <div className="card" ref={viewRef} style={{ marginBottom: '1rem' }}>
                                 <div className="list-item-header">
                                     <div>
                                         <p className="card-title">⚙️ {viendoActivo.nombre}</p>
