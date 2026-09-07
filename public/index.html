@@ -547,26 +547,23 @@
 
         function BarChart({ data, height = 110 }) {
             const max = Math.max(1, ...data.map(d => d.value));
-            const n = data.length || 1;
-            const barSlot = 100 / n;
-            const chartH = height - 22;
             return (
-                <div className="bar-chart-wrap">
-                    <svg viewBox={`0 0 100 ${height}`} preserveAspectRatio="none" style={{ width: '100%', height: height + 'px' }}>
-                        {data.map((d, i) => {
-                            const barH = max > 0 ? (d.value / max) * chartH : 0;
-                            const x = i * barSlot + barSlot * 0.18;
-                            const w = barSlot * 0.64;
-                            const y = chartH - barH;
-                            return (
-                                <g key={i}>
-                                    <rect x={x} y={y} width={w} height={Math.max(barH, d.value > 0 ? 1.5 : 0)} fill={d.color} rx="1" />
-                                    <text x={x + w / 2} y={y - 2} fontSize="7" textAnchor="middle" fill="var(--text-primary)">{d.value}</text>
-                                    <text x={x + w / 2} y={height - 6} fontSize="5.5" textAnchor="middle" fill="var(--text-secondary)">{d.label}</text>
-                                </g>
-                            );
-                        })}
-                    </svg>
+                <div className="bar-chart-wrap" style={{ display: 'flex', alignItems: 'flex-end', gap: '8px', height: height + 'px', padding: '4px 2px 0' }}>
+                    {data.map((d, i) => {
+                        const barPct = max > 0 ? (d.value / max) * 100 : 0;
+                        return (
+                            <div key={i} style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', height: '100%' }}>
+                                <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '3px' }}>{d.value}</span>
+                                <div style={{
+                                    width: '100%', maxWidth: '34px',
+                                    height: (d.value > 0 ? Math.max(barPct, 4) : 0) + '%',
+                                    background: d.color, borderRadius: '4px 4px 0 0',
+                                    transition: 'height 0.2s'
+                                }}></div>
+                                <span style={{ fontSize: '9.5px', color: 'var(--text-secondary)', marginTop: '4px', textAlign: 'center', lineHeight: '1.2' }}>{d.label}</span>
+                            </div>
+                        );
+                    })}
                 </div>
             );
         }
@@ -2334,6 +2331,7 @@
             const emplazamientosFiltrados = selectedZona ? emplazamientos.filter(e => e.zona_id === parseInt(selectedZona)) : emplazamientos;
 
             const [showTiposManager, setShowTiposManager] = useState(false);
+            const [showCamposManager, setShowCamposManager] = useState(false);
 
             // ---- Creación rápida de dependencias (sin salir de este formulario) ----
             const crearClienteRapido = async (values) => {
