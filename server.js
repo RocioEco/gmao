@@ -13,7 +13,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 app.use(cors());
-app.use(bodyParser.json());
+app.use(bodyParser.json({ limit: '25mb' }));
 app.use(express.static('public'));
 
 // Ruta de la base de datos: usa DB_PATH si está definida (para volumen persistente en Railway),
