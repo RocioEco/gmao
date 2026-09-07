@@ -236,6 +236,25 @@
         .nav-badge { position: absolute; top: -4px; right: -4px; background: var(--fill-danger); color: white; font-size: 10px; font-weight: 700; border-radius: 10px; padding: 1px 5px; min-width: 16px; text-align: center; }
         .field-locked { opacity: 0.6; }
         .lock-note { font-size: 11px; color: var(--text-muted); margin: -4px 0 8px; font-style: italic; }
+        /* ===== IMPRESIÓN / PDF DE ÓRDENES DE TRABAJO ===== */
+        .printable-ot { display: none; }
+        @media print {
+            body * { visibility: hidden; }
+            .printable-ot, .printable-ot * { visibility: visible; }
+            .printable-ot { display: block; position: absolute; left: 0; top: 0; width: 100%; padding: 20px; color: #000; background: #fff; }
+            .print-header h1 { font-size: 20px; margin: 0 0 4px; }
+            .print-header p { font-size: 13px; color: #333; margin: 0 0 12px; }
+            .print-section-title { font-size: 15px; font-weight: 700; margin: 16px 0 6px; border-bottom: 2px solid #333; padding-bottom: 4px; }
+            .print-row { display: flex; justify-content: space-between; font-size: 12px; padding: 3px 0; border-bottom: 1px dashed #ccc; }
+            .print-label { color: #555; }
+            .print-value { font-weight: 600; text-align: right; }
+            .print-visita { margin-top: 16px; padding-top: 10px; border-top: 1px solid #999; page-break-inside: avoid; }
+            .print-json-key { font-weight: 700; font-size: 12px; margin: 6px 0 2px; }
+            .print-json-item { font-size: 12px; margin-bottom: 4px; }
+            .print-photos { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+            .print-photos img { width: 130px; height: 100px; object-fit: cover; border: 1px solid #999; border-radius: 4px; }
+            .print-firma img { max-width: 220px; border: 1px solid #999; margin-top: 4px; }
+        }
     </style>
 </head>
 <body class="light-theme">
@@ -1200,6 +1219,35 @@
         }
 
 
+        // Vuelca cualquier JSON (checklist, materiales, desplazamientos...) de forma legible para impresión,
+        // sin depender de la forma exacta de cada tipo de checklist.
+        function renderJsonGenerico(data, nivel = 0) {
+            if (data == null || data === '') return null;
+            if (Array.isArray(data)) {
+                if (data.length === 0) return <p className="print-json-item">—</p>;
+                return data.map((item, i) => (
+                    <div key={i} className="print-json-item" style={{ marginLeft: nivel * 10 }}>
+                        {typeof item === 'object' ? renderJsonGenerico(item, nivel + 1) : <span>{String(item)}</span>}
+                    </div>
+                ));
+            }
+            if (typeof data === 'object') {
+                const entradas = Object.entries(data).filter(([k, v]) => v !== null && v !== '' && !k.startsWith('__'));
+                if (entradas.length === 0) return <p className="print-json-item">—</p>;
+                return entradas.map(([k, v]) => (
+                    typeof v === 'object' ? (
+                        <div key={k} style={{ marginLeft: nivel * 10 }}>
+                            <p className="print-json-key">{k}</p>
+                            {renderJsonGenerico(v, nivel + 1)}
+                        </div>
+                    ) : (
+                        <p key={k} className="print-json-item" style={{ marginLeft: nivel * 10 }}><strong>{k}:</strong> {String(v)}</p>
+                    )
+                ));
+            }
+            return <p className="print-json-item">{String(data)}</p>;
+        }
+
         function OrdenesView({ user, ordenes, clientes, contratos, activos, tiposActivo, usuarios, materiales, onRefresh, filtroInicialTipo }) {
             const esGestor = user.rol === 'admin' || user.rol === 'supervisor';
             const [mode, setMode] = useState('list'); // list | form-ot | detail | form-visita | view-visita
@@ -1622,6 +1670,7 @@
                                                 <button className="btn btn-crear" onClick={() => asignarmeOt(otSeleccionada)}>Asignarme para Gestionar</button>
                                             )}
                                             {esGestor && otSeleccionada.tipo === 'guardia' && <button className="btn btn-success" onClick={() => abrirConvertirGuardia(otSeleccionada)}>Convertir a Correctivo</button>}
+                                            {['preventivo', 'correctivo', 'obra'].includes(otSeleccionada.tipo) && <button className="btn btn-secondary" onClick={() => window.print()}>🖨️ Imprimir PDF</button>}
                                             {esGestor && <button className="btn btn-danger" onClick={() => eliminarOt(otSeleccionada.id)}>Eliminar OT</button>}
                                         </div>
                                     </div>
@@ -1658,6 +1707,89 @@
                                     </div>
                                 ))
                             )}
+                        </div>
+
+                        {/* ===== Vista imprimible (solo se ve al imprimir / guardar como PDF) ===== */}
+                        <div className="printable-ot">
+                            <div className="print-header">
+                                <h1>{otSeleccionada.id} — {otSeleccionada.titulo}</h1>
+                                <p>Tipo: {otSeleccionada.tipo} · Prioridad: {otSeleccionada.prioridad || 'media'} · Estado: {otSeleccionada.estado}</p>
+                            </div>
+
+                            <div className="print-section-title">Datos de la Orden</div>
+                            {otSeleccionada.cliente_nombre && <div className="print-row"><span className="print-label">Cliente</span><span className="print-value">{otSeleccionada.cliente_nombre}</span></div>}
+                            {otSeleccionada.activo_nombre && <div className="print-row"><span className="print-label">Activo</span><span className="print-value">{otSeleccionada.activo_nombre}</span></div>}
+                            {otSeleccionada.ticket && <div className="print-row"><span className="print-label">Ticket</span><span className="print-value">{otSeleccionada.ticket}</span></div>}
+                            {otSeleccionada.id_cliente && <div className="print-row"><span className="print-label">ID Cliente</span><span className="print-value">{otSeleccionada.id_cliente}</span></div>}
+                            {otSeleccionada.fecha_programada && <div className="print-row"><span className="print-label">Programada</span><span className="print-value">{otSeleccionada.fecha_programada}</span></div>}
+                            <div className="print-row"><span className="print-label">Técnico</span><span className="print-value">{otSeleccionada.tecnico_nombre || '—'}</span></div>
+                            <div className="print-row"><span className="print-label">Responsable</span><span className="print-value">{otSeleccionada.responsable_nombre || '—'}</span></div>
+                            {nombresApoyo.length > 0 && <div className="print-row"><span className="print-label">Apoyo</span><span className="print-value">{nombresApoyo.join(', ')}</span></div>}
+                            {otSeleccionada.notas && <div className="print-row"><span className="print-label">Notas</span><span className="print-value">{otSeleccionada.notas}</span></div>}
+
+                            <div className="print-section-title">Visitas ({visitas.length})</div>
+                            {visitas.length === 0 && <p className="print-json-item">No hay visitas registradas.</p>}
+                            {visitas.map(v => {
+                                let checklist = {}, mats = [], fotos = [], medio = {}, seg = {}, desp = [];
+                                try { checklist = v.checklist_json ? JSON.parse(v.checklist_json) : {}; } catch {}
+                                try { mats = v.materiales_json ? JSON.parse(v.materiales_json) : []; } catch {}
+                                try { fotos = v.fotos_json ? JSON.parse(v.fotos_json) : []; } catch {}
+                                try { medio = v.medio_ambiente_json ? JSON.parse(v.medio_ambiente_json) : {}; } catch {}
+                                try { seg = v.seguridad_json ? JSON.parse(v.seguridad_json) : {}; } catch {}
+                                try { desp = v.desplazamientos_json ? JSON.parse(v.desplazamientos_json) : []; } catch {}
+                                return (
+                                    <div key={v.id} className="print-visita">
+                                        <p style={{ fontWeight: 700, fontSize: '13px', margin: '0 0 4px' }}>📅 Visita del {v.fecha} — {v.finalizado ? 'Finalizada' : 'En curso'}</p>
+                                        <p className="print-json-item">Técnico: {v.tecnico_nombre || '—'} {v.hora_inicio && `· ${v.hora_inicio}${v.hora_fin ? '-' + v.hora_fin : ''}`}</p>
+                                        {v.descripcion && <p className="print-json-item">{v.descripcion}</p>}
+
+                                        {v.checklist_tipo && (
+                                            <div>
+                                                <p className="print-json-key">✅ Checklist: {v.checklist_tipo}</p>
+                                                {renderJsonGenerico(checklist)}
+                                            </div>
+                                        )}
+
+                                        {mats.length > 0 && (
+                                            <div>
+                                                <p className="print-json-key">📦 Materiales</p>
+                                                {mats.map((m, i) => <p key={i} className="print-json-item">• {m.descripcion || m.nombre} x{m.cantidad}</p>)}
+                                            </div>
+                                        )}
+
+                                        {desp.length > 0 && (
+                                            <div>
+                                                <p className="print-json-key">🚗 Desplazamientos</p>
+                                                {desp.map((d, i) => <p key={i} className="print-json-item">• {d.matricula} — {d.origen} → {d.destino} ({d.kilometros} km)</p>)}
+                                            </div>
+                                        )}
+
+                                        {(Object.keys(medio).length > 0 || Object.keys(seg).length > 0) && (
+                                            <div>
+                                                <p className="print-json-key">🌱 Medio Ambiente / Seguridad</p>
+                                                {renderJsonGenerico(medio)}
+                                                {renderJsonGenerico(seg)}
+                                            </div>
+                                        )}
+
+                                        {fotos.length > 0 && (
+                                            <div>
+                                                <p className="print-json-key">📷 Fotos</p>
+                                                <div className="print-photos">
+                                                    {fotos.map((f, i) => <img key={i} src={f} />)}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {v.firma && (
+                                            <div className="print-firma">
+                                                <p className="print-json-key">✍️ Firma{v.firma_nombre ? ` — ${v.firma_nombre}` : ''}</p>
+                                                <img src={v.firma} />
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })}
                         </div>
                     </div>
                 );
@@ -1967,6 +2099,54 @@
         // ===== EMPLAZAMIENTOS =====
         // Formulario compacto (estilo "quickadd-box") para crear o editar un Activo sin salir
         // de la tarjeta del Emplazamiento donde se está trabajando.
+        // Ficha de solo lectura estandarizada para un Activo: mismo formato en todas partes
+        // (Activos, Emplazamientos, y el árbol de Clientes) — Cliente, Contrato, Zona, Emplazamiento,
+        // Tipo, Nombre, Estado, ID Interno, Código, Coordenadas, Enlace Maps, resto de campos y fotos.
+        function FichaActivo({ activo, camposConfig }) {
+            let extra = {}; try { extra = activo.campos_extra ? JSON.parse(activo.campos_extra) : {}; } catch { extra = {}; }
+            let fotos = []; try { fotos = activo.fotos_json ? JSON.parse(activo.fotos_json) : []; } catch { fotos = []; }
+            const idInterno = extra.custom_id_interno || '';
+            const codigo = extra.custom_codigo_origen || '';
+            const tieneCoords = activo.emplazamiento_lat != null && activo.emplazamiento_lat !== '';
+            const camposRestantes = camposConfig.filter(c => c.entidad === 'activo' && !['estado', 'custom_id_interno', 'custom_codigo_origen'].includes(c.clave));
+
+            return (
+                <div>
+                    <div className="readonly-view">
+                        <div className="rv-row"><span className="rv-label">Cliente</span><span className="rv-value">{activo.cliente_nombre || '—'}</span></div>
+                        <div className="rv-row"><span className="rv-label">Contrato</span><span className="rv-value">{activo.contrato_nombre || '—'}</span></div>
+                        <div className="rv-row"><span className="rv-label">Zona</span><span className="rv-value">{activo.zona_nombre || '—'}</span></div>
+                        <div className="rv-row"><span className="rv-label">Emplazamiento</span><span className="rv-value">{activo.emplazamiento_nombre || '—'}</span></div>
+                        <div className="rv-row"><span className="rv-label">Tipo Activo</span><span className="rv-value">{activo.tipo || '—'}</span></div>
+                        <div className="rv-row"><span className="rv-label">Nombre</span><span className="rv-value">{activo.nombre}</span></div>
+                        <div className="rv-row"><span className="rv-label">Estado</span><span className="rv-value">{activo.estado || '—'}</span></div>
+                        <div className="rv-row"><span className="rv-label">ID Interno</span><span className="rv-value">{idInterno || '—'}</span></div>
+                        <div className="rv-row"><span className="rv-label">Código</span><span className="rv-value">{codigo || '—'}</span></div>
+                        <div className="rv-row"><span className="rv-label">Coordenadas</span><span className="rv-value">{tieneCoords ? `${activo.emplazamiento_lat}, ${activo.emplazamiento_lon}` : '—'}</span></div>
+                        <div className="rv-row">
+                            <span className="rv-label">Enlace Maps</span>
+                            <span className="rv-value">
+                                {tieneCoords ? (
+                                    <a href={`https://maps.google.com/?q=${activo.emplazamiento_lat},${activo.emplazamiento_lon}`} target="_blank" rel="noopener noreferrer">📍 Abrir en Maps</a>
+                                ) : '—'}
+                            </span>
+                        </div>
+                    </div>
+
+                    <DynamicExtraFields entidad="activo" camposConfig={camposRestantes} formData={{ ...activo, campos_extra: extra }} setFormData={() => {}} tipoActivo={activo.tipo} readOnly={true} />
+
+                    <div className="checklist-section">
+                        <div className="checklist-section-title">📷 Fotos</div>
+                        {fotos.length > 0 ? (
+                            <div className="photo-grid">
+                                {fotos.map((f, i) => <div key={i} className="photo-thumb"><img src={f} /></div>)}
+                            </div>
+                        ) : <p className="card-text">Sin fotos.</p>}
+                    </div>
+                </div>
+            );
+        }
+
         function ActivoInlineForm({ emplazamientoId, activoExistente, clientes, contratos, tiposActivo, camposConfig, onSaved, onCancel }) {
             const contratoInicial = activoExistente ? contratos.find(c => c.id === activoExistente.contrato_id) : null;
             const [selectedCliente, setSelectedCliente] = useState(contratoInicial ? String(contratoInicial.cliente_id) : '');
@@ -2198,27 +2378,11 @@
                                                             <button className="btn btn-danger" onClick={() => eliminarActivo(a.id)}>Eliminar</button>
                                                         </div>
                                                     </div>
-                                                    {activoViendo && activoViendo.id === a.id && (() => {
-                                                        let extraView = {}; try { extraView = a.campos_extra ? JSON.parse(a.campos_extra) : {}; } catch { extraView = {}; }
-                                                        let fotosView = []; try { fotosView = a.fotos_json ? JSON.parse(a.fotos_json) : []; } catch { fotosView = []; }
-                                                        return (
-                                                            <div className="quickadd-box" style={{ marginTop: '4px' }}>
-                                                                <DynamicExtraFields entidad="activo" camposConfig={camposConfig} formData={{ ...a, campos_extra: extraView }} setFormData={() => {}} tipoActivo={a.tipo} readOnly={true} />
-                                                                {e.lat != null && (
-                                                                    <a className="btn btn-primary" style={{ display: 'inline-block', marginTop: '8px', marginBottom: '4px', textDecoration: 'none' }}
-                                                                       href={`https://maps.google.com/?q=${e.lat},${e.lon}`} target="_blank" rel="noopener noreferrer">
-                                                                        📍 Abrir ubicación en Google Maps
-                                                                    </a>
-                                                                )}
-                                                                <p className="card-text" style={{ fontWeight: 600, marginTop: '8px' }}>📷 Fotos</p>
-                                                                {fotosView.length > 0 ? (
-                                                                    <div className="photo-grid">
-                                                                        {fotosView.map((f, i) => <div key={i} className="photo-thumb"><img src={f} /></div>)}
-                                                                    </div>
-                                                                ) : <p className="card-text">Sin fotos.</p>}
-                                                            </div>
-                                                        );
-                                                    })()}
+                                                    {activoViendo && activoViendo.id === a.id && (
+                                                        <div className="quickadd-box" style={{ marginTop: '4px' }}>
+                                                            <FichaActivo activo={a} camposConfig={camposConfig} />
+                                                        </div>
+                                                    )}
                                                     {activoEditando && activoEditando.id === a.id && (
                                                         <ActivoInlineForm
                                                             emplazamientoId={e.id}
@@ -2777,44 +2941,18 @@
                         </div>
                     )}
 
-                    {viendoActivo && (() => {
-                        let extraView = {}; try { extraView = viendoActivo.campos_extra ? JSON.parse(viendoActivo.campos_extra) : {}; } catch { extraView = {}; }
-                        let fotosView = []; try { fotosView = viendoActivo.fotos_json ? JSON.parse(viendoActivo.fotos_json) : []; } catch { fotosView = []; }
-                        return (
-                            <div className="card" ref={viewRef} style={{ marginBottom: '1rem' }}>
-                                <div className="list-item-header">
-                                    <div>
-                                        <p className="card-title">⚙️ {viendoActivo.emplazamiento_nombre ? `${viendoActivo.emplazamiento_nombre} - ${viendoActivo.nombre}` : viendoActivo.nombre}</p>
-                                        <p className="breadcrumb-path">{viendoActivo.cliente_nombre} › {viendoActivo.contrato_nombre} › {viendoActivo.zona_nombre} › {viendoActivo.emplazamiento_nombre}</p>
-                                    </div>
-                                    {viendoActivo.tipo && <span className="badge" style={{ background: 'var(--bg-accent)', color: 'var(--fill-accent)' }}>{viendoActivo.tipo}</span>}
-                                </div>
+                    {viendoActivo && (
+                        <div className="card" ref={viewRef} style={{ marginBottom: '1rem' }}>
+                            <p className="card-title" style={{ marginBottom: '10px' }}>⚙️ {viendoActivo.nombre}</p>
 
-                                <DynamicExtraFields entidad="activo" camposConfig={camposConfig} formData={{ ...viendoActivo, campos_extra: extraView }} setFormData={() => {}} tipoActivo={viendoActivo.tipo} readOnly={true} />
+                            <FichaActivo activo={viendoActivo} camposConfig={camposConfig} />
 
-                                {viendoActivo.emplazamiento_lat != null && (
-                                    <a className="btn btn-primary" style={{ display: 'inline-block', marginTop: '10px', marginBottom: '10px', textDecoration: 'none' }}
-                                       href={`https://maps.google.com/?q=${viendoActivo.emplazamiento_lat},${viendoActivo.emplazamiento_lon}`} target="_blank" rel="noopener noreferrer">
-                                        📍 Abrir ubicación en Google Maps
-                                    </a>
-                                )}
-
-                                <div className="checklist-section">
-                                    <div className="checklist-section-title">📷 Fotos</div>
-                                    {fotosView.length > 0 ? (
-                                        <div className="photo-grid">
-                                            {fotosView.map((f, i) => <div key={i} className="photo-thumb"><img src={f} /></div>)}
-                                        </div>
-                                    ) : <p className="card-text">Sin fotos.</p>}
-                                </div>
-
-                                <div className="btn-group">
-                                    <button className="btn btn-primary" onClick={() => { handleEdit(viendoActivo); setViendoActivo(null); }}>Editar</button>
-                                    <button className="btn btn-secondary" onClick={() => setViendoActivo(null)}>Cerrar</button>
-                                </div>
+                            <div className="btn-group">
+                                <button className="btn btn-primary" onClick={() => { handleEdit(viendoActivo); setViendoActivo(null); }}>Editar</button>
+                                <button className="btn btn-secondary" onClick={() => setViendoActivo(null)}>Cerrar</button>
                             </div>
-                        );
-                    })()}
+                        </div>
+                    )}
 
                     <div className="form-group">
                         <input type="text" placeholder="🔍 Buscar por nombre..." value={search} onChange={(e) => setSearch(e.target.value)} />
@@ -3359,27 +3497,11 @@
                                                                                                         </div>
                                                                                                     </div>
 
-                                                                                                    {activoViendoArbol && activoViendoArbol.id === a.id && (() => {
-                                                                                                        let extraArbol = {}; try { extraArbol = a.campos_extra ? JSON.parse(a.campos_extra) : {}; } catch { extraArbol = {}; }
-                                                                                                        let fotosArbol = []; try { fotosArbol = a.fotos_json ? JSON.parse(a.fotos_json) : []; } catch { fotosArbol = []; }
-                                                                                                        return (
-                                                                                                            <div className="quickadd-box" style={{ marginTop: '4px' }}>
-                                                                                                                <DynamicExtraFields entidad="activo" camposConfig={camposConfig} formData={{ ...a, campos_extra: extraArbol }} setFormData={() => {}} tipoActivo={a.tipo} readOnly={true} />
-                                                                                                                {a.emplazamiento_lat != null && (
-                                                                                                                    <a className="btn btn-primary" style={{ display: 'inline-block', marginTop: '8px', marginBottom: '4px', textDecoration: 'none' }}
-                                                                                                                       href={`https://maps.google.com/?q=${a.emplazamiento_lat},${a.emplazamiento_lon}`} target="_blank" rel="noopener noreferrer">
-                                                                                                                        📍 Abrir ubicación en Google Maps
-                                                                                                                    </a>
-                                                                                                                )}
-                                                                                                                <p className="card-text" style={{ fontWeight: 600, marginTop: '8px' }}>📷 Fotos</p>
-                                                                                                                {fotosArbol.length > 0 ? (
-                                                                                                                    <div className="photo-grid">
-                                                                                                                        {fotosArbol.map((f, i) => <div key={i} className="photo-thumb"><img src={f} /></div>)}
-                                                                                                                    </div>
-                                                                                                                ) : <p className="card-text">Sin fotos.</p>}
-                                                                                                            </div>
-                                                                                                        );
-                                                                                                    })()}
+                                                                                                    {activoViendoArbol && activoViendoArbol.id === a.id && (
+                                                                                                        <div className="quickadd-box" style={{ marginTop: '4px' }}>
+                                                                                                            <FichaActivo activo={a} camposConfig={camposConfig} />
+                                                                                                        </div>
+                                                                                                    )}
 
                                                                                                     {activoEditandoArbol && activoEditandoArbol.id === a.id && (
                                                                                                         <ActivoInlineForm
