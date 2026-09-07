@@ -1856,11 +1856,24 @@
             );
         }
 
+        // Hace scroll automático hasta el formulario cuando se abre (crear o editar),
+        // para no tener que buscarlo manualmente si la lista es larga.
+        function useAutoScrollForm(abierto) {
+            const ref = React.useRef(null);
+            useEffect(() => {
+                if (abierto && ref.current) {
+                    ref.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+            }, [abierto]);
+            return ref;
+        }
+
         // ===== ZONAS =====
         function ZonasView({ user, zonas, onRefresh }) {
             const [showForm, setShowForm] = useState(false);
             const [editingId, setEditingId] = useState(null);
             const [formData, setFormData] = useState({ nombre: '' });
+            const formRef = useAutoScrollForm(showForm);
             const [importMsg, setImportMsg] = useState('');
 
             const handleAdd = async () => {
@@ -1919,7 +1932,7 @@
                     <p className="lock-note">Una zona es un lugar físico (ej: "Asturias"). Puede contener activos de cualquier cliente o contrato.</p>
 
                     {showForm && (
-                        <div className="card" style={{ marginBottom: '1rem' }}>
+                        <div className="card" ref={formRef} style={{ marginBottom: '1rem' }}>
                             <div className="form-group">
                                 <label>Nombre de la Zona</label>
                                 <input type="text" placeholder="Ej: Asturias, Andalucía..." value={formData.nombre} onChange={(e) => setFormData({ ...formData, nombre: e.target.value })} />
@@ -1947,11 +1960,12 @@
         }
 
         // ===== EMPLAZAMIENTOS =====
-        function EmplazamientosView({ user, emplazamientos, zonas, onRefresh }) {
+        function EmplazamientosView({ user, emplazamientos, zonas, activos, onCrearActivoAqui, onRefresh }) {
             const [showForm, setShowForm] = useState(false);
             const [editingId, setEditingId] = useState(null);
             const [formData, setFormData] = useState({ zona_id: '', nombre: '', direccion: '' });
             const [importMsg, setImportMsg] = useState('');
+            const formRef = useAutoScrollForm(showForm);
 
             const handleAdd = async () => {
                 if (!formData.nombre.trim() || !formData.zona_id) { alert('Selecciona zona y nombre'); return; }
@@ -2014,7 +2028,7 @@
                     <p className="lock-note">Un emplazamiento (ej: "Estación Avilés") es un lugar físico dentro de una zona. Puede contener activos de cualquier cliente o contrato.</p>
 
                     {showForm && (
-                        <div className="card" style={{ marginBottom: '1rem' }}>
+                        <div className="card" ref={formRef} style={{ marginBottom: '1rem' }}>
                             <div className="form-group">
                                 <label>Zona</label>
                                 <select value={formData.zona_id} onChange={(e) => setFormData({ ...formData, zona_id: e.target.value })}>
@@ -2038,17 +2052,22 @@
                     )}
 
                     <div className="list">
-                        {emplazamientos.length === 0 ? <div className="empty-state">No hay emplazamientos</div> : emplazamientos.map(e => (
-                            <div key={e.id} className="list-item">
-                                <p className="card-title">📍 {e.nombre}</p>
-                                <p className="breadcrumb-path">{e.zona_nombre}</p>
-                                {e.direccion && <p className="card-text">🏠 {e.direccion}</p>}
-                                <div style={{ marginTop: '8px', display: 'flex', gap: '8px' }}>
-                                    <button className="btn btn-primary" onClick={() => handleEdit(e)}>Editar</button>
-                                    <button className="btn btn-danger" onClick={() => handleDelete(e.id)}>Eliminar</button>
+                        {emplazamientos.length === 0 ? <div className="empty-state">No hay emplazamientos</div> : emplazamientos.map(e => {
+                            const numActivos = activos ? activos.filter(a => a.emplazamiento_id === e.id).length : 0;
+                            return (
+                                <div key={e.id} className="list-item">
+                                    <p className="card-title">📍 {e.nombre}</p>
+                                    <p className="breadcrumb-path">{e.zona_nombre}</p>
+                                    {e.direccion && <p className="card-text">🏠 {e.direccion}</p>}
+                                    <p className="card-text">⚙️ {numActivos} activo{numActivos === 1 ? '' : 's'} en este emplazamiento</p>
+                                    <div style={{ marginTop: '8px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                                        <button className="btn btn-primary" onClick={() => handleEdit(e)}>Editar</button>
+                                        <button className="btn btn-danger" onClick={() => handleDelete(e.id)}>Eliminar</button>
+                                        {onCrearActivoAqui && <button className="btn btn-crear" onClick={() => onCrearActivoAqui(e.id)}>+ Activo aquí</button>}
+                                    </div>
                                 </div>
-                            </div>
-                        ))}
+                            );
+                        })}
                     </div>
                 </div>
             );
@@ -2058,6 +2077,7 @@
         // ===== INVENTARIO (envoltorio con submenús: Zonas / Emplazamientos / Activos) =====
         function InventarioView(props) {
             const [subTab, setSubTab] = useState('clientes');
+            const [prefilEmplazamientoId, setPrefilEmplazamientoId] = useState(null);
             const subTabs = [
                 { id: 'clientes', label: 'Clientes' },
                 { id: 'contratos', label: 'Contratos' },
@@ -2065,6 +2085,10 @@
                 { id: 'emplazamientos', label: 'Emplazamientos' },
                 { id: 'activos', label: 'Activos' }
             ];
+            const irACrearActivoEnEmplazamiento = (emplazamientoId) => {
+                setPrefilEmplazamientoId(emplazamientoId);
+                setSubTab('activos');
+            };
             return (
                 <div>
                     <div className="tipo-filter-bar">
@@ -2077,8 +2101,8 @@
                     {subTab === 'clientes' && <ClientesView {...props} />}
                     {subTab === 'contratos' && <ContratosView {...props} />}
                     {subTab === 'zonas' && <ZonasView {...props} />}
-                    {subTab === 'emplazamientos' && <EmplazamientosView {...props} />}
-                    {subTab === 'activos' && <ActivosView {...props} />}
+                    {subTab === 'emplazamientos' && <EmplazamientosView {...props} onCrearActivoAqui={irACrearActivoEnEmplazamiento} />}
+                    {subTab === 'activos' && <ActivosView {...props} prefilEmplazamientoId={prefilEmplazamientoId} onConsumedPrefil={() => setPrefilEmplazamientoId(null)} />}
                 </div>
             );
         }
@@ -2319,19 +2343,36 @@
             );
         }
 
-        function ActivosView({ user, activos, emplazamientos, zonas, clientes, contratos, tiposActivo, camposConfig, onRefresh }) {
+        function ActivosView({ user, activos, emplazamientos, zonas, clientes, contratos, tiposActivo, camposConfig, onRefresh, prefilEmplazamientoId, onConsumedPrefil }) {
             const [showForm, setShowForm] = useState(false);
             const [editingId, setEditingId] = useState(null);
             const [selectedCliente, setSelectedCliente] = useState('');
             const [selectedZona, setSelectedZona] = useState('');
             const [formData, setFormData] = useState({ emplazamiento_id: '', contrato_id: '', tipo: '', nombre: '', fabricante: '', modelo: '', estado: 'Activo', observaciones: '', campos_extra: {}, fotos_json: [] });
             const [importMsg, setImportMsg] = useState('');
+            const formRef = useAutoScrollForm(showForm);
 
             const contratosFiltrados = selectedCliente ? contratos.filter(c => c.cliente_id === parseInt(selectedCliente)) : contratos;
             const emplazamientosFiltrados = selectedZona ? emplazamientos.filter(e => e.zona_id === parseInt(selectedZona)) : emplazamientos;
 
             const [showTiposManager, setShowTiposManager] = useState(false);
             const [showCamposManager, setShowCamposManager] = useState(false);
+
+            // Si venimos desde "+ Activo aquí" en un Emplazamiento concreto, abrimos el formulario
+            // ya con ese Emplazamiento (y su Zona) preseleccionados.
+            useEffect(() => {
+                if (!prefilEmplazamientoId) return;
+                const emp = emplazamientos.find(e => e.id === prefilEmplazamientoId);
+                if (emp) {
+                    setFormData({ emplazamiento_id: String(emp.id), contrato_id: '', tipo: '', nombre: '', fabricante: '', modelo: '', estado: 'Activo', observaciones: '', campos_extra: {}, fotos_json: [] });
+                    setSelectedCliente('');
+                    setSelectedZona(String(emp.zona_id));
+                    setEditingId(null);
+                    setShowForm(true);
+                }
+                if (onConsumedPrefil) onConsumedPrefil();
+                // eslint-disable-next-line
+            }, [prefilEmplazamientoId]);
 
             // ---- Creación rápida de dependencias (sin salir de este formulario) ----
             const crearClienteRapido = async (values) => {
@@ -2466,7 +2507,7 @@
                     {importMsg && <div className="import-summary">{importMsg}</div>}
 
                     {showForm && (
-                        <div className="card" style={{ marginBottom: '1rem' }}>
+                        <div className="card" ref={formRef} style={{ marginBottom: '1rem' }}>
                             <p className="card-text" style={{ marginBottom: '10px' }}>
                                 💡 Puedes crear el cliente, contrato, zona o emplazamiento aquí mismo con el botón <strong>＋</strong> si aún no existen.
                             </p>
@@ -2609,6 +2650,7 @@
                 estado: 'Activo',
                 campos_extra: {}
             });
+            const formRef = useAutoScrollForm(showForm);
 
             const handleAdd = async () => {
                 if (!formData.nombre.trim()) return;
@@ -2711,7 +2753,7 @@
                     {importMsg && <div className="import-summary">{importMsg}</div>}
 
                     {showForm && (
-                        <div className="card" style={{ marginBottom: '1rem' }}>
+                        <div className="card" ref={formRef} style={{ marginBottom: '1rem' }}>
                             <div className="form-group">
                                 <label>Cliente</label>
                                 <select value={formData.cliente_id} onChange={(e) => setFormData({ ...formData, cliente_id: parseInt(e.target.value) })}>
@@ -2897,6 +2939,7 @@
                 telefono: '',
                 campos_extra: {}
             });
+            const formRef = useAutoScrollForm(showForm);
 
             const handleAdd = async () => {
                 if (!formData.nombre.trim()) return;
@@ -2984,7 +3027,7 @@
                     {importMsg && <div className="import-summary">{importMsg}</div>}
 
                     {showForm && (
-                        <div className="card" style={{ marginBottom: '1rem' }}>
+                        <div className="card" ref={formRef} style={{ marginBottom: '1rem' }}>
                             <div className="form-group">
                                 <label>Nombre</label>
                                 <input type="text" placeholder="Nombre" value={formData.nombre} onChange={(e) => setFormData({ ...formData, nombre: e.target.value })} />
@@ -3029,6 +3072,7 @@
                 activo: 1
             });
             const [error, setError] = useState('');
+            const formRef = useAutoScrollForm(showForm);
 
             const handleAdd = async () => {
                 setError('');
@@ -3118,7 +3162,7 @@
                     </div>
 
                     {showForm && (
-                        <div className="card" style={{ marginBottom: '1rem' }}>
+                        <div className="card" ref={formRef} style={{ marginBottom: '1rem' }}>
                             <div className="form-group">
                                 <label>Nombre</label>
                                 <input type="text" placeholder="Nombre completo" value={formData.nombre} onChange={(e) => setFormData({ ...formData, nombre: e.target.value })} />
@@ -3360,6 +3404,7 @@
             const [precioNuevo, setPrecioNuevo] = useState({});
             const [formData, setFormData] = useState({ cliente_id: '', tipo: '', descripcion: '', unidad: 'ud', precio: '' });
             const [importMsg, setImportMsg] = useState('');
+            const formRef = useAutoScrollForm(showForm);
 
             const getHistorial = (m) => { try { return JSON.parse(m.historial_json || '[]'); } catch { return []; } };
             const getPrecioActual = (m) => { const h = getHistorial(m); return h.length ? h[h.length - 1].precio : null; };
@@ -3442,7 +3487,7 @@
                     </div>
 
                     {showForm && (
-                        <div className="card" style={{ marginBottom: '1rem' }}>
+                        <div className="card" ref={formRef} style={{ marginBottom: '1rem' }}>
                             <div className="form-group">
                                 <label>Cliente</label>
                                 <select value={formData.cliente_id} onChange={(e) => setFormData({ ...formData, cliente_id: e.target.value })}>
