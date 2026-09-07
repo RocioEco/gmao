@@ -62,6 +62,31 @@ async function registrarCamposSwitch() {
   }
 }
 
+// Registra los campos técnicos específicos de activos tipo "Persiana Motorizada" (Tipo de lama, Motor),
+// y oculta para ese tipo concreto los campos genéricos Fabricante/Modelo (que para persianas no aportan).
+async function registrarCamposPersiana() {
+  try {
+    await dbRun(
+      `INSERT OR IGNORE INTO campos_config (entidad, clave, etiqueta, tipo, es_sistema, visible, orden, tipo_activo) VALUES ('activo', 'custom_tipo_lama', 'Tipo de lama', 'text', 0, 1, 70, 'Persiana Motorizada')`
+    );
+    await dbRun(
+      `INSERT OR IGNORE INTO campos_config (entidad, clave, etiqueta, tipo, es_sistema, visible, orden, tipo_activo) VALUES ('activo', 'custom_motor', 'Motor', 'text', 0, 1, 71, 'Persiana Motorizada')`
+    );
+    for (const clave of ['fabricante', 'modelo']) {
+      const campo = await dbGet(`SELECT * FROM campos_config WHERE entidad = 'activo' AND clave = ?`, [clave]);
+      if (!campo) continue;
+      let excluidos = [];
+      try { excluidos = JSON.parse(campo.ocultar_en_tipos || '[]'); } catch { excluidos = []; }
+      if (!excluidos.includes('Persiana Motorizada')) {
+        excluidos.push('Persiana Motorizada');
+        await dbRun(`UPDATE campos_config SET ocultar_en_tipos = ? WHERE id = ?`, [JSON.stringify(excluidos), campo.id]);
+      }
+    }
+  } catch (e) {
+    console.error('Error registrando campos de Persiana:', e.message);
+  }
+}
+
 async function migrarSwitchesAActivos() {
   try {
     const yaExiste = await dbGet(`SELECT id FROM clientes WHERE nombre = ?`, ['APA']);
@@ -148,10 +173,12 @@ db.serialize(() => {
     visible INTEGER DEFAULT 1,
     orden INTEGER DEFAULT 0,
     tipo_activo TEXT,
+    ocultar_en_tipos TEXT DEFAULT '[]',
     creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(entidad, clave)
   )`);
   db.run(`ALTER TABLE campos_config ADD COLUMN tipo_activo TEXT`, () => {});
+  db.run(`ALTER TABLE campos_config ADD COLUMN ocultar_en_tipos TEXT DEFAULT '[]'`, () => {});
 
   const seedCampo = (entidad, clave, etiqueta, tipo, orden, opciones) => {
     db.run(`INSERT OR IGNORE INTO campos_config (entidad, clave, etiqueta, tipo, opciones, es_sistema, visible, orden) VALUES (?, ?, ?, ?, ?, 1, 1, ?)`,
@@ -291,6 +318,7 @@ db.serialize(() => {
           stmt.finalize(() => {
             console.log(`✓ Cargado inventario inicial de switches (${seed.length} registros)`);
             registrarCamposSwitch();
+            registrarCamposPersiana();
             migrarSwitchesAActivos();
           });
           return;
@@ -302,6 +330,7 @@ db.serialize(() => {
     // Si la tabla switches ya tenía datos de un despliegue anterior (o no había seed que cargar),
     // igualmente comprobamos si falta migrarlos a Activos.
     registrarCamposSwitch();
+    registrarCamposPersiana();
     migrarSwitchesAActivos();
   });
 
@@ -869,14 +898,15 @@ app.post('/api/campos-config', (req, res) => {
 });
 
 app.put('/api/campos-config/:id', (req, res) => {
-  const { etiqueta, tipo, opciones, visible, orden } = req.body;
+  const { etiqueta, tipo, opciones, visible, orden, ocultar_en_tipos } = req.body;
   db.get('SELECT * FROM campos_config WHERE id = ?', [req.params.id], (err, campo) => {
     if (err || !campo) return res.status(404).json({ error: 'Campo no encontrado' });
-    // Los campos de sistema solo permiten cambiar etiqueta/visible/orden (no tipo/opciones, para no romper el resto de la app)
+    // Los campos de sistema solo permiten cambiar etiqueta/visible/orden/ocultar_en_tipos (no tipo/opciones, para no romper el resto de la app)
     const nuevoTipo = campo.es_sistema ? campo.tipo : (tipo || campo.tipo);
     const nuevasOpciones = campo.es_sistema ? campo.opciones : JSON.stringify(opciones || []);
-    db.run(`UPDATE campos_config SET etiqueta = ?, tipo = ?, opciones = ?, visible = ?, orden = ? WHERE id = ?`,
-      [etiqueta ?? campo.etiqueta, nuevoTipo, nuevasOpciones, visible !== undefined ? (visible ? 1 : 0) : campo.visible, orden !== undefined ? orden : campo.orden, req.params.id],
+    const nuevoOcultarEnTipos = ocultar_en_tipos !== undefined ? JSON.stringify(ocultar_en_tipos) : campo.ocultar_en_tipos;
+    db.run(`UPDATE campos_config SET etiqueta = ?, tipo = ?, opciones = ?, visible = ?, orden = ?, ocultar_en_tipos = ? WHERE id = ?`,
+      [etiqueta ?? campo.etiqueta, nuevoTipo, nuevasOpciones, visible !== undefined ? (visible ? 1 : 0) : campo.visible, orden !== undefined ? orden : campo.orden, nuevoOcultarEnTipos, req.params.id],
       (err2) => {
         if (err2) return res.status(500).json({ error: err2.message });
         res.json({ success: true });
