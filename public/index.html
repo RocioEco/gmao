@@ -2167,6 +2167,87 @@
             );
         }
 
+        // Muestra los Activos de un Contrato, agrupados por Zona → Emplazamiento, con Ver/Editar/Eliminar
+        // incrustados. Reutilizable desde Contratos y desde el árbol de Clientes.
+        function ActivosDeContratoPanel({ contrato, activos, clientes, contratos, zonas, emplazamientos, tiposActivo, camposConfig, onRefresh }) {
+            const [activoViendo, setActivoViendo] = useState(null);
+            const [activoEditando, setActivoEditando] = useState(null);
+
+            const activosDelContrato = (activos || []).filter(a => a.contrato_id === contrato.id);
+
+            const eliminarActivo = async (id) => {
+                if (!confirm('¿Eliminar este activo?')) return;
+                await fetch(`${API_URL}/api/activos/${id}`, { method: 'DELETE' });
+                setActivoViendo(null); setActivoEditando(null);
+                onRefresh();
+            };
+
+            const porZona = {};
+            activosDelContrato.forEach(a => {
+                const zonaKey = a.zona_nombre || 'Sin zona';
+                const empKey = a.emplazamiento_nombre || 'Sin emplazamiento';
+                if (!porZona[zonaKey]) porZona[zonaKey] = {};
+                if (!porZona[zonaKey][empKey]) porZona[zonaKey][empKey] = [];
+                porZona[zonaKey][empKey].push(a);
+            });
+
+            return (
+                <div style={{ marginLeft: '12px', marginTop: '6px' }}>
+                    {activosDelContrato.length === 0 && <p className="card-text">Sin activos en este contrato.</p>}
+                    {Object.keys(porZona).map(zonaKey => (
+                        <div key={zonaKey} style={{ marginBottom: '10px' }}>
+                            <p className="card-text" style={{ fontWeight: 700, color: 'var(--fill-accent)' }}>🗺️ {zonaKey}</p>
+                            {Object.keys(porZona[zonaKey]).map(empKey => (
+                                <div key={empKey} style={{ marginLeft: '12px', marginTop: '4px' }}>
+                                    <p className="card-text" style={{ fontWeight: 600 }}>📍 {empKey}</p>
+                                    <div style={{ marginLeft: '12px', marginTop: '4px' }}>
+                                        {porZona[zonaKey][empKey].map(a => (
+                                            <div key={a.id}>
+                                                <div className="list-item" style={{ background: 'var(--surface-1)', border: '1px solid var(--border)' }}>
+                                                    <p className="card-title">⚙️ {a.nombre}</p>
+                                                    <p className="card-text">{a.tipo || 'Sin tipo'}</p>
+                                                    <div style={{ display: 'flex', gap: '6px', marginTop: '6px', flexWrap: 'wrap' }}>
+                                                        <button className="btn btn-secondary" onClick={() => { setActivoViendo(activoViendo && activoViendo.id === a.id ? null : a); setActivoEditando(null); }}>
+                                                            {activoViendo && activoViendo.id === a.id ? 'Cerrar' : 'Ver'}
+                                                        </button>
+                                                        <button className="btn btn-primary" onClick={() => { setActivoEditando(activoEditando && activoEditando.id === a.id ? null : a); setActivoViendo(null); }}>
+                                                            {activoEditando && activoEditando.id === a.id ? 'Cerrar' : 'Editar'}
+                                                        </button>
+                                                        <button className="btn btn-danger" onClick={() => eliminarActivo(a.id)}>Eliminar</button>
+                                                    </div>
+                                                </div>
+
+                                                {activoViendo && activoViendo.id === a.id && (
+                                                    <div className="quickadd-box" style={{ marginTop: '4px' }}>
+                                                        <FichaActivo activo={a} camposConfig={camposConfig} />
+                                                    </div>
+                                                )}
+
+                                                {activoEditando && activoEditando.id === a.id && (
+                                                    <ActivoInlineForm
+                                                        emplazamientoId={a.emplazamiento_id}
+                                                        activoExistente={a}
+                                                        clientes={clientes}
+                                                        contratos={contratos}
+                                                        zonas={zonas}
+                                                        emplazamientos={emplazamientos}
+                                                        tiposActivo={tiposActivo}
+                                                        camposConfig={camposConfig}
+                                                        onSaved={() => { setActivoEditando(null); onRefresh(); }}
+                                                        onCancel={() => setActivoEditando(null)}
+                                                    />
+                                                )}
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    ))}
+                </div>
+            );
+        }
+
         function ActivoInlineForm({ emplazamientoId, activoExistente, clientes, contratos, zonas, emplazamientos, tiposActivo, camposConfig, onSaved, onCancel }) {
             const empInicial = activoExistente
                 ? (emplazamientos || []).find(e => e.id === activoExistente.emplazamiento_id)
@@ -2940,7 +3021,7 @@
             );
         }
 
-        function ContratosView({ user, contratos, clientes, camposConfig, onRefresh }) {
+        function ContratosView({ user, contratos, clientes, activos, zonas, emplazamientos, tiposActivo, camposConfig, onRefresh }) {
             const [showForm, setShowForm] = useState(false);
             const [editingId, setEditingId] = useState(null);
             const [showCamposManager, setShowCamposManager] = useState(false);
@@ -2955,6 +3036,7 @@
             });
             const formRef = useAutoScrollForm(showForm);
             const [search, setSearch] = useState('');
+            const [contratoExpandido, setContratoExpandido] = useState(null);
 
             const handleAdd = async () => {
                 if (!formData.nombre.trim()) return;
@@ -3088,23 +3170,43 @@
                                 ? contratos.filter(c => (c.nombre || '').toLowerCase().includes(search.toLowerCase()))
                                 : contratos;
                             if (contratosFiltradosBusqueda.length === 0) return <div className="empty-state">No hay contratos</div>;
-                            return contratosFiltradosBusqueda.map(contrato => (
-                                <div key={contrato.id} className="list-item">
-                                    <div className="list-item-header">
-                                        <div>
-                                            <p className="card-title">📄 {contrato.nombre}</p>
-                                            <p className="card-text">🏢 {contrato.cliente_nombre}</p>
+                            return contratosFiltradosBusqueda.map(contrato => {
+                                const numActivos = (activos || []).filter(a => a.contrato_id === contrato.id).length;
+                                const abierto = contratoExpandido === contrato.id;
+                                return (
+                                    <div key={contrato.id} className="list-item">
+                                        <div className="list-item-header">
+                                            <div>
+                                                <p className="card-title">📄 {contrato.nombre}</p>
+                                                <p className="card-text">🏢 {contrato.cliente_nombre}</p>
+                                            </div>
+                                            <span className="badge" style={{ background: 'var(--bg-accent)', color: 'var(--fill-accent)' }}>{contrato.estado}</span>
                                         </div>
-                                        <span className="badge" style={{ background: 'var(--bg-accent)', color: 'var(--fill-accent)' }}>{contrato.estado}</span>
+                                        <p className="card-text">{contrato.descripcion}</p>
+                                        <p className="card-text">📅 {contrato.fecha_inicio} a {contrato.fecha_fin}</p>
+                                        <div style={{ marginTop: '8px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                                            <button className="btn btn-primary" onClick={() => handleEdit(contrato)}>Editar</button>
+                                            <button className="btn btn-danger" onClick={() => handleDelete(contrato.id)}>Eliminar</button>
+                                            <button className="btn btn-secondary" onClick={() => setContratoExpandido(abierto ? null : contrato.id)}>
+                                                {abierto ? 'Ocultar Activos' : `⚙️ Ver Activos (${numActivos})`}
+                                            </button>
+                                        </div>
+                                        {abierto && (
+                                            <ActivosDeContratoPanel
+                                                contrato={contrato}
+                                                activos={activos}
+                                                clientes={clientes}
+                                                contratos={contratos}
+                                                zonas={zonas}
+                                                emplazamientos={emplazamientos}
+                                                tiposActivo={tiposActivo}
+                                                camposConfig={camposConfig}
+                                                onRefresh={onRefresh}
+                                            />
+                                        )}
                                     </div>
-                                    <p className="card-text">{contrato.descripcion}</p>
-                                    <p className="card-text">📅 {contrato.fecha_inicio} a {contrato.fecha_fin}</p>
-                                    <div style={{ marginTop: '8px', display: 'flex', gap: '8px' }}>
-                                        <button className="btn btn-primary" onClick={() => handleEdit(contrato)}>Editar</button>
-                                        <button className="btn btn-danger" onClick={() => handleDelete(contrato.id)}>Eliminar</button>
-                                    </div>
-                                </div>
-                            ));
+                                );
+                            });
                         })()}
                     </div>
                 </div>
@@ -3307,16 +3409,6 @@
             // Árbol de dependencias: Cliente → Contratos → Activos, todo en línea
             const [clienteExpandido, setClienteExpandido] = useState(null);
             const [contratoExpandido, setContratoExpandido] = useState(null);
-            const [activoViendoArbol, setActivoViendoArbol] = useState(null);
-            const [activoEditandoArbol, setActivoEditandoArbol] = useState(null);
-
-            const eliminarActivoArbol = async (id) => {
-                if (!confirm('¿Eliminar este activo?')) return;
-                await fetch(`${API_URL}/api/activos/${id}`, { method: 'DELETE' });
-                setActivoViendoArbol(null);
-                setActivoEditandoArbol(null);
-                onRefresh();
-            };
 
             const handleAdd = async () => {
                 if (!formData.nombre.trim()) return;
@@ -3438,7 +3530,7 @@
                                         <div style={{ marginTop: '8px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                                             <button className="btn btn-primary" onClick={() => handleEdit(cliente)}>Editar</button>
                                             <button className="btn btn-danger" onClick={() => handleDelete(cliente.id)}>Eliminar</button>
-                                            <button className="btn btn-secondary" onClick={() => { setClienteExpandido(arbolAbierto ? null : cliente.id); setContratoExpandido(null); setActivoViendoArbol(null); setActivoEditandoArbol(null); }}>
+                                            <button className="btn btn-secondary" onClick={() => { setClienteExpandido(arbolAbierto ? null : cliente.id); setContratoExpandido(null); }}>
                                                 {arbolAbierto ? 'Ocultar árbol' : `🌳 Ver árbol (${contratosDelCliente.length} contrato${contratosDelCliente.length === 1 ? '' : 's'})`}
                                             </button>
                                         </div>
@@ -3454,76 +3546,24 @@
                                                             <div className="list-item" style={{ background: 'var(--surface-2)' }}>
                                                                 <p className="card-title">📄 {contrato.nombre}</p>
                                                                 <p className="card-text">{activosDelContrato.length} activo{activosDelContrato.length === 1 ? '' : 's'}</p>
-                                                                <button className="btn btn-secondary" style={{ marginTop: '6px' }} onClick={() => { setContratoExpandido(contratoAbierto ? null : contrato.id); setActivoViendoArbol(null); setActivoEditandoArbol(null); }}>
+                                                                <button className="btn btn-secondary" style={{ marginTop: '6px' }} onClick={() => setContratoExpandido(contratoAbierto ? null : contrato.id)}>
                                                                     {contratoAbierto ? 'Ocultar activos' : 'Ver activos'}
                                                                 </button>
                                                             </div>
 
-                                                            {contratoAbierto && (() => {
-                                                                const porZona = {};
-                                                                activosDelContrato.forEach(a => {
-                                                                    const zonaKey = a.zona_nombre || 'Sin zona';
-                                                                    const empKey = a.emplazamiento_nombre || 'Sin emplazamiento';
-                                                                    if (!porZona[zonaKey]) porZona[zonaKey] = {};
-                                                                    if (!porZona[zonaKey][empKey]) porZona[zonaKey][empKey] = [];
-                                                                    porZona[zonaKey][empKey].push(a);
-                                                                });
-                                                                return (
-                                                                    <div style={{ marginLeft: '12px', marginTop: '6px' }}>
-                                                                        {activosDelContrato.length === 0 && <p className="card-text">Sin activos en este contrato.</p>}
-                                                                        {Object.keys(porZona).map(zonaKey => (
-                                                                            <div key={zonaKey} style={{ marginBottom: '10px' }}>
-                                                                                <p className="card-text" style={{ fontWeight: 700, color: 'var(--fill-accent)' }}>🗺️ {zonaKey}</p>
-                                                                                {Object.keys(porZona[zonaKey]).map(empKey => (
-                                                                                    <div key={empKey} style={{ marginLeft: '12px', marginTop: '4px' }}>
-                                                                                        <p className="card-text" style={{ fontWeight: 600 }}>📍 {empKey}</p>
-                                                                                        <div style={{ marginLeft: '12px', marginTop: '4px' }}>
-                                                                                            {porZona[zonaKey][empKey].map(a => (
-                                                                                                <div key={a.id}>
-                                                                                                    <div className="list-item" style={{ background: 'var(--surface-1)', border: '1px solid var(--border)' }}>
-                                                                                                        <p className="card-title">⚙️ {a.nombre}</p>
-                                                                                                        <p className="card-text">{a.tipo || 'Sin tipo'}</p>
-                                                                                                        <div style={{ display: 'flex', gap: '6px', marginTop: '6px', flexWrap: 'wrap' }}>
-                                                                                                            <button className="btn btn-secondary" onClick={() => { setActivoViendoArbol(activoViendoArbol && activoViendoArbol.id === a.id ? null : a); setActivoEditandoArbol(null); }}>
-                                                                                                                {activoViendoArbol && activoViendoArbol.id === a.id ? 'Cerrar' : 'Ver'}
-                                                                                                            </button>
-                                                                                                            <button className="btn btn-primary" onClick={() => { setActivoEditandoArbol(activoEditandoArbol && activoEditandoArbol.id === a.id ? null : a); setActivoViendoArbol(null); }}>
-                                                                                                                {activoEditandoArbol && activoEditandoArbol.id === a.id ? 'Cerrar' : 'Editar'}
-                                                                                                            </button>
-                                                                                                            <button className="btn btn-danger" onClick={() => eliminarActivoArbol(a.id)}>Eliminar</button>
-                                                                                                        </div>
-                                                                                                    </div>
-
-                                                                                                    {activoViendoArbol && activoViendoArbol.id === a.id && (
-                                                                                                        <div className="quickadd-box" style={{ marginTop: '4px' }}>
-                                                                                                            <FichaActivo activo={a} camposConfig={camposConfig} />
-                                                                                                        </div>
-                                                                                                    )}
-
-                                                                                                    {activoEditandoArbol && activoEditandoArbol.id === a.id && (
-                                                                                                        <ActivoInlineForm
-                                                                                                            emplazamientoId={a.emplazamiento_id}
-                                                                                                            activoExistente={a}
-                                                                                                            clientes={clientes}
-                                                                                                            contratos={contratos}
-                                                                                                            zonas={zonas}
-                                                                                                            emplazamientos={emplazamientos}
-                                                                                                            tiposActivo={tiposActivo}
-                                                                                                            camposConfig={camposConfig}
-                                                                                                            onSaved={() => { setActivoEditandoArbol(null); onRefresh(); }}
-                                                                                                            onCancel={() => setActivoEditandoArbol(null)}
-                                                                                                        />
-                                                                                                    )}
-                                                                                                </div>
-                                                                                            ))}
-                                                                                        </div>
-                                                                                    </div>
-                                                                                ))}
-                                                                            </div>
-                                                                        ))}
-                                                                    </div>
-                                                                );
-                                                            })()}
+                                                            {contratoAbierto && (
+                                                                <ActivosDeContratoPanel
+                                                                    contrato={contrato}
+                                                                    activos={activos}
+                                                                    clientes={clientes}
+                                                                    contratos={contratos}
+                                                                    zonas={zonas}
+                                                                    emplazamientos={emplazamientos}
+                                                                    tiposActivo={tiposActivo}
+                                                                    camposConfig={camposConfig}
+                                                                    onRefresh={onRefresh}
+                                                                />
+                                                            )}
                                                         </div>
                                                     );
                                                 })}
