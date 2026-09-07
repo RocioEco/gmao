@@ -164,6 +164,13 @@
         .tipo-filter-btn.active { background: var(--fill-accent); color: white; border-color: var(--fill-accent); }
         .badge.guardia { background: var(--bg-warning); color: #b8860b; }
         .readonly-view { font-size: 12px; }
+        .ficha-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px 12px; margin-bottom: 12px; }
+        @media (max-width: 420px) { .ficha-grid { grid-template-columns: repeat(2, 1fr); } }
+        .ficha-field { display: flex; flex-direction: column; min-width: 0; }
+        .ficha-field-span2 { grid-column: span 2; }
+        .ficha-field-label { font-size: 10px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.3px; margin-bottom: 2px; }
+        .ficha-field-value { font-size: 13px; font-weight: 600; border-bottom: 1px solid var(--border); padding-bottom: 3px; overflow-wrap: break-word; }
+        .ficha-field-value a { color: var(--fill-accent); text-decoration: none; }
         .readonly-view .rv-row { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed var(--border); }
         .readonly-view .rv-label { color: var(--text-secondary); }
         .readonly-view .rv-value { font-weight: 600; text-align: right; }
@@ -2112,20 +2119,20 @@
 
             return (
                 <div>
-                    <div className="readonly-view">
-                        <div className="rv-row"><span className="rv-label">Cliente</span><span className="rv-value">{activo.cliente_nombre || '—'}</span></div>
-                        <div className="rv-row"><span className="rv-label">Contrato</span><span className="rv-value">{activo.contrato_nombre || '—'}</span></div>
-                        <div className="rv-row"><span className="rv-label">Zona</span><span className="rv-value">{activo.zona_nombre || '—'}</span></div>
-                        <div className="rv-row"><span className="rv-label">Emplazamiento</span><span className="rv-value">{activo.emplazamiento_nombre || '—'}</span></div>
-                        <div className="rv-row"><span className="rv-label">Tipo Activo</span><span className="rv-value">{activo.tipo || '—'}</span></div>
-                        <div className="rv-row"><span className="rv-label">Nombre</span><span className="rv-value">{activo.nombre}</span></div>
-                        <div className="rv-row"><span className="rv-label">Estado</span><span className="rv-value">{activo.estado || '—'}</span></div>
-                        <div className="rv-row"><span className="rv-label">ID Interno</span><span className="rv-value">{idInterno || '—'}</span></div>
-                        <div className="rv-row"><span className="rv-label">Código</span><span className="rv-value">{codigo || '—'}</span></div>
-                        <div className="rv-row"><span className="rv-label">Coordenadas</span><span className="rv-value">{tieneCoords ? `${activo.emplazamiento_lat}, ${activo.emplazamiento_lon}` : '—'}</span></div>
-                        <div className="rv-row">
-                            <span className="rv-label">Enlace Maps</span>
-                            <span className="rv-value">
+                    <div className="ficha-grid">
+                        <div className="ficha-field"><span className="ficha-field-label">Cliente</span><span className="ficha-field-value">{activo.cliente_nombre || '—'}</span></div>
+                        <div className="ficha-field"><span className="ficha-field-label">Contrato</span><span className="ficha-field-value">{activo.contrato_nombre || '—'}</span></div>
+                        <div className="ficha-field"><span className="ficha-field-label">Zona</span><span className="ficha-field-value">{activo.zona_nombre || '—'}</span></div>
+                        <div className="ficha-field"><span className="ficha-field-label">Emplazamiento</span><span className="ficha-field-value">{activo.emplazamiento_nombre || '—'}</span></div>
+                        <div className="ficha-field"><span className="ficha-field-label">Tipo Activo</span><span className="ficha-field-value">{activo.tipo || '—'}</span></div>
+                        <div className="ficha-field"><span className="ficha-field-label">Nombre</span><span className="ficha-field-value">{activo.nombre}</span></div>
+                        <div className="ficha-field"><span className="ficha-field-label">Estado</span><span className="ficha-field-value">{activo.estado || '—'}</span></div>
+                        <div className="ficha-field"><span className="ficha-field-label">ID Interno</span><span className="ficha-field-value">{idInterno || '—'}</span></div>
+                        <div className="ficha-field"><span className="ficha-field-label">Código</span><span className="ficha-field-value">{codigo || '—'}</span></div>
+                        <div className="ficha-field"><span className="ficha-field-label">Coordenadas</span><span className="ficha-field-value">{tieneCoords ? `${activo.emplazamiento_lat}, ${activo.emplazamiento_lon}` : '—'}</span></div>
+                        <div className="ficha-field ficha-field-span2">
+                            <span className="ficha-field-label">Enlace Maps</span>
+                            <span className="ficha-field-value">
                                 {tieneCoords ? (
                                     <a href={`https://maps.google.com/?q=${activo.emplazamiento_lat},${activo.emplazamiento_lon}`} target="_blank" rel="noopener noreferrer">📍 Abrir en Maps</a>
                                 ) : '—'}
