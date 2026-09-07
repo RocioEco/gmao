@@ -3156,7 +3156,7 @@
             );
         }
 
-        function ClientesView({ user, clientes, camposConfig, onRefresh }) {
+        function ClientesView({ user, clientes, contratos, activos, tiposActivo, camposConfig, onRefresh }) {
             const [showForm, setShowForm] = useState(false);
             const [editingId, setEditingId] = useState(null);
             const [showCamposManager, setShowCamposManager] = useState(false);
@@ -3168,6 +3168,20 @@
             });
             const formRef = useAutoScrollForm(showForm);
             const [search, setSearch] = useState('');
+
+            // Árbol de dependencias: Cliente → Contratos → Activos, todo en línea
+            const [clienteExpandido, setClienteExpandido] = useState(null);
+            const [contratoExpandido, setContratoExpandido] = useState(null);
+            const [activoViendoArbol, setActivoViendoArbol] = useState(null);
+            const [activoEditandoArbol, setActivoEditandoArbol] = useState(null);
+
+            const eliminarActivoArbol = async (id) => {
+                if (!confirm('¿Eliminar este activo?')) return;
+                await fetch(`${API_URL}/api/activos/${id}`, { method: 'DELETE' });
+                setActivoViendoArbol(null);
+                setActivoEditandoArbol(null);
+                onRefresh();
+            };
 
             const handleAdd = async () => {
                 if (!formData.nombre.trim()) return;
@@ -3278,17 +3292,125 @@
                                 ? clientes.filter(c => (c.nombre || '').toLowerCase().includes(search.toLowerCase()))
                                 : clientes;
                             if (clientesFiltradosBusqueda.length === 0) return <div className="empty-state">No hay clientes</div>;
-                            return clientesFiltradosBusqueda.map(cliente => (
-                                <div key={cliente.id} className="list-item">
-                                    <p className="card-title">🏢 {cliente.nombre}</p>
-                                    <p className="card-text">📧 {cliente.contacto}</p>
-                                    <p className="card-text">📱 {cliente.telefono}</p>
-                                    <div style={{ marginTop: '8px', display: 'flex', gap: '8px' }}>
-                                        <button className="btn btn-primary" onClick={() => handleEdit(cliente)}>Editar</button>
-                                        <button className="btn btn-danger" onClick={() => handleDelete(cliente.id)}>Eliminar</button>
+                            return clientesFiltradosBusqueda.map(cliente => {
+                                const contratosDelCliente = contratos.filter(c => c.cliente_id === cliente.id);
+                                const arbolAbierto = clienteExpandido === cliente.id;
+                                return (
+                                    <div key={cliente.id} className="list-item">
+                                        <p className="card-title">🏢 {cliente.nombre}</p>
+                                        <p className="card-text">📧 {cliente.contacto}</p>
+                                        <p className="card-text">📱 {cliente.telefono}</p>
+                                        <div style={{ marginTop: '8px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                                            <button className="btn btn-primary" onClick={() => handleEdit(cliente)}>Editar</button>
+                                            <button className="btn btn-danger" onClick={() => handleDelete(cliente.id)}>Eliminar</button>
+                                            <button className="btn btn-secondary" onClick={() => { setClienteExpandido(arbolAbierto ? null : cliente.id); setContratoExpandido(null); setActivoViendoArbol(null); setActivoEditandoArbol(null); }}>
+                                                {arbolAbierto ? 'Ocultar árbol' : `🌳 Ver árbol (${contratosDelCliente.length} contrato${contratosDelCliente.length === 1 ? '' : 's'})`}
+                                            </button>
+                                        </div>
+
+                                        {arbolAbierto && (
+                                            <div style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px dashed var(--border)' }}>
+                                                {contratosDelCliente.length === 0 && <p className="card-text">Este cliente todavía no tiene contratos.</p>}
+                                                {contratosDelCliente.map(contrato => {
+                                                    const activosDelContrato = (activos || []).filter(a => a.contrato_id === contrato.id);
+                                                    const contratoAbierto = contratoExpandido === contrato.id;
+                                                    return (
+                                                        <div key={contrato.id} style={{ marginBottom: '8px' }}>
+                                                            <div className="list-item" style={{ background: 'var(--surface-2)' }}>
+                                                                <p className="card-title">📄 {contrato.nombre}</p>
+                                                                <p className="card-text">{activosDelContrato.length} activo{activosDelContrato.length === 1 ? '' : 's'}</p>
+                                                                <button className="btn btn-secondary" style={{ marginTop: '6px' }} onClick={() => { setContratoExpandido(contratoAbierto ? null : contrato.id); setActivoViendoArbol(null); setActivoEditandoArbol(null); }}>
+                                                                    {contratoAbierto ? 'Ocultar activos' : 'Ver activos'}
+                                                                </button>
+                                                            </div>
+
+                                                            {contratoAbierto && (() => {
+                                                                const porZona = {};
+                                                                activosDelContrato.forEach(a => {
+                                                                    const zonaKey = a.zona_nombre || 'Sin zona';
+                                                                    const empKey = a.emplazamiento_nombre || 'Sin emplazamiento';
+                                                                    if (!porZona[zonaKey]) porZona[zonaKey] = {};
+                                                                    if (!porZona[zonaKey][empKey]) porZona[zonaKey][empKey] = [];
+                                                                    porZona[zonaKey][empKey].push(a);
+                                                                });
+                                                                return (
+                                                                    <div style={{ marginLeft: '12px', marginTop: '6px' }}>
+                                                                        {activosDelContrato.length === 0 && <p className="card-text">Sin activos en este contrato.</p>}
+                                                                        {Object.keys(porZona).map(zonaKey => (
+                                                                            <div key={zonaKey} style={{ marginBottom: '10px' }}>
+                                                                                <p className="card-text" style={{ fontWeight: 700, color: 'var(--fill-accent)' }}>🗺️ {zonaKey}</p>
+                                                                                {Object.keys(porZona[zonaKey]).map(empKey => (
+                                                                                    <div key={empKey} style={{ marginLeft: '12px', marginTop: '4px' }}>
+                                                                                        <p className="card-text" style={{ fontWeight: 600 }}>📍 {empKey}</p>
+                                                                                        <div style={{ marginLeft: '12px', marginTop: '4px' }}>
+                                                                                            {porZona[zonaKey][empKey].map(a => (
+                                                                                                <div key={a.id}>
+                                                                                                    <div className="list-item" style={{ background: 'var(--surface-1)', border: '1px solid var(--border)' }}>
+                                                                                                        <p className="card-title">⚙️ {a.nombre}</p>
+                                                                                                        <p className="card-text">{a.tipo || 'Sin tipo'}</p>
+                                                                                                        <div style={{ display: 'flex', gap: '6px', marginTop: '6px', flexWrap: 'wrap' }}>
+                                                                                                            <button className="btn btn-secondary" onClick={() => { setActivoViendoArbol(activoViendoArbol && activoViendoArbol.id === a.id ? null : a); setActivoEditandoArbol(null); }}>
+                                                                                                                {activoViendoArbol && activoViendoArbol.id === a.id ? 'Cerrar' : 'Ver'}
+                                                                                                            </button>
+                                                                                                            <button className="btn btn-primary" onClick={() => { setActivoEditandoArbol(activoEditandoArbol && activoEditandoArbol.id === a.id ? null : a); setActivoViendoArbol(null); }}>
+                                                                                                                {activoEditandoArbol && activoEditandoArbol.id === a.id ? 'Cerrar' : 'Editar'}
+                                                                                                            </button>
+                                                                                                            <button className="btn btn-danger" onClick={() => eliminarActivoArbol(a.id)}>Eliminar</button>
+                                                                                                        </div>
+                                                                                                    </div>
+
+                                                                                                    {activoViendoArbol && activoViendoArbol.id === a.id && (() => {
+                                                                                                        let extraArbol = {}; try { extraArbol = a.campos_extra ? JSON.parse(a.campos_extra) : {}; } catch { extraArbol = {}; }
+                                                                                                        let fotosArbol = []; try { fotosArbol = a.fotos_json ? JSON.parse(a.fotos_json) : []; } catch { fotosArbol = []; }
+                                                                                                        return (
+                                                                                                            <div className="quickadd-box" style={{ marginTop: '4px' }}>
+                                                                                                                <DynamicExtraFields entidad="activo" camposConfig={camposConfig} formData={{ ...a, campos_extra: extraArbol }} setFormData={() => {}} tipoActivo={a.tipo} readOnly={true} />
+                                                                                                                {a.emplazamiento_lat != null && (
+                                                                                                                    <a className="btn btn-primary" style={{ display: 'inline-block', marginTop: '8px', marginBottom: '4px', textDecoration: 'none' }}
+                                                                                                                       href={`https://maps.google.com/?q=${a.emplazamiento_lat},${a.emplazamiento_lon}`} target="_blank" rel="noopener noreferrer">
+                                                                                                                        📍 Abrir ubicación en Google Maps
+                                                                                                                    </a>
+                                                                                                                )}
+                                                                                                                <p className="card-text" style={{ fontWeight: 600, marginTop: '8px' }}>📷 Fotos</p>
+                                                                                                                {fotosArbol.length > 0 ? (
+                                                                                                                    <div className="photo-grid">
+                                                                                                                        {fotosArbol.map((f, i) => <div key={i} className="photo-thumb"><img src={f} /></div>)}
+                                                                                                                    </div>
+                                                                                                                ) : <p className="card-text">Sin fotos.</p>}
+                                                                                                            </div>
+                                                                                                        );
+                                                                                                    })()}
+
+                                                                                                    {activoEditandoArbol && activoEditandoArbol.id === a.id && (
+                                                                                                        <ActivoInlineForm
+                                                                                                            emplazamientoId={a.emplazamiento_id}
+                                                                                                            activoExistente={a}
+                                                                                                            clientes={clientes}
+                                                                                                            contratos={contratos}
+                                                                                                            tiposActivo={tiposActivo}
+                                                                                                            camposConfig={camposConfig}
+                                                                                                            onSaved={() => { setActivoEditandoArbol(null); onRefresh(); }}
+                                                                                                            onCancel={() => setActivoEditandoArbol(null)}
+                                                                                                        />
+                                                                                                    )}
+                                                                                                </div>
+                                                                                            ))}
+                                                                                        </div>
+                                                                                    </div>
+                                                                                ))}
+                                                                            </div>
+                                                                        ))}
+                                                                    </div>
+                                                                );
+                                                            })()}
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        )}
                                     </div>
-                                </div>
-                            ));
+                                );
+                            });
                         })()}
                     </div>
                 </div>
