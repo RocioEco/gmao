@@ -41,24 +41,39 @@ function dbRun(sql, params = []) { return new Promise((resolve, reject) => db.ru
 // Registra los campos técnicos específicos de activos tipo "Switch" (Marca, S/N, IP, etc.).
 // Se ejecuta siempre al arrancar (INSERT OR IGNORE), independientemente de si la migración
 // de switches ya se hizo en un despliegue anterior.
+// Registra los campos técnicos comunes a equipos de red/electrónica: Switch, CCTV, PLC,
+// Monitor y Teleindicador. Se aplican a los 5 tipos a la vez (tipo_activo se guarda como
+// un array JSON, no un único valor). Se ejecuta siempre al arrancar (segura de repetir).
 async function registrarCamposSwitch() {
+  const TIPOS_TECNICOS = ['Switch', 'CCTV', 'PLC', 'Monitor', 'Teleindicador'];
   try {
+    // Asegurar que existen los 5 tipos de activo (los que falten se crean con checklist vacío)
+    for (const nombreTipo of TIPOS_TECNICOS) {
+      await dbRun(`INSERT OR IGNORE INTO tipos_activo (nombre, checklist_json) VALUES (?, '[]')`, [nombreTipo]);
+    }
+
+    const tiposJson = JSON.stringify(TIPOS_TECNICOS);
     const campos = [
-      ['custom_marca', 'Marca', 'text', 80],
-      ['custom_sn', 'S/N', 'text', 81],
+      ['custom_sn', 'Nº de Serie', 'text', 81],
       ['custom_ip', 'IP', 'text', 82],
       ['custom_mascara_red', 'Máscara de red', 'text', 83],
-      ['custom_puerta_enlace', 'Puerta de enlace', 'text', 84],
-      ['custom_mac', 'MAC', 'text', 85]
+      ['custom_puerta_enlace', 'Puerta de Enlace', 'text', 84],
+      ['custom_firmware', 'Firmware', 'text', 85],
+      ['custom_mac', 'MAC', 'text', 86]
     ];
     for (const [clave, etiqueta, tipo, orden] of campos) {
       await dbRun(
-        `INSERT OR IGNORE INTO campos_config (entidad, clave, etiqueta, tipo, es_sistema, visible, orden, tipo_activo) VALUES ('activo', ?, ?, ?, 0, 1, ?, 'Switch')`,
-        [clave, etiqueta, tipo, orden]
+        `INSERT OR IGNORE INTO campos_config (entidad, clave, etiqueta, tipo, es_sistema, visible, orden, tipo_activo) VALUES ('activo', ?, ?, ?, 0, 1, ?, ?)`,
+        [clave, etiqueta, tipo, orden, tiposJson]
       );
+      // Si el campo ya existía de una versión anterior (ámbito distinto o etiqueta distinta), lo actualizamos
+      await dbRun(`UPDATE campos_config SET etiqueta = ?, tipo_activo = ? WHERE entidad = 'activo' AND clave = ?`, [etiqueta, tiposJson, clave]);
     }
+
+    // El campo "Marca" quedó sustituido por el "Fabricante" genérico: se oculta si existe (no se borra, por si tiene datos)
+    await dbRun(`UPDATE campos_config SET visible = 0 WHERE entidad = 'activo' AND clave = 'custom_marca'`);
   } catch (e) {
-    console.error('Error registrando campos de Switch:', e.message);
+    console.error('Error registrando campos técnicos (Switch/CCTV/PLC/Monitor/Teleindicador):', e.message);
   }
 }
 
@@ -957,10 +972,11 @@ app.post('/api/campos-config', (req, res) => {
   const { entidad, etiqueta, tipo, opciones, tipo_activo } = req.body;
   if (!entidad || !etiqueta) return res.status(400).json({ error: 'Entidad y etiqueta requeridos' });
   const clave = 'custom_' + etiqueta.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') + '_' + Date.now();
+  const tipoActivoJson = (Array.isArray(tipo_activo) && tipo_activo.length > 0) ? JSON.stringify(tipo_activo) : null;
   db.run(`INSERT INTO campos_config (entidad, clave, etiqueta, tipo, opciones, es_sistema, visible, orden, tipo_activo) VALUES (?, ?, ?, ?, ?, 0, 1, 999, ?)`,
-    [entidad, clave, etiqueta, tipo || 'text', JSON.stringify(opciones || []), tipo_activo || null], function(err) {
+    [entidad, clave, etiqueta, tipo || 'text', JSON.stringify(opciones || []), tipoActivoJson], function(err) {
       if (err) return res.status(500).json({ error: err.message });
-      res.json({ id: this.lastID, entidad, clave, etiqueta, tipo: tipo || 'text', opciones: JSON.stringify(opciones || []), es_sistema: 0, visible: 1, tipo_activo: tipo_activo || null });
+      res.json({ id: this.lastID, entidad, clave, etiqueta, tipo: tipo || 'text', opciones: JSON.stringify(opciones || []), es_sistema: 0, visible: 1, tipo_activo: tipoActivoJson });
     });
 });
 
