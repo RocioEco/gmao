@@ -165,6 +165,44 @@ db.serialize(() => {
     FOREIGN KEY(cliente_id) REFERENCES clientes(id)
   )`);
 
+  // ===== INVENTARIO DE SWITCHES (SPA) =====
+  db.run(`CREATE TABLE IF NOT EXISTS switches (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    codigo TEXT,
+    nombre TEXT NOT NULL,
+    tipo TEXT DEFAULT 'Switch',
+    lat REAL,
+    lon REAL,
+    reportado_por TEXT,
+    fecha DATE,
+    hora TEXT,
+    nota TEXT,
+    foto_interior TEXT,
+    foto_exterior TEXT,
+    fotos_extra_json TEXT DEFAULT '[]',
+    etiqueta_fotos_extra TEXT,
+    creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  )`);
+
+  // Carga automática (solo la primera vez, si la tabla está vacía) del inventario inicial de switches
+  db.get('SELECT COUNT(*) as n FROM switches', (err, row) => {
+    if (err || !row || row.n > 0) return;
+    const seedPath = path.join(__dirname, 'seed_switches.json');
+    if (!fs.existsSync(seedPath)) return;
+    try {
+      const seed = JSON.parse(fs.readFileSync(seedPath, 'utf8'));
+      const stmt = db.prepare(`INSERT INTO switches (codigo, nombre, tipo, lat, lon, reportado_por, fecha, hora, nota, foto_interior, foto_exterior, fotos_extra_json, etiqueta_fotos_extra)
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+      seed.forEach(s => {
+        stmt.run(s.codigo, s.nombre, s.tipo || 'Switch', s.lat, s.lon, s.reportado_por, s.fecha, s.hora, s.nota,
+          s.foto_interior, s.foto_exterior, JSON.stringify(s.fotos_extra || []), s.etiqueta_fotos_extra);
+      });
+      stmt.finalize(() => console.log(`✓ Cargado inventario inicial de switches (${seed.length} registros)`));
+    } catch (e) {
+      console.error('Error cargando seed_switches.json:', e.message);
+    }
+  });
+
   db.run(`CREATE TABLE IF NOT EXISTS ordenes_guardia (
     id TEXT PRIMARY KEY,
     tecnico_id INTEGER NOT NULL,
@@ -746,6 +784,58 @@ app.delete('/api/campos-config/:id', (req, res) => {
       if (err2) return res.status(500).json({ error: err2.message });
       res.json({ success: true });
     });
+  });
+});
+
+// INVENTARIO DE SWITCHES (SPA)
+// Lista ligera: sin fotos, para no sobrecargar la carga general de la app
+app.get('/api/switches', (req, res) => {
+  db.all(`SELECT id, codigo, nombre, tipo, lat, lon, reportado_por, fecha, hora, nota,
+                 (foto_interior IS NOT NULL) as tiene_foto_interior,
+                 (foto_exterior IS NOT NULL) as tiene_foto_exterior,
+                 fotos_extra_json, etiqueta_fotos_extra
+          FROM switches ORDER BY nombre`, (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows);
+  });
+});
+
+// Detalle completo, con fotos (solo se pide al abrir un registro concreto)
+app.get('/api/switches/:id', (req, res) => {
+  db.get('SELECT * FROM switches WHERE id = ?', [req.params.id], (err, row) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!row) return res.status(404).json({ error: 'No encontrado' });
+    res.json(row);
+  });
+});
+
+app.post('/api/switches', (req, res) => {
+  const { codigo, nombre, tipo, lat, lon, reportado_por, fecha, hora, nota, foto_interior, foto_exterior, fotos_extra_json, etiqueta_fotos_extra } = req.body;
+  if (!nombre) return res.status(400).json({ error: 'El nombre es obligatorio' });
+  db.run(`INSERT INTO switches (codigo, nombre, tipo, lat, lon, reportado_por, fecha, hora, nota, foto_interior, foto_exterior, fotos_extra_json, etiqueta_fotos_extra)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [codigo, nombre, tipo || 'Switch', lat || null, lon || null, reportado_por, fecha, hora, nota, foto_interior, foto_exterior, fotos_extra_json || '[]', etiqueta_fotos_extra],
+    function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ id: this.lastID });
+    });
+});
+
+app.put('/api/switches/:id', (req, res) => {
+  const { codigo, nombre, tipo, lat, lon, reportado_por, fecha, hora, nota, foto_interior, foto_exterior, fotos_extra_json, etiqueta_fotos_extra } = req.body;
+  db.run(`UPDATE switches SET codigo = ?, nombre = ?, tipo = ?, lat = ?, lon = ?, reportado_por = ?, fecha = ?, hora = ?, nota = ?,
+          foto_interior = ?, foto_exterior = ?, fotos_extra_json = ?, etiqueta_fotos_extra = ? WHERE id = ?`,
+    [codigo, nombre, tipo, lat || null, lon || null, reportado_por, fecha, hora, nota, foto_interior, foto_exterior, fotos_extra_json || '[]', etiqueta_fotos_extra, req.params.id],
+    (err) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ success: true });
+    });
+});
+
+app.delete('/api/switches/:id', (req, res) => {
+  db.run('DELETE FROM switches WHERE id = ?', [req.params.id], (err) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ success: true });
   });
 });
 
