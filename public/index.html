@@ -2115,22 +2115,32 @@
             const idInterno = extra.custom_id_interno || '';
             const codigo = extra.custom_codigo_origen || '';
             const tieneCoords = activo.emplazamiento_lat != null && activo.emplazamiento_lat !== '';
+            const fechaCreacion = activo.creado_en ? String(activo.creado_en).slice(0, 10) : '—';
             const camposRestantes = camposConfig.filter(c => c.entidad === 'activo' && !['estado', 'custom_id_interno', 'custom_codigo_origen'].includes(c.clave));
 
             return (
                 <div>
                     <div className="ficha-grid">
+                        <div className="ficha-field"><span className="ficha-field-label">Nombre</span><span className="ficha-field-value">{activo.nombre}</span></div>
+                        <div className="ficha-field"><span className="ficha-field-label">ID Interno</span><span className="ficha-field-value">{idInterno || '—'}</span></div>
+                        <div className="ficha-field"><span className="ficha-field-label">Código</span><span className="ficha-field-value">{codigo || '—'}</span></div>
+
+                        <div className="ficha-field">
+                            <span className="ficha-field-label">Estado</span>
+                            <span className="ficha-field-value" style={{ borderBottom: 'none' }}>
+                                <input type="checkbox" checked={activo.estado === 'Activo'} readOnly disabled style={{ width: '16px', height: '16px' }} /> {activo.estado || '—'}
+                            </span>
+                        </div>
+                        <div className="ficha-field"><span className="ficha-field-label">Tipo Activo</span><span className="ficha-field-value">{activo.tipo || '—'}</span></div>
+                        <div className="ficha-field"><span className="ficha-field-label">Emplazamiento</span><span className="ficha-field-value">{activo.emplazamiento_nombre || '—'}</span></div>
+
                         <div className="ficha-field"><span className="ficha-field-label">Cliente</span><span className="ficha-field-value">{activo.cliente_nombre || '—'}</span></div>
                         <div className="ficha-field"><span className="ficha-field-label">Contrato</span><span className="ficha-field-value">{activo.contrato_nombre || '—'}</span></div>
                         <div className="ficha-field"><span className="ficha-field-label">Zona</span><span className="ficha-field-value">{activo.zona_nombre || '—'}</span></div>
-                        <div className="ficha-field"><span className="ficha-field-label">Emplazamiento</span><span className="ficha-field-value">{activo.emplazamiento_nombre || '—'}</span></div>
-                        <div className="ficha-field"><span className="ficha-field-label">Tipo Activo</span><span className="ficha-field-value">{activo.tipo || '—'}</span></div>
-                        <div className="ficha-field"><span className="ficha-field-label">Nombre</span><span className="ficha-field-value">{activo.nombre}</span></div>
-                        <div className="ficha-field"><span className="ficha-field-label">Estado</span><span className="ficha-field-value">{activo.estado || '—'}</span></div>
-                        <div className="ficha-field"><span className="ficha-field-label">ID Interno</span><span className="ficha-field-value">{idInterno || '—'}</span></div>
-                        <div className="ficha-field"><span className="ficha-field-label">Código</span><span className="ficha-field-value">{codigo || '—'}</span></div>
+
                         <div className="ficha-field"><span className="ficha-field-label">Coordenadas</span><span className="ficha-field-value">{tieneCoords ? `${activo.emplazamiento_lat}, ${activo.emplazamiento_lon}` : '—'}</span></div>
-                        <div className="ficha-field ficha-field-span2">
+                        <div className="ficha-field"><span className="ficha-field-label">Fecha de creación</span><span className="ficha-field-value">{fechaCreacion}</span></div>
+                        <div className="ficha-field">
                             <span className="ficha-field-label">Enlace Maps</span>
                             <span className="ficha-field-value">
                                 {tieneCoords ? (
@@ -2139,6 +2149,8 @@
                             </span>
                         </div>
                     </div>
+
+                    <div style={{ borderTop: '2px solid var(--border)', margin: '10px 0' }}></div>
 
                     <DynamicExtraFields entidad="activo" camposConfig={camposRestantes} formData={{ ...activo, campos_extra: extra }} setFormData={() => {}} tipoActivo={activo.tipo} readOnly={true} />
 
@@ -2154,26 +2166,41 @@
             );
         }
 
-        function ActivoInlineForm({ emplazamientoId, activoExistente, clientes, contratos, tiposActivo, camposConfig, onSaved, onCancel }) {
+        function ActivoInlineForm({ emplazamientoId, activoExistente, clientes, contratos, zonas, emplazamientos, tiposActivo, camposConfig, onSaved, onCancel }) {
+            const empInicial = activoExistente
+                ? (emplazamientos || []).find(e => e.id === activoExistente.emplazamiento_id)
+                : (emplazamientos || []).find(e => e.id === emplazamientoId);
             const contratoInicial = activoExistente ? contratos.find(c => c.id === activoExistente.contrato_id) : null;
+
             const [selectedCliente, setSelectedCliente] = useState(contratoInicial ? String(contratoInicial.cliente_id) : '');
+            const [selectedZona, setSelectedZona] = useState(empInicial ? String(empInicial.zona_id) : '');
             const [formData, setFormData] = useState(() => {
-                if (!activoExistente) return { contrato_id: '', tipo: '', nombre: '', fabricante: '', modelo: '', estado: 'Activo', observaciones: '', campos_extra: {}, fotos_json: [] };
+                if (!activoExistente) return { contrato_id: '', emplazamiento_id: emplazamientoId ? String(emplazamientoId) : '', tipo: '', nombre: '', fabricante: '', modelo: '', estado: 'Activo', observaciones: '', campos_extra: {}, fotos_json: [] };
                 let extra = {}; try { extra = activoExistente.campos_extra ? JSON.parse(activoExistente.campos_extra) : {}; } catch { extra = {}; }
                 let fotos = []; try { fotos = activoExistente.fotos_json ? JSON.parse(activoExistente.fotos_json) : []; } catch { fotos = []; }
                 return {
-                    contrato_id: activoExistente.contrato_id, tipo: activoExistente.tipo || '', nombre: activoExistente.nombre,
+                    contrato_id: activoExistente.contrato_id, emplazamiento_id: activoExistente.emplazamiento_id, tipo: activoExistente.tipo || '', nombre: activoExistente.nombre,
                     fabricante: activoExistente.fabricante || '', modelo: activoExistente.modelo || '', estado: activoExistente.estado || 'Activo',
                     observaciones: activoExistente.observaciones || '', campos_extra: extra, fotos_json: fotos
                 };
             });
 
             const contratosFiltrados = selectedCliente ? contratos.filter(c => c.cliente_id === parseInt(selectedCliente)) : contratos;
+            const emplazamientosFiltrados = selectedZona ? (emplazamientos || []).filter(e => e.zona_id === parseInt(selectedZona)) : (emplazamientos || []);
+            const camposRestantes = camposConfig.filter(c => c.entidad === 'activo' && !['estado', 'custom_id_interno', 'custom_codigo_origen'].includes(c.clave));
+
+            const idInternoVal = (formData.campos_extra || {}).custom_id_interno || '';
+            const codigoVal = (formData.campos_extra || {}).custom_codigo_origen || '';
+            const setCampoExtra = (clave, val) => setFormData({ ...formData, campos_extra: { ...(formData.campos_extra || {}), [clave]: val } });
+
+            const emplazamientoActual = (emplazamientos || []).find(e => String(e.id) === String(formData.emplazamiento_id));
+            const tieneCoords = emplazamientoActual && emplazamientoActual.lat != null;
+            const fechaCreacion = activoExistente && activoExistente.creado_en ? String(activoExistente.creado_en).slice(0, 10) : '—';
 
             const guardar = async () => {
-                if (!formData.nombre.trim() || !formData.contrato_id) { alert('Selecciona contrato y nombre'); return; }
+                if (!formData.nombre.trim() || !formData.contrato_id || !formData.emplazamiento_id) { alert('Selecciona cliente/contrato, emplazamiento y nombre'); return; }
                 const payload = {
-                    ...formData, emplazamiento_id: emplazamientoId,
+                    ...formData,
                     campos_extra: JSON.stringify(formData.campos_extra || {}),
                     fotos_json: JSON.stringify(formData.fotos_json || [])
                 };
@@ -2187,33 +2214,81 @@
                 <div className="quickadd-box" style={{ marginTop: '10px' }}>
                     <p className="card-text" style={{ fontWeight: 600, marginBottom: '6px' }}>{activoExistente ? 'Editar Activo' : '+ Añadir Activo Nuevo'}</p>
 
-                    <div className="form-group">
-                        <label>Cliente</label>
-                        <select value={selectedCliente} onChange={(e) => { setSelectedCliente(e.target.value); setFormData({ ...formData, contrato_id: '' }); }}>
-                            <option value="">-- Selecciona un cliente --</option>
-                            {clientes.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-                        </select>
-                    </div>
-                    <div className="form-group">
-                        <label>Contrato</label>
-                        <select value={formData.contrato_id} disabled={!selectedCliente} className={!selectedCliente ? 'select-disabled' : ''} onChange={(e) => setFormData({ ...formData, contrato_id: e.target.value })}>
-                            <option value="">-- Selecciona un contrato --</option>
-                            {contratosFiltrados.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-                        </select>
-                    </div>
-                    <div className="form-group">
-                        <label>Tipo de Activo</label>
-                        <select value={formData.tipo} onChange={(e) => setFormData({ ...formData, tipo: e.target.value })}>
-                            <option value="">-- Selecciona tipo --</option>
-                            {tiposActivo.map(t => <option key={t.id} value={t.nombre}>{t.nombre}</option>)}
-                        </select>
-                    </div>
-                    <div className="form-group">
-                        <label>Nombre / Identificador</label>
-                        <input type="text" placeholder="Ej: Puerta Andén 1" value={formData.nombre} onChange={(e) => setFormData({ ...formData, nombre: e.target.value })} />
+                    <div className="ficha-grid">
+                        <div className="ficha-field">
+                            <span className="ficha-field-label">Nombre</span>
+                            <input type="text" placeholder="Ej: Puerta Andén 1" value={formData.nombre} onChange={(e) => setFormData({ ...formData, nombre: e.target.value })} />
+                        </div>
+                        <div className="ficha-field">
+                            <span className="ficha-field-label">ID Interno</span>
+                            <input type="text" value={idInternoVal} onChange={(e) => setCampoExtra('custom_id_interno', e.target.value)} />
+                        </div>
+                        <div className="ficha-field">
+                            <span className="ficha-field-label">Código</span>
+                            <input type="text" value={codigoVal} onChange={(e) => setCampoExtra('custom_codigo_origen', e.target.value)} />
+                        </div>
+
+                        <div className="ficha-field">
+                            <span className="ficha-field-label">Estado</span>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '4px' }}>
+                                <input type="checkbox" checked={formData.estado === 'Activo'} onChange={(e) => setFormData({ ...formData, estado: e.target.checked ? 'Activo' : 'Inactivo' })} style={{ width: '16px', height: '16px' }} />
+                                {formData.estado === 'Activo' ? 'Activo' : 'Inactivo'}
+                            </label>
+                        </div>
+                        <div className="ficha-field">
+                            <span className="ficha-field-label">Tipo Activo</span>
+                            <select value={formData.tipo} onChange={(e) => setFormData({ ...formData, tipo: e.target.value })}>
+                                <option value="">-- Selecciona tipo --</option>
+                                {tiposActivo.map(t => <option key={t.id} value={t.nombre}>{t.nombre}</option>)}
+                            </select>
+                        </div>
+                        <div className="ficha-field">
+                            <span className="ficha-field-label">Emplazamiento</span>
+                            <select value={formData.emplazamiento_id} onChange={(e) => setFormData({ ...formData, emplazamiento_id: e.target.value })}>
+                                <option value="">-- Selecciona --</option>
+                                {emplazamientosFiltrados.map(e => <option key={e.id} value={e.id}>{e.nombre}</option>)}
+                            </select>
+                        </div>
+
+                        <div className="ficha-field">
+                            <span className="ficha-field-label">Cliente</span>
+                            <select value={selectedCliente} onChange={(e) => { setSelectedCliente(e.target.value); setFormData({ ...formData, contrato_id: '' }); }}>
+                                <option value="">-- Selecciona --</option>
+                                {clientes.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                            </select>
+                        </div>
+                        <div className="ficha-field">
+                            <span className="ficha-field-label">Contrato</span>
+                            <select value={formData.contrato_id} disabled={!selectedCliente} className={!selectedCliente ? 'select-disabled' : ''} onChange={(e) => setFormData({ ...formData, contrato_id: e.target.value })}>
+                                <option value="">-- Selecciona --</option>
+                                {contratosFiltrados.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                            </select>
+                        </div>
+                        <div className="ficha-field">
+                            <span className="ficha-field-label">Zona</span>
+                            <select value={selectedZona} onChange={(e) => { setSelectedZona(e.target.value); setFormData({ ...formData, emplazamiento_id: '' }); }}>
+                                <option value="">-- Selecciona --</option>
+                                {(zonas || []).map(z => <option key={z.id} value={z.id}>{z.nombre}</option>)}
+                            </select>
+                        </div>
+
+                        <div className="ficha-field"><span className="ficha-field-label">Coordenadas</span><span className="ficha-field-value">{tieneCoords ? `${emplazamientoActual.lat}, ${emplazamientoActual.lon}` : '—'}</span></div>
+                        <div className="ficha-field"><span className="ficha-field-label">Fecha de creación</span><span className="ficha-field-value">{fechaCreacion}</span></div>
+                        <div className="ficha-field">
+                            <span className="ficha-field-label">Enlace Maps</span>
+                            <span className="ficha-field-value">
+                                {tieneCoords ? (
+                                    <a href={`https://maps.google.com/?q=${emplazamientoActual.lat},${emplazamientoActual.lon}`} target="_blank" rel="noopener noreferrer">📍 Abrir en Maps</a>
+                                ) : '—'}
+                            </span>
+                        </div>
                     </div>
 
-                    <DynamicExtraFields entidad="activo" camposConfig={camposConfig} formData={formData} setFormData={setFormData} tipoActivo={formData.tipo} />
+                    <p className="lock-note">Las coordenadas se editan desde el Emplazamiento correspondiente.</p>
+
+                    <div style={{ borderTop: '2px solid var(--border)', margin: '10px 0' }}></div>
+
+                    <DynamicExtraFields entidad="activo" camposConfig={camposRestantes} formData={formData} setFormData={setFormData} tipoActivo={formData.tipo} />
 
                     <div className="form-group">
                         <label>Fotos</label>
@@ -2396,6 +2471,8 @@
                                                             activoExistente={a}
                                                             clientes={clientes}
                                                             contratos={contratos}
+                                                            zonas={zonas}
+                                                            emplazamientos={emplazamientos}
                                                             tiposActivo={tiposActivo}
                                                             camposConfig={camposConfig}
                                                             onSaved={() => { setActivoEditando(null); onRefresh(); }}
@@ -2410,6 +2487,8 @@
                                                     emplazamientoId={e.id}
                                                     clientes={clientes}
                                                     contratos={contratos}
+                                                    zonas={zonas}
+                                                    emplazamientos={emplazamientos}
                                                     tiposActivo={tiposActivo}
                                                     camposConfig={camposConfig}
                                                     onSaved={() => { setActivoFormEmpId(null); onRefresh(); }}
@@ -2697,67 +2776,14 @@
         function ActivosView({ user, activos, emplazamientos, zonas, clientes, contratos, tiposActivo, camposConfig, onRefresh }) {
             const [showForm, setShowForm] = useState(false);
             const [editingId, setEditingId] = useState(null);
-            const [selectedCliente, setSelectedCliente] = useState('');
-            const [selectedZona, setSelectedZona] = useState('');
-            const [formData, setFormData] = useState({ emplazamiento_id: '', contrato_id: '', tipo: '', nombre: '', fabricante: '', modelo: '', estado: 'Activo', observaciones: '', campos_extra: {}, fotos_json: [] });
             const [importMsg, setImportMsg] = useState('');
             const formRef = useAutoScrollForm(showForm);
-
-            const contratosFiltrados = selectedCliente ? contratos.filter(c => c.cliente_id === parseInt(selectedCliente)) : contratos;
-            const emplazamientosFiltrados = selectedZona ? emplazamientos.filter(e => e.zona_id === parseInt(selectedZona)) : emplazamientos;
 
             const [showTiposManager, setShowTiposManager] = useState(false);
             const [showCamposManager, setShowCamposManager] = useState(false);
             const [viendoActivo, setViendoActivo] = useState(null);
             const [search, setSearch] = useState('');
             const viewRef = useAutoScrollForm(!!viendoActivo);
-
-            // ---- Creación rápida de dependencias (sin salir de este formulario) ----
-            const crearClienteRapido = async (values) => {
-                const res = await fetch(`${API_URL}/api/clientes`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nombre: values.nombre, contacto: values.contacto || '', telefono: values.telefono || '' }) });
-                const creado = await res.json();
-                await onRefresh();
-                setSelectedCliente(String(creado.id));
-                setFormData(f => ({ ...f, contrato_id: '' }));
-            };
-
-            const crearContratoRapido = async (values) => {
-                const res = await fetch(`${API_URL}/api/contratos`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cliente_id: parseInt(selectedCliente), nombre: values.nombre, descripcion: values.descripcion || '' }) });
-                const creado = await res.json();
-                await onRefresh();
-                setFormData(f => ({ ...f, contrato_id: String(creado.id) }));
-                setSelectedZona('');
-            };
-
-            const crearZonaRapida = async (values) => {
-                const res = await fetch(`${API_URL}/api/zonas`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nombre: values.nombre }) });
-                const creada = await res.json();
-                await onRefresh();
-                setSelectedZona(String(creada.id));
-            };
-
-            const crearEmplazamientoRapido = async (values) => {
-                const res = await fetch(`${API_URL}/api/emplazamientos`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ zona_id: parseInt(selectedZona), nombre: values.nombre, direccion: values.direccion || '' }) });
-                const creado = await res.json();
-                await onRefresh();
-                setFormData(f => ({ ...f, emplazamiento_id: String(creado.id) }));
-            };
-
-            const handleAdd = async () => {
-                if (!formData.nombre.trim() || !formData.emplazamiento_id || !formData.contrato_id) {
-                    alert('Selecciona emplazamiento, contrato y nombre'); return;
-                }
-                try {
-                    const url = editingId ? `${API_URL}/api/activos/${editingId}` : `${API_URL}/api/activos`;
-                    const method = editingId ? 'PUT' : 'POST';
-                    await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...formData, campos_extra: JSON.stringify(formData.campos_extra || {}), fotos_json: JSON.stringify(formData.fotos_json || []) }) });
-                    setFormData({ emplazamiento_id: '', contrato_id: '', tipo: '', nombre: '', fabricante: '', modelo: '', estado: 'Activo', observaciones: '', campos_extra: {}, fotos_json: [] });
-                    setSelectedCliente(''); setSelectedZona('');
-                    setEditingId(null);
-                    setShowForm(false);
-                    onRefresh();
-                } catch (err) { alert('Error al guardar activo'); }
-            };
 
             const handleDelete = async (id) => {
                 if (!confirm('¿Eliminar este activo?')) return;
@@ -2766,24 +2792,12 @@
             };
 
             const handleEdit = (a) => {
-                let extra = {};
-                try { extra = a.campos_extra ? JSON.parse(a.campos_extra) : {}; } catch { extra = {}; }
-                let fotos = [];
-                try { fotos = a.fotos_json ? JSON.parse(a.fotos_json) : []; } catch { fotos = []; }
-                setFormData({
-                    emplazamiento_id: a.emplazamiento_id, contrato_id: a.contrato_id, tipo: a.tipo || '',
-                    nombre: a.nombre, fabricante: a.fabricante || '', modelo: a.modelo || '',
-                    estado: a.estado, observaciones: a.observaciones || '', campos_extra: extra, fotos_json: fotos
-                });
-                setSelectedCliente(String(a.cliente_id || ''));
-                setSelectedZona(a.zona_id ? String(a.zona_id) : '');
                 setEditingId(a.id);
                 setShowForm(true);
                 setViendoActivo(null);
             };
 
-            const [fotosAbiertas, setFotosAbiertas] = useState({});
-            const toggleFotos = (id) => setFotosAbiertas(prev => ({ ...prev, [id]: !prev[id] }));
+            const activoEditando = editingId ? activos.find(a => a.id === editingId) : null;
 
             const handleImportRows = async (rows) => {
                 let ok = 0, fail = 0;
@@ -2839,8 +2853,7 @@
                             <button className="btn btn-secondary" onClick={() => setShowTiposManager(!showTiposManager)}>⚙️ Tipos de Activo</button>
                             <button className="btn btn-secondary" onClick={() => setShowCamposManager(!showCamposManager)}>⚙️ Campos</button>
                             <button className="btn btn-crear" onClick={() => {
-                                if (!showForm) { setFormData({ emplazamiento_id: '', contrato_id: '', tipo: '', nombre: '', fabricante: '', modelo: '', estado: 'Activo', observaciones: '', campos_extra: {}, fotos_json: [] }); setSelectedCliente(''); setSelectedZona(''); }
-                                setShowForm(!showForm); setEditingId(null); setViendoActivo(null);
+                                setEditingId(null); setShowForm(!showForm); setViendoActivo(null);
                             }}>+ Nuevo</button>
                         </div>
                     </div>
@@ -2851,100 +2864,19 @@
                     {importMsg && <div className="import-summary">{importMsg}</div>}
 
                     {showForm && (
-                        <div className="quickadd-box" ref={formRef} style={{ marginBottom: '1rem' }}>
-                            <p className="card-text" style={{ fontWeight: 600, marginBottom: '6px' }}>{editingId ? 'Editar Activo' : '+ Añadir Activo Nuevo'}</p>
-                            <p className="card-text" style={{ marginBottom: '10px' }}>
-                                💡 Puedes crear el cliente, contrato, zona o emplazamiento aquí mismo con el botón <strong>＋</strong> si aún no existen.
-                            </p>
-
-                            <div className="form-group">
-                                <label>Cliente</label>
-                                <div className="field-with-add">
-                                    <select value={selectedCliente} onChange={(e) => { setSelectedCliente(e.target.value); setFormData({ ...formData, contrato_id: '' }); }}>
-                                        <option value="">-- Selecciona un cliente --</option>
-                                        {clientes.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-                                    </select>
-                                    <QuickAddInline label="Cliente" onCreate={crearClienteRapido} fields={[
-                                        { key: 'nombre', placeholder: 'Nombre del cliente *' },
-                                        { key: 'contacto', placeholder: 'Contacto (email)' },
-                                        { key: 'telefono', placeholder: 'Teléfono' }
-                                    ]} />
-                                </div>
-                            </div>
-
-                            <div className="form-group">
-                                <label>Contrato de este Activo</label>
-                                <div className="field-with-add">
-                                    <select value={formData.contrato_id} disabled={!selectedCliente} className={!selectedCliente ? 'select-disabled' : ''} onChange={(e) => { setFormData({ ...formData, contrato_id: e.target.value }); }}>
-                                        <option value="">-- Selecciona un contrato --</option>
-                                        {contratosFiltrados.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-                                    </select>
-                                    {selectedCliente && (
-                                        <QuickAddInline label="Contrato" onCreate={crearContratoRapido} fields={[
-                                            { key: 'nombre', placeholder: 'Nombre del contrato *' },
-                                            { key: 'descripcion', placeholder: 'Descripción' }
-                                        ]} />
-                                    )}
-                                </div>
-                                {!selectedCliente && <p className="lock-note">Selecciona primero un cliente.</p>}
-                            </div>
-
-                            <p className="lock-note">📍 La zona y el emplazamiento son lugares físicos, independientes del cliente/contrato de arriba (un mismo lugar puede tener activos de varios clientes).</p>
-
-                            <div className="form-group">
-                                <label>Zona</label>
-                                <div className="field-with-add">
-                                    <select value={selectedZona} onChange={(e) => { setSelectedZona(e.target.value); setFormData({ ...formData, emplazamiento_id: '' }); }}>
-                                        <option value="">-- Selecciona una zona --</option>
-                                        {zonas.map(z => <option key={z.id} value={z.id}>{z.nombre}</option>)}
-                                    </select>
-                                    <QuickAddInline label="Zona" onCreate={crearZonaRapida} fields={[
-                                        { key: 'nombre', placeholder: 'Nombre de la zona *' }
-                                    ]} />
-                                </div>
-                            </div>
-
-                            <div className="form-group">
-                                <label>Emplazamiento</label>
-                                <div className="field-with-add">
-                                    <select value={formData.emplazamiento_id} onChange={(e) => setFormData({ ...formData, emplazamiento_id: e.target.value })}>
-                                        <option value="">-- Selecciona un emplazamiento --</option>
-                                        {emplazamientosFiltrados.map(e => (
-                                            <option key={e.id} value={e.id}>{e.nombre} ({e.cliente_nombre} › {e.zona_nombre})</option>
-                                        ))}
-                                    </select>
-                                    {selectedZona && (
-                                        <QuickAddInline label="Emplazamiento" onCreate={crearEmplazamientoRapido} fields={[
-                                            { key: 'nombre', placeholder: 'Nombre del emplazamiento *' },
-                                            { key: 'direccion', placeholder: 'Dirección' }
-                                        ]} />
-                                    )}
-                                </div>
-                            </div>
-
-                            <div className="form-group">
-                                <label>Tipo de Activo</label>
-                                <select value={formData.tipo} onChange={(e) => setFormData({ ...formData, tipo: e.target.value })}>
-                                    <option value="">-- Selecciona tipo --</option>
-                                    {tiposActivo.map(t => <option key={t.id} value={t.nombre}>{t.nombre}</option>)}
-                                </select>
-                                <p className="lock-note">¿No está el tipo que buscas? Gestiónalos con el botón "⚙️ Tipos de Activo" arriba.</p>
-                            </div>
-                            <div className="form-group">
-                                <label>Nombre / Identificador</label>
-                                <input type="text" placeholder="Ej: Puerta Andén 1" value={formData.nombre} onChange={(e) => setFormData({ ...formData, nombre: e.target.value })} />
-                            </div>
-                            <DynamicExtraFields entidad="activo" camposConfig={camposConfig} formData={formData} setFormData={setFormData} tipoActivo={formData.tipo} />
-
-                            <div className="form-group">
-                                <label>Fotos del Activo</label>
-                                <PhotoCapture value={formData.fotos_json} onChange={(v) => setFormData({ ...formData, fotos_json: v })} />
-                            </div>
-
-                            <div className="btn-group">
-                                <button className="btn btn-success" onClick={handleAdd}>{editingId ? 'Guardar' : 'Crear'}</button>
-                                <button className="btn btn-secondary" onClick={() => { setShowForm(false); setEditingId(null); }}>Cancelar</button>
-                            </div>
+                        <div ref={formRef}>
+                            <ActivoInlineForm
+                                key={editingId || 'nuevo'}
+                                activoExistente={activoEditando}
+                                clientes={clientes}
+                                contratos={contratos}
+                                zonas={zonas}
+                                emplazamientos={emplazamientos}
+                                tiposActivo={tiposActivo}
+                                camposConfig={camposConfig}
+                                onSaved={() => { setShowForm(false); setEditingId(null); onRefresh(); }}
+                                onCancel={() => { setShowForm(false); setEditingId(null); }}
+                            />
                         </div>
                     )}
 
@@ -3174,9 +3106,19 @@
                 if (!campo.ocultar_en_tipos) return false;
                 try { return JSON.parse(campo.ocultar_en_tipos).includes(tipoActivo); } catch { return false; }
             };
+            const aplicaAlTipo = (campo) => {
+                if (!campo.tipo_activo) return true; // sin ámbito = aplica a todos los tipos
+                try {
+                    const parsed = JSON.parse(campo.tipo_activo);
+                    return Array.isArray(parsed) ? parsed.includes(tipoActivo) : parsed === tipoActivo;
+                } catch {
+                    // Valor antiguo guardado como texto plano (antes de soportar varios tipos a la vez)
+                    return campo.tipo_activo === tipoActivo;
+                }
+            };
             const campos = camposConfig
                 .filter(c => c.entidad === entidad && c.visible)
-                .filter(c => !c.tipo_activo || c.tipo_activo === tipoActivo)
+                .filter(aplicaAlTipo)
                 .filter(c => !estaExcluido(c))
                 .sort((a, b) => a.orden - b.orden);
 
@@ -3218,7 +3160,7 @@
             const [nuevaEtiqueta, setNuevaEtiqueta] = useState('');
             const [nuevoTipo, setNuevoTipo] = useState('text');
             const [nuevasOpciones, setNuevasOpciones] = useState('');
-            const [nuevoTipoActivo, setNuevoTipoActivo] = useState('');
+            const [tiposSeleccionados, setTiposSeleccionados] = useState([]);
 
             const campos = camposConfig.filter(c => c.entidad === entidad).sort((a, b) => a.orden - b.orden);
 
@@ -3242,11 +3184,23 @@
                 onRefresh();
             };
 
+            const toggleTipoSeleccionado = (nombre) => {
+                setTiposSeleccionados(prev => prev.includes(nombre) ? prev.filter(t => t !== nombre) : [...prev, nombre]);
+            };
+
+            const describirAmbito = (campo) => {
+                if (!campo.tipo_activo) return '';
+                try {
+                    const parsed = JSON.parse(campo.tipo_activo);
+                    return Array.isArray(parsed) ? ` · Solo para: ${parsed.join(', ')}` : ` · Solo para: ${campo.tipo_activo}`;
+                } catch { return ` · Solo para: ${campo.tipo_activo}`; }
+            };
+
             const crear = async () => {
                 if (!nuevaEtiqueta.trim()) { alert('Escribe una etiqueta'); return; }
                 const opciones = nuevoTipo === 'select' ? nuevasOpciones.split(',').map(s => s.trim()).filter(Boolean) : [];
-                await fetch(`${API_URL}/api/campos-config`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ entidad, etiqueta: nuevaEtiqueta, tipo: nuevoTipo, opciones, tipo_activo: entidad === 'activo' ? (nuevoTipoActivo || null) : null }) });
-                setNuevaEtiqueta(''); setNuevoTipo('text'); setNuevasOpciones(''); setNuevoTipoActivo('');
+                await fetch(`${API_URL}/api/campos-config`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ entidad, etiqueta: nuevaEtiqueta, tipo: nuevoTipo, opciones, tipo_activo: entidad === 'activo' ? tiposSeleccionados : [] }) });
+                setNuevaEtiqueta(''); setNuevoTipo('text'); setNuevasOpciones(''); setTiposSeleccionados([]);
                 onRefresh();
             };
 
@@ -3263,7 +3217,7 @@
                                 <div className="list-item-header">
                                     <div>
                                         <p className="card-title">{campo.etiqueta}</p>
-                                        <p className="card-text">{campo.es_sistema ? 'Campo de sistema' : 'Campo personalizado'} · Tipo: {campo.tipo}{campo.tipo_activo ? ` · Solo para: ${campo.tipo_activo}` : ''}</p>
+                                        <p className="card-text">{campo.es_sistema ? 'Campo de sistema' : 'Campo personalizado'} · Tipo: {campo.tipo}{describirAmbito(campo)}</p>
                                     </div>
                                     <span className={`badge ${campo.visible ? 'campo-badge-visible' : 'campo-badge-oculto'}`}>
                                         {campo.visible ? 'Visible' : 'Oculto'}
@@ -3290,10 +3244,17 @@
                         </select>
                         {nuevoTipo === 'select' && <input type="text" placeholder="Opciones separadas por coma" value={nuevasOpciones} onChange={(e) => setNuevasOpciones(e.target.value)} />}
                         {entidad === 'activo' && tiposActivo && tiposActivo.length > 0 && (
-                            <select value={nuevoTipoActivo} onChange={(e) => setNuevoTipoActivo(e.target.value)}>
-                                <option value="">Aplica a: Todos los tipos de activo</option>
-                                {tiposActivo.map(t => <option key={t.id} value={t.nombre}>Aplica solo a: {t.nombre}</option>)}
-                            </select>
+                            <div style={{ marginTop: '6px' }}>
+                                <p className="card-text" style={{ marginBottom: '4px' }}>Aplica a (deja todo sin marcar = todos los tipos):</p>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                                    {tiposActivo.map(t => (
+                                        <label key={t.id} style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px' }}>
+                                            <input type="checkbox" checked={tiposSeleccionados.includes(t.nombre)} onChange={() => toggleTipoSeleccionado(t.nombre)} />
+                                            {t.nombre}
+                                        </label>
+                                    ))}
+                                </div>
+                            </div>
                         )}
                         <button className="btn-add-row" onClick={crear}>+ Crear campo</button>
                     </div>
@@ -3301,7 +3262,7 @@
             );
         }
 
-        function ClientesView({ user, clientes, contratos, activos, tiposActivo, camposConfig, onRefresh }) {
+        function ClientesView({ user, clientes, contratos, activos, zonas, emplazamientos, tiposActivo, camposConfig, onRefresh }) {
             const [showForm, setShowForm] = useState(false);
             const [editingId, setEditingId] = useState(null);
             const [showCamposManager, setShowCamposManager] = useState(false);
@@ -3516,6 +3477,8 @@
                                                                                                             activoExistente={a}
                                                                                                             clientes={clientes}
                                                                                                             contratos={contratos}
+                                                                                                            zonas={zonas}
+                                                                                                            emplazamientos={emplazamientos}
                                                                                                             tiposActivo={tiposActivo}
                                                                                                             camposConfig={camposConfig}
                                                                                                             onSaved={() => { setActivoEditandoArbol(null); onRefresh(); }}
