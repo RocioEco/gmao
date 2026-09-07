@@ -30,6 +30,92 @@ const db = new sqlite3.Database(DB_PATH, (err) => {
   else console.log(`Base de datos SQLite conectada en: ${DB_PATH}`);
 });
 
+// Helpers en forma de Promesa para poder usar async/await con sqlite3
+function dbGet(sql, params = []) { return new Promise((resolve, reject) => db.get(sql, params, (err, row) => err ? reject(err) : resolve(row))); }
+function dbAll(sql, params = []) { return new Promise((resolve, reject) => db.all(sql, params, (err, rows) => err ? reject(err) : resolve(rows))); }
+function dbRun(sql, params = []) { return new Promise((resolve, reject) => db.run(sql, params, function (err) { err ? reject(err) : resolve(this); })); }
+
+// Migración única: convierte el inventario de switches (tabla auxiliar "switches") en Activos reales
+// del Cliente APA / Contrato SPA, con su Zona/Emplazamiento (incluyendo coordenadas GPS) y sus fotos.
+// Solo se ejecuta si el Cliente "APA" todavía no existe (así nunca se duplica en despliegues posteriores).
+// Registra los campos técnicos específicos de activos tipo "Switch" (Marca, S/N, IP, etc.).
+// Se ejecuta siempre al arrancar (INSERT OR IGNORE), independientemente de si la migración
+// de switches ya se hizo en un despliegue anterior.
+async function registrarCamposSwitch() {
+  try {
+    const campos = [
+      ['custom_marca', 'Marca', 'text', 80],
+      ['custom_sn', 'S/N', 'text', 81],
+      ['custom_ip', 'IP', 'text', 82],
+      ['custom_mascara_red', 'Máscara de red', 'text', 83],
+      ['custom_puerta_enlace', 'Puerta de enlace', 'text', 84],
+      ['custom_mac', 'MAC', 'text', 85]
+    ];
+    for (const [clave, etiqueta, tipo, orden] of campos) {
+      await dbRun(
+        `INSERT OR IGNORE INTO campos_config (entidad, clave, etiqueta, tipo, es_sistema, visible, orden, tipo_activo) VALUES ('activo', ?, ?, ?, 0, 1, ?, 'Switch')`,
+        [clave, etiqueta, tipo, orden]
+      );
+    }
+  } catch (e) {
+    console.error('Error registrando campos de Switch:', e.message);
+  }
+}
+
+async function migrarSwitchesAActivos() {
+  try {
+    const yaExiste = await dbGet(`SELECT id FROM clientes WHERE nombre = ?`, ['APA']);
+    if (yaExiste) return;
+
+    const switches = await dbAll(`SELECT * FROM switches`);
+    if (!switches || switches.length === 0) return;
+
+    const cliente = await dbRun(`INSERT INTO clientes (nombre) VALUES (?)`, ['APA']);
+    const clienteId = cliente.lastID;
+
+    const contrato = await dbRun(`INSERT INTO contratos (cliente_id, nombre, estado) VALUES (?, ?, 'Activo')`, [clienteId, 'SPA']);
+    const contratoId = contrato.lastID;
+
+    let zona = await dbGet(`SELECT id FROM zonas WHERE nombre = ?`, ['Avilés']);
+    let zonaId;
+    if (zona) zonaId = zona.id;
+    else { const z = await dbRun(`INSERT INTO zonas (nombre) VALUES (?)`, ['Avilés']); zonaId = z.lastID; }
+
+    await dbRun(`INSERT OR IGNORE INTO tipos_activo (nombre, checklist_json) VALUES (?, '[]')`, ['Switch']);
+
+    await dbRun(`INSERT OR IGNORE INTO campos_config (entidad, clave, etiqueta, tipo, es_sistema, visible, orden) VALUES ('activo','custom_id_interno','ID Interno','text',0,1,89)`);
+    await dbRun(`INSERT OR IGNORE INTO campos_config (entidad, clave, etiqueta, tipo, es_sistema, visible, orden) VALUES ('activo','custom_codigo_origen','Código','text',0,1,89.5)`);
+    await dbRun(`INSERT OR IGNORE INTO campos_config (entidad, clave, etiqueta, tipo, es_sistema, visible, orden) VALUES ('activo','custom_reportado_por','Reportado por','text',0,1,90)`);
+    await dbRun(`INSERT OR IGNORE INTO campos_config (entidad, clave, etiqueta, tipo, es_sistema, visible, orden) VALUES ('activo','custom_fecha_alta','Fecha de alta','date',0,1,91)`);
+    await dbRun(`INSERT OR IGNORE INTO campos_config (entidad, clave, etiqueta, tipo, es_sistema, visible, orden) VALUES ('activo','custom_hora_alta','Hora de alta','text',0,1,92)`);
+
+    for (const s of switches) {
+      const emp = await dbRun(`INSERT INTO emplazamientos (zona_id, nombre, lat, lon) VALUES (?, ?, ?, ?)`, [zonaId, s.nombre, s.lat, s.lon]);
+      const empId = emp.lastID;
+
+      let fotosExtra = [];
+      try { fotosExtra = JSON.parse(s.fotos_extra_json || '[]'); } catch { fotosExtra = []; }
+      const fotos = [s.foto_interior, s.foto_exterior, ...fotosExtra].filter(Boolean);
+
+      const camposExtra = JSON.stringify({
+        custom_id_interno: s.id_interno || '',
+        custom_codigo_origen: s.codigo || '',
+        custom_reportado_por: s.reportado_por || '',
+        custom_fecha_alta: s.fecha || '',
+        custom_hora_alta: s.hora || ''
+      });
+
+      await dbRun(`INSERT INTO activos (emplazamiento_id, contrato_id, tipo, nombre, estado, observaciones, campos_extra, fotos_json)
+                   VALUES (?, ?, 'Switch', ?, 'Activo', ?, ?, ?)`,
+        [empId, contratoId, s.codigo || s.nombre, s.nota || '', camposExtra, JSON.stringify(fotos)]);
+    }
+
+    console.log(`✓ Migrados ${switches.length} switches a Activos (Cliente APA / Contrato SPA)`);
+  } catch (e) {
+    console.error('Error migrando switches a activos:', e.message);
+  }
+}
+
 // Crear tablas si no existen
 db.serialize(() => {
   db.run(`CREATE TABLE IF NOT EXISTS usuarios (
@@ -61,9 +147,11 @@ db.serialize(() => {
     es_sistema INTEGER DEFAULT 0,
     visible INTEGER DEFAULT 1,
     orden INTEGER DEFAULT 0,
+    tipo_activo TEXT,
     creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(entidad, clave)
   )`);
+  db.run(`ALTER TABLE campos_config ADD COLUMN tipo_activo TEXT`, () => {});
 
   const seedCampo = (entidad, clave, etiqueta, tipo, orden, opciones) => {
     db.run(`INSERT OR IGNORE INTO campos_config (entidad, clave, etiqueta, tipo, opciones, es_sistema, visible, orden) VALUES (?, ?, ?, ?, ?, 1, 1, ?)`,
@@ -168,6 +256,7 @@ db.serialize(() => {
   // ===== INVENTARIO DE SWITCHES (SPA) =====
   db.run(`CREATE TABLE IF NOT EXISTS switches (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id_interno TEXT,
     codigo TEXT,
     nombre TEXT NOT NULL,
     tipo TEXT DEFAULT 'Switch',
@@ -183,24 +272,37 @@ db.serialize(() => {
     etiqueta_fotos_extra TEXT,
     creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP
   )`);
+  db.run(`ALTER TABLE switches ADD COLUMN id_interno TEXT`, () => {});
 
   // Carga automática (solo la primera vez, si la tabla está vacía) del inventario inicial de switches
   db.get('SELECT COUNT(*) as n FROM switches', (err, row) => {
-    if (err || !row || row.n > 0) return;
-    const seedPath = path.join(__dirname, 'seed_switches.json');
-    if (!fs.existsSync(seedPath)) return;
-    try {
-      const seed = JSON.parse(fs.readFileSync(seedPath, 'utf8'));
-      const stmt = db.prepare(`INSERT INTO switches (codigo, nombre, tipo, lat, lon, reportado_por, fecha, hora, nota, foto_interior, foto_exterior, fotos_extra_json, etiqueta_fotos_extra)
-                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
-      seed.forEach(s => {
-        stmt.run(s.codigo, s.nombre, s.tipo || 'Switch', s.lat, s.lon, s.reportado_por, s.fecha, s.hora, s.nota,
-          s.foto_interior, s.foto_exterior, JSON.stringify(s.fotos_extra || []), s.etiqueta_fotos_extra);
-      });
-      stmt.finalize(() => console.log(`✓ Cargado inventario inicial de switches (${seed.length} registros)`));
-    } catch (e) {
-      console.error('Error cargando seed_switches.json:', e.message);
+    if (err) return;
+    if (!row || row.n === 0) {
+      const seedPath = path.join(__dirname, 'seed_switches.json');
+      if (fs.existsSync(seedPath)) {
+        try {
+          const seed = JSON.parse(fs.readFileSync(seedPath, 'utf8'));
+          const stmt = db.prepare(`INSERT INTO switches (id_interno, codigo, nombre, tipo, lat, lon, reportado_por, fecha, hora, nota, foto_interior, foto_exterior, fotos_extra_json, etiqueta_fotos_extra)
+                                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+          seed.forEach(s => {
+            stmt.run(s.id_interno, s.codigo, s.nombre, s.tipo || 'Switch', s.lat, s.lon, s.reportado_por, s.fecha, s.hora, s.nota,
+              s.foto_interior, s.foto_exterior, JSON.stringify(s.fotos_extra || []), s.etiqueta_fotos_extra);
+          });
+          stmt.finalize(() => {
+            console.log(`✓ Cargado inventario inicial de switches (${seed.length} registros)`);
+            registrarCamposSwitch();
+            migrarSwitchesAActivos();
+          });
+          return;
+        } catch (e) {
+          console.error('Error cargando seed_switches.json:', e.message);
+        }
+      }
     }
+    // Si la tabla switches ya tenía datos de un despliegue anterior (o no había seed que cargar),
+    // igualmente comprobamos si falta migrarlos a Activos.
+    registrarCamposSwitch();
+    migrarSwitchesAActivos();
   });
 
   db.run(`CREATE TABLE IF NOT EXISTS ordenes_guardia (
@@ -262,9 +364,13 @@ db.serialize(() => {
     zona_id INTEGER NOT NULL,
     nombre TEXT NOT NULL,
     direccion TEXT,
+    lat REAL,
+    lon REAL,
     creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(zona_id) REFERENCES zonas(id)
   )`);
+  db.run(`ALTER TABLE emplazamientos ADD COLUMN lat REAL`, () => {});
+  db.run(`ALTER TABLE emplazamientos ADD COLUMN lon REAL`, () => {});
 
   db.run(`CREATE TABLE IF NOT EXISTS activos (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -277,11 +383,13 @@ db.serialize(() => {
     estado TEXT DEFAULT 'Activo',
     observaciones TEXT,
     campos_extra TEXT DEFAULT '{}',
+    fotos_json TEXT DEFAULT '[]',
     creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(emplazamiento_id) REFERENCES emplazamientos(id),
     FOREIGN KEY(contrato_id) REFERENCES contratos(id)
   )`);
   db.run(`ALTER TABLE activos ADD COLUMN campos_extra TEXT DEFAULT '{}'`, () => {});
+  db.run(`ALTER TABLE activos ADD COLUMN fotos_json TEXT DEFAULT '[]'`, () => {});
 
   db.run(`CREATE TABLE IF NOT EXISTS tipos_activo (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -663,21 +771,21 @@ app.get('/api/emplazamientos', (req, res) => {
 });
 
 app.post('/api/emplazamientos', (req, res) => {
-  const { zona_id, nombre, direccion } = req.body;
+  const { zona_id, nombre, direccion, lat, lon } = req.body;
   if (!zona_id || !nombre) return res.status(400).json({ error: 'Zona y nombre requeridos' });
-  db.run('INSERT INTO emplazamientos (zona_id, nombre, direccion) VALUES (?, ?, ?)',
-    [zona_id, nombre, direccion], function(err) {
+  db.run('INSERT INTO emplazamientos (zona_id, nombre, direccion, lat, lon) VALUES (?, ?, ?, ?, ?)',
+    [zona_id, nombre, direccion, lat || null, lon || null], function(err) {
       if (err) return res.status(500).json({ error: err.message });
-      res.json({ id: this.lastID, zona_id, nombre, direccion });
+      res.json({ id: this.lastID, zona_id, nombre, direccion, lat, lon });
     });
 });
 
 app.put('/api/emplazamientos/:id', (req, res) => {
-  const { zona_id, nombre, direccion } = req.body;
-  db.run('UPDATE emplazamientos SET zona_id = ?, nombre = ?, direccion = ? WHERE id = ?',
-    [zona_id, nombre, direccion, req.params.id], (err) => {
+  const { zona_id, nombre, direccion, lat, lon } = req.body;
+  db.run('UPDATE emplazamientos SET zona_id = ?, nombre = ?, direccion = ?, lat = ?, lon = ? WHERE id = ?',
+    [zona_id, nombre, direccion, lat || null, lon || null, req.params.id], (err) => {
       if (err) return res.status(500).json({ error: err.message });
-      res.json({ id: req.params.id, zona_id, nombre, direccion });
+      res.json({ id: req.params.id, zona_id, nombre, direccion, lat, lon });
     });
 });
 
@@ -707,25 +815,25 @@ app.get('/api/activos', (req, res) => {
 });
 
 app.post('/api/activos', (req, res) => {
-  const { emplazamiento_id, contrato_id, tipo, nombre, fabricante, modelo, estado, observaciones, campos_extra } = req.body;
+  const { emplazamiento_id, contrato_id, tipo, nombre, fabricante, modelo, estado, observaciones, campos_extra, fotos_json } = req.body;
   if (!emplazamiento_id || !contrato_id || !nombre) {
     return res.status(400).json({ error: 'Emplazamiento, contrato y nombre requeridos' });
   }
-  db.run(`INSERT INTO activos (emplazamiento_id, contrato_id, tipo, nombre, fabricante, modelo, estado, observaciones, campos_extra) 
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [emplazamiento_id, contrato_id, tipo, nombre, fabricante, modelo, estado || 'Activo', observaciones, campos_extra || '{}'], function(err) {
+  db.run(`INSERT INTO activos (emplazamiento_id, contrato_id, tipo, nombre, fabricante, modelo, estado, observaciones, campos_extra, fotos_json) 
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [emplazamiento_id, contrato_id, tipo, nombre, fabricante, modelo, estado || 'Activo', observaciones, campos_extra || '{}', fotos_json || '[]'], function(err) {
       if (err) return res.status(500).json({ error: err.message });
-      res.json({ id: this.lastID, emplazamiento_id, contrato_id, tipo, nombre, fabricante, modelo, estado: estado || 'Activo', observaciones, campos_extra: campos_extra || '{}' });
+      res.json({ id: this.lastID, emplazamiento_id, contrato_id, tipo, nombre, fabricante, modelo, estado: estado || 'Activo', observaciones, campos_extra: campos_extra || '{}', fotos_json: fotos_json || '[]' });
     });
 });
 
 app.put('/api/activos/:id', (req, res) => {
-  const { emplazamiento_id, contrato_id, tipo, nombre, fabricante, modelo, estado, observaciones, campos_extra } = req.body;
+  const { emplazamiento_id, contrato_id, tipo, nombre, fabricante, modelo, estado, observaciones, campos_extra, fotos_json } = req.body;
   db.run(`UPDATE activos SET emplazamiento_id = ?, contrato_id = ?, tipo = ?, nombre = ?, fabricante = ?, 
-          modelo = ?, estado = ?, observaciones = ?, campos_extra = ? WHERE id = ?`,
-    [emplazamiento_id, contrato_id, tipo, nombre, fabricante, modelo, estado, observaciones, campos_extra || '{}', req.params.id], (err) => {
+          modelo = ?, estado = ?, observaciones = ?, campos_extra = ?, fotos_json = ? WHERE id = ?`,
+    [emplazamiento_id, contrato_id, tipo, nombre, fabricante, modelo, estado, observaciones, campos_extra || '{}', fotos_json || '[]', req.params.id], (err) => {
       if (err) return res.status(500).json({ error: err.message });
-      res.json({ id: req.params.id, emplazamiento_id, contrato_id, tipo, nombre, fabricante, modelo, estado, observaciones, campos_extra: campos_extra || '{}' });
+      res.json({ id: req.params.id, emplazamiento_id, contrato_id, tipo, nombre, fabricante, modelo, estado, observaciones, campos_extra: campos_extra || '{}', fotos_json: fotos_json || '[]' });
     });
 });
 
@@ -750,13 +858,13 @@ app.get('/api/campos-config', (req, res) => {
 });
 
 app.post('/api/campos-config', (req, res) => {
-  const { entidad, etiqueta, tipo, opciones } = req.body;
+  const { entidad, etiqueta, tipo, opciones, tipo_activo } = req.body;
   if (!entidad || !etiqueta) return res.status(400).json({ error: 'Entidad y etiqueta requeridos' });
   const clave = 'custom_' + etiqueta.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') + '_' + Date.now();
-  db.run(`INSERT INTO campos_config (entidad, clave, etiqueta, tipo, opciones, es_sistema, visible, orden) VALUES (?, ?, ?, ?, ?, 0, 1, 999)`,
-    [entidad, clave, etiqueta, tipo || 'text', JSON.stringify(opciones || [])], function(err) {
+  db.run(`INSERT INTO campos_config (entidad, clave, etiqueta, tipo, opciones, es_sistema, visible, orden, tipo_activo) VALUES (?, ?, ?, ?, ?, 0, 1, 999, ?)`,
+    [entidad, clave, etiqueta, tipo || 'text', JSON.stringify(opciones || []), tipo_activo || null], function(err) {
       if (err) return res.status(500).json({ error: err.message });
-      res.json({ id: this.lastID, entidad, clave, etiqueta, tipo: tipo || 'text', opciones: JSON.stringify(opciones || []), es_sistema: 0, visible: 1 });
+      res.json({ id: this.lastID, entidad, clave, etiqueta, tipo: tipo || 'text', opciones: JSON.stringify(opciones || []), es_sistema: 0, visible: 1, tipo_activo: tipo_activo || null });
     });
 });
 
@@ -784,58 +892,6 @@ app.delete('/api/campos-config/:id', (req, res) => {
       if (err2) return res.status(500).json({ error: err2.message });
       res.json({ success: true });
     });
-  });
-});
-
-// INVENTARIO DE SWITCHES (SPA)
-// Lista ligera: sin fotos, para no sobrecargar la carga general de la app
-app.get('/api/switches', (req, res) => {
-  db.all(`SELECT id, codigo, nombre, tipo, lat, lon, reportado_por, fecha, hora, nota,
-                 (foto_interior IS NOT NULL) as tiene_foto_interior,
-                 (foto_exterior IS NOT NULL) as tiene_foto_exterior,
-                 fotos_extra_json, etiqueta_fotos_extra
-          FROM switches ORDER BY nombre`, (err, rows) => {
-    if (err) return res.status(500).json({ error: err.message });
-    res.json(rows);
-  });
-});
-
-// Detalle completo, con fotos (solo se pide al abrir un registro concreto)
-app.get('/api/switches/:id', (req, res) => {
-  db.get('SELECT * FROM switches WHERE id = ?', [req.params.id], (err, row) => {
-    if (err) return res.status(500).json({ error: err.message });
-    if (!row) return res.status(404).json({ error: 'No encontrado' });
-    res.json(row);
-  });
-});
-
-app.post('/api/switches', (req, res) => {
-  const { codigo, nombre, tipo, lat, lon, reportado_por, fecha, hora, nota, foto_interior, foto_exterior, fotos_extra_json, etiqueta_fotos_extra } = req.body;
-  if (!nombre) return res.status(400).json({ error: 'El nombre es obligatorio' });
-  db.run(`INSERT INTO switches (codigo, nombre, tipo, lat, lon, reportado_por, fecha, hora, nota, foto_interior, foto_exterior, fotos_extra_json, etiqueta_fotos_extra)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [codigo, nombre, tipo || 'Switch', lat || null, lon || null, reportado_por, fecha, hora, nota, foto_interior, foto_exterior, fotos_extra_json || '[]', etiqueta_fotos_extra],
-    function(err) {
-      if (err) return res.status(500).json({ error: err.message });
-      res.json({ id: this.lastID });
-    });
-});
-
-app.put('/api/switches/:id', (req, res) => {
-  const { codigo, nombre, tipo, lat, lon, reportado_por, fecha, hora, nota, foto_interior, foto_exterior, fotos_extra_json, etiqueta_fotos_extra } = req.body;
-  db.run(`UPDATE switches SET codigo = ?, nombre = ?, tipo = ?, lat = ?, lon = ?, reportado_por = ?, fecha = ?, hora = ?, nota = ?,
-          foto_interior = ?, foto_exterior = ?, fotos_extra_json = ?, etiqueta_fotos_extra = ? WHERE id = ?`,
-    [codigo, nombre, tipo, lat || null, lon || null, reportado_por, fecha, hora, nota, foto_interior, foto_exterior, fotos_extra_json || '[]', etiqueta_fotos_extra, req.params.id],
-    (err) => {
-      if (err) return res.status(500).json({ error: err.message });
-      res.json({ success: true });
-    });
-});
-
-app.delete('/api/switches/:id', (req, res) => {
-  db.run('DELETE FROM switches WHERE id = ?', [req.params.id], (err) => {
-    if (err) return res.status(500).json({ error: err.message });
-    res.json({ success: true });
   });
 });
 
