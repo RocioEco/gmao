@@ -2513,6 +2513,7 @@
             const [showTiposManager, setShowTiposManager] = useState(false);
             const [showCamposManager, setShowCamposManager] = useState(false);
             const [viendoActivo, setViendoActivo] = useState(null);
+            const [search, setSearch] = useState('');
             const viewRef = useAutoScrollForm(!!viendoActivo);
 
             // ---- Creación rápida de dependencias (sin salir de este formulario) ----
@@ -2758,7 +2759,7 @@
                             <div className="card" ref={viewRef} style={{ marginBottom: '1rem' }}>
                                 <div className="list-item-header">
                                     <div>
-                                        <p className="card-title">⚙️ {viendoActivo.nombre}</p>
+                                        <p className="card-title">⚙️ {viendoActivo.emplazamiento_nombre ? `${viendoActivo.emplazamiento_nombre} - ${viendoActivo.nombre}` : viendoActivo.nombre}</p>
                                         <p className="breadcrumb-path">{viendoActivo.cliente_nombre} › {viendoActivo.contrato_nombre} › {viendoActivo.zona_nombre} › {viendoActivo.emplazamiento_nombre}</p>
                                     </div>
                                     {viendoActivo.tipo && <span className="badge" style={{ background: 'var(--bg-accent)', color: 'var(--fill-accent)' }}>{viendoActivo.tipo}</span>}
@@ -2783,27 +2784,37 @@
                         );
                     })()}
 
+                    <div className="form-group">
+                        <input type="text" placeholder="🔍 Buscar por nombre..." value={search} onChange={(e) => setSearch(e.target.value)} />
+                    </div>
+
                     <div className="list">
-                        {activos.length === 0 ? <div className="empty-state">No hay activos</div> : activos.map(a => {
-                            let fotos = [];
-                            try { fotos = a.fotos_json ? JSON.parse(a.fotos_json) : []; } catch { fotos = []; }
-                            return (
-                                <div key={a.id} className="list-item" style={{ cursor: 'pointer' }} onClick={() => { setViendoActivo(a); setShowForm(false); }}>
-                                    <div className="list-item-header">
-                                        <div>
-                                            <p className="card-title">⚙️ {a.nombre}</p>
-                                            <p className="breadcrumb-path">{a.cliente_nombre} › {a.contrato_nombre} › {a.zona_nombre} › {a.emplazamiento_nombre}</p>
+                        {(() => {
+                            const activosFiltrados = search
+                                ? activos.filter(a => ((a.nombre || '') + (a.emplazamiento_nombre || '')).toLowerCase().includes(search.toLowerCase()))
+                                : activos;
+                            if (activosFiltrados.length === 0) return <div className="empty-state">No hay activos</div>;
+                            return activosFiltrados.map(a => {
+                                let fotos = [];
+                                try { fotos = a.fotos_json ? JSON.parse(a.fotos_json) : []; } catch { fotos = []; }
+                                return (
+                                    <div key={a.id} className="list-item" style={{ cursor: 'pointer' }} onClick={() => { setViendoActivo(a); setShowForm(false); }}>
+                                        <div className="list-item-header">
+                                            <div>
+                                                <p className="card-title">⚙️ {a.emplazamiento_nombre ? `${a.emplazamiento_nombre} - ${a.nombre}` : a.nombre}</p>
+                                                <p className="breadcrumb-path">{a.cliente_nombre} › {a.contrato_nombre} › {a.zona_nombre} › {a.emplazamiento_nombre}</p>
+                                            </div>
+                                            {a.tipo && <span className="badge" style={{ background: 'var(--bg-accent)', color: 'var(--fill-accent)' }}>{a.tipo}</span>}
                                         </div>
-                                        {a.tipo && <span className="badge" style={{ background: 'var(--bg-accent)', color: 'var(--fill-accent)' }}>{a.tipo}</span>}
+                                        <p className="card-text">✓ Estado: {a.estado}{fotos.length > 0 ? ` · 📷 ${fotos.length} foto${fotos.length === 1 ? '' : 's'}` : ''}</p>
+                                        <div style={{ marginTop: '8px', display: 'flex', gap: '8px', flexWrap: 'wrap' }} onClick={(e) => e.stopPropagation()}>
+                                            <button className="btn btn-primary" onClick={() => handleEdit(a)}>Editar</button>
+                                            <button className="btn btn-danger" onClick={() => handleDelete(a.id)}>Eliminar</button>
+                                        </div>
                                     </div>
-                                    <p className="card-text">✓ Estado: {a.estado}{fotos.length > 0 ? ` · 📷 ${fotos.length} foto${fotos.length === 1 ? '' : 's'}` : ''}</p>
-                                    <div style={{ marginTop: '8px', display: 'flex', gap: '8px', flexWrap: 'wrap' }} onClick={(e) => e.stopPropagation()}>
-                                        <button className="btn btn-primary" onClick={() => handleEdit(a)}>Editar</button>
-                                        <button className="btn btn-danger" onClick={() => handleDelete(a.id)}>Eliminar</button>
-                                    </div>
-                                </div>
-                            );
-                        })}
+                                );
+                            });
+                        })()}
                     </div>
                 </div>
             );
