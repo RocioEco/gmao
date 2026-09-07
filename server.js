@@ -829,6 +829,7 @@ app.delete('/api/emplazamientos/:id', (req, res) => {
 app.get('/api/activos', (req, res) => {
   db.all(`SELECT a.*, 
                  e.nombre as emplazamiento_nombre,
+                 e.lat as emplazamiento_lat, e.lon as emplazamiento_lon,
                  z.id as zona_id, z.nombre as zona_nombre,
                  c.nombre as contrato_nombre,
                  cl.id as cliente_id, cl.nombre as cliente_nombre
