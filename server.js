@@ -1,3763 +1,1235 @@
-<!DOCTYPE html>
-<html lang="es">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GMAO - Sistema de Órdenes de Trabajo</title>
-    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <script src="https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        :root { color-scheme: light dark; }
-        body.light-theme {
-            --surface-0: #f8f9fa;
-            --surface-1: #ffffff;
-            --surface-2: #f0f2f5;
-            --text-primary: #1a1d23;
-            --text-secondary: #4a4f57;
-            --text-muted: #8b92a0;
-            --border: #d0d5dd;
-            --fill-accent: #0066cc;
-            --fill-accent-dark: #0052a3;
-            --on-accent: #ffffff;
-            --fill-success: #1e7e34;
-            --on-success: #ffffff;
-            --fill-danger: #d1293a;
-            --on-danger: #ffffff;
-            --fill-orange: #f5820a;
-            --fill-orange-dark: #d96f00;
-            --bg-accent: #e3f2fd;
-            --bg-success: #ecf5e9;
-            --bg-danger: #ffebee;
-            --bg-warning: #fff8e1;
-            --header-bg: #1a56db;
-            --header-bg-dark: #14409e;
-            --header-text: #ffffff;
+import express from 'express';
+import sqlite3 from 'sqlite3';
+import cors from 'cors';
+import bodyParser from 'body-parser';
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
+import bcrypt from 'bcryptjs';
+
+const app = express();
+const PORT = process.env.PORT || 3001;
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+app.use(cors());
+app.use(bodyParser.json({ limit: '25mb' }));
+app.use(express.static('public'));
+
+// Ruta de la base de datos: usa DB_PATH si está definida (para volumen persistente en Railway),
+// si no, cae en el archivo local './gmao.db' (desarrollo).
+const DB_PATH = process.env.DB_PATH || './gmao.db';
+const dbDir = path.dirname(DB_PATH);
+if (dbDir && dbDir !== '.' && !fs.existsSync(dbDir)) {
+  fs.mkdirSync(dbDir, { recursive: true });
+}
+
+// Inicializar base de datos SQLite
+const db = new sqlite3.Database(DB_PATH, (err) => {
+  if (err) console.error('Error al abrir BD:', err);
+  else console.log(`Base de datos SQLite conectada en: ${DB_PATH}`);
+});
+
+// Helpers en forma de Promesa para poder usar async/await con sqlite3
+function dbGet(sql, params = []) { return new Promise((resolve, reject) => db.get(sql, params, (err, row) => err ? reject(err) : resolve(row))); }
+function dbAll(sql, params = []) { return new Promise((resolve, reject) => db.all(sql, params, (err, rows) => err ? reject(err) : resolve(rows))); }
+function dbRun(sql, params = []) { return new Promise((resolve, reject) => db.run(sql, params, function (err) { err ? reject(err) : resolve(this); })); }
+
+// Migración única: convierte el inventario de switches (tabla auxiliar "switches") en Activos reales
+// del Cliente APA / Contrato SPA, con su Zona/Emplazamiento (incluyendo coordenadas GPS) y sus fotos.
+// Solo se ejecuta si el Cliente "APA" todavía no existe (así nunca se duplica en despliegues posteriores).
+// Registra los campos técnicos específicos de activos tipo "Switch" (Marca, S/N, IP, etc.).
+// Se ejecuta siempre al arrancar (INSERT OR IGNORE), independientemente de si la migración
+// de switches ya se hizo en un despliegue anterior.
+async function registrarCamposSwitch() {
+  try {
+    const campos = [
+      ['custom_marca', 'Marca', 'text', 80],
+      ['custom_sn', 'S/N', 'text', 81],
+      ['custom_ip', 'IP', 'text', 82],
+      ['custom_mascara_red', 'Máscara de red', 'text', 83],
+      ['custom_puerta_enlace', 'Puerta de enlace', 'text', 84],
+      ['custom_mac', 'MAC', 'text', 85]
+    ];
+    for (const [clave, etiqueta, tipo, orden] of campos) {
+      await dbRun(
+        `INSERT OR IGNORE INTO campos_config (entidad, clave, etiqueta, tipo, es_sistema, visible, orden, tipo_activo) VALUES ('activo', ?, ?, ?, 0, 1, ?, 'Switch')`,
+        [clave, etiqueta, tipo, orden]
+      );
+    }
+  } catch (e) {
+    console.error('Error registrando campos de Switch:', e.message);
+  }
+}
+
+// Registra los campos técnicos específicos de activos tipo "Persiana Motorizada" (Tipo de lama, Motor),
+// y oculta para ese tipo concreto los campos genéricos Fabricante/Modelo (que para persianas no aportan).
+async function registrarCamposPersiana() {
+  try {
+    await dbRun(
+      `INSERT OR IGNORE INTO campos_config (entidad, clave, etiqueta, tipo, es_sistema, visible, orden, tipo_activo) VALUES ('activo', 'custom_tipo_lama', 'Tipo de lama', 'text', 0, 1, 70, 'Persiana Motorizada')`
+    );
+    await dbRun(
+      `INSERT OR IGNORE INTO campos_config (entidad, clave, etiqueta, tipo, es_sistema, visible, orden, tipo_activo) VALUES ('activo', 'custom_motor', 'Motor', 'text', 0, 1, 71, 'Persiana Motorizada')`
+    );
+    for (const clave of ['fabricante', 'modelo']) {
+      const campo = await dbGet(`SELECT * FROM campos_config WHERE entidad = 'activo' AND clave = ?`, [clave]);
+      if (!campo) continue;
+      let excluidos = [];
+      try { excluidos = JSON.parse(campo.ocultar_en_tipos || '[]'); } catch { excluidos = []; }
+      if (!excluidos.includes('Persiana Motorizada')) {
+        excluidos.push('Persiana Motorizada');
+        await dbRun(`UPDATE campos_config SET ocultar_en_tipos = ? WHERE id = ?`, [JSON.stringify(excluidos), campo.id]);
+      }
+    }
+  } catch (e) {
+    console.error('Error registrando campos de Persiana:', e.message);
+  }
+}
+
+async function migrarSwitchesAActivos() {
+  try {
+    const yaExiste = await dbGet(`SELECT id FROM clientes WHERE nombre = ?`, ['APA']);
+    if (yaExiste) return;
+
+    const switches = await dbAll(`SELECT * FROM switches`);
+    if (!switches || switches.length === 0) return;
+
+    const cliente = await dbRun(`INSERT INTO clientes (nombre) VALUES (?)`, ['APA']);
+    const clienteId = cliente.lastID;
+
+    const contrato = await dbRun(`INSERT INTO contratos (cliente_id, nombre, estado) VALUES (?, ?, 'Activo')`, [clienteId, 'SPA']);
+    const contratoId = contrato.lastID;
+
+    let zona = await dbGet(`SELECT id FROM zonas WHERE nombre = ?`, ['Avilés']);
+    let zonaId;
+    if (zona) zonaId = zona.id;
+    else { const z = await dbRun(`INSERT INTO zonas (nombre) VALUES (?)`, ['Avilés']); zonaId = z.lastID; }
+
+    await dbRun(`INSERT OR IGNORE INTO tipos_activo (nombre, checklist_json) VALUES (?, '[]')`, ['Switch']);
+
+    await dbRun(`INSERT OR IGNORE INTO campos_config (entidad, clave, etiqueta, tipo, es_sistema, visible, orden) VALUES ('activo','custom_id_interno','ID Interno','text',0,1,89)`);
+    await dbRun(`INSERT OR IGNORE INTO campos_config (entidad, clave, etiqueta, tipo, es_sistema, visible, orden) VALUES ('activo','custom_codigo_origen','Código','text',0,1,89.5)`);
+    await dbRun(`INSERT OR IGNORE INTO campos_config (entidad, clave, etiqueta, tipo, es_sistema, visible, orden) VALUES ('activo','custom_reportado_por','Reportado por','text',0,1,90)`);
+    await dbRun(`INSERT OR IGNORE INTO campos_config (entidad, clave, etiqueta, tipo, es_sistema, visible, orden) VALUES ('activo','custom_fecha_alta','Fecha de alta','date',0,1,91)`);
+    await dbRun(`INSERT OR IGNORE INTO campos_config (entidad, clave, etiqueta, tipo, es_sistema, visible, orden) VALUES ('activo','custom_hora_alta','Hora de alta','text',0,1,92)`);
+
+    for (const s of switches) {
+      const emp = await dbRun(`INSERT INTO emplazamientos (zona_id, nombre, lat, lon) VALUES (?, ?, ?, ?)`, [zonaId, s.nombre, s.lat, s.lon]);
+      const empId = emp.lastID;
+
+      let fotosExtra = [];
+      try { fotosExtra = JSON.parse(s.fotos_extra_json || '[]'); } catch { fotosExtra = []; }
+      const fotos = [s.foto_interior, s.foto_exterior, ...fotosExtra].filter(Boolean);
+
+      const camposExtra = JSON.stringify({
+        custom_id_interno: s.id_interno || '',
+        custom_codigo_origen: s.codigo || '',
+        custom_reportado_por: s.reportado_por || '',
+        custom_fecha_alta: s.fecha || '',
+        custom_hora_alta: s.hora || ''
+      });
+
+      await dbRun(`INSERT INTO activos (emplazamiento_id, contrato_id, tipo, nombre, estado, observaciones, campos_extra, fotos_json)
+                   VALUES (?, ?, 'Switch', ?, 'Activo', ?, ?, ?)`,
+        [empId, contratoId, s.codigo || s.nombre, s.nota || '', camposExtra, JSON.stringify(fotos)]);
+    }
+
+    console.log(`✓ Migrados ${switches.length} switches a Activos (Cliente APA / Contrato SPA)`);
+  } catch (e) {
+    console.error('Error migrando switches a activos:', e.message);
+  }
+}
+
+// Crear tablas si no existen
+db.serialize(() => {
+  db.run(`CREATE TABLE IF NOT EXISTS usuarios (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    nombre TEXT NOT NULL,
+    email TEXT UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    rol TEXT NOT NULL,
+    activo INTEGER DEFAULT 1
+  )`);
+
+  db.run(`CREATE TABLE IF NOT EXISTS clientes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    nombre TEXT NOT NULL,
+    contacto TEXT,
+    telefono TEXT,
+    campos_extra TEXT DEFAULT '{}'
+  )`);
+  db.run(`ALTER TABLE clientes ADD COLUMN campos_extra TEXT DEFAULT '{}'`, () => {});
+
+  // ===== CAMPOS PERSONALIZABLES (Cliente / Contrato / Activo) =====
+  db.run(`CREATE TABLE IF NOT EXISTS campos_config (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    entidad TEXT NOT NULL,
+    clave TEXT NOT NULL,
+    etiqueta TEXT NOT NULL,
+    tipo TEXT DEFAULT 'text',
+    opciones TEXT DEFAULT '[]',
+    es_sistema INTEGER DEFAULT 0,
+    visible INTEGER DEFAULT 1,
+    orden INTEGER DEFAULT 0,
+    tipo_activo TEXT,
+    ocultar_en_tipos TEXT DEFAULT '[]',
+    creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(entidad, clave)
+  )`);
+  db.run(`ALTER TABLE campos_config ADD COLUMN tipo_activo TEXT`, () => {});
+  db.run(`ALTER TABLE campos_config ADD COLUMN ocultar_en_tipos TEXT DEFAULT '[]'`, () => {});
+
+  const seedCampo = (entidad, clave, etiqueta, tipo, orden, opciones) => {
+    db.run(`INSERT OR IGNORE INTO campos_config (entidad, clave, etiqueta, tipo, opciones, es_sistema, visible, orden) VALUES (?, ?, ?, ?, ?, 1, 1, ?)`,
+      [entidad, clave, etiqueta, tipo, JSON.stringify(opciones || []), orden]);
+  };
+  // Cliente
+  seedCampo('cliente', 'contacto', 'Contacto (email)', 'text', 1);
+  seedCampo('cliente', 'telefono', 'Teléfono', 'text', 2);
+  // Contrato
+  seedCampo('contrato', 'descripcion', 'Descripción', 'textarea', 1);
+  seedCampo('contrato', 'fecha_inicio', 'Fecha Inicio', 'date', 2);
+  seedCampo('contrato', 'fecha_fin', 'Fecha Fin', 'date', 3);
+  seedCampo('contrato', 'estado', 'Estado', 'select', 4, ['Activo', 'Inactivo', 'Pausado']);
+  // Activo (nota: "Tipo de Activo" no es configurable aquí porque determina el checklist de preventivo)
+  seedCampo('activo', 'fabricante', 'Fabricante', 'text', 1);
+  seedCampo('activo', 'modelo', 'Modelo', 'text', 2);
+  seedCampo('activo', 'estado', 'Estado', 'select', 3, ['Activo', 'Inactivo', 'En reparación', 'Dado de baja']);
+  seedCampo('activo', 'observaciones', 'Observaciones', 'textarea', 4);
+
+  db.run(`CREATE TABLE IF NOT EXISTS inventario (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    contrato TEXT NOT NULL,
+    zona TEXT NOT NULL,
+    equipo TEXT NOT NULL,
+    tipo TEXT,
+    estado TEXT DEFAULT 'Activo'
+  )`);
+
+  db.run(`CREATE TABLE IF NOT EXISTS ordenes_trabajo (
+    id TEXT PRIMARY KEY,
+    ticket TEXT,
+    id_cliente TEXT,
+    cliente_id INTEGER,
+    tipo TEXT NOT NULL,
+    estado TEXT NOT NULL,
+    prioridad TEXT DEFAULT 'media',
+    responsable_id INTEGER,
+    asignado_a INTEGER,
+    tecnicos_apoyo TEXT,
+    titulo TEXT NOT NULL,
+    notas TEXT,
+    activo_id INTEGER,
+    datos_json TEXT,
+    fecha_programada DATE,
+    fecha_cierre TIMESTAMP,
+    creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(cliente_id) REFERENCES clientes(id),
+    FOREIGN KEY(asignado_a) REFERENCES usuarios(id),
+    FOREIGN KEY(responsable_id) REFERENCES usuarios(id),
+    FOREIGN KEY(activo_id) REFERENCES activos(id)
+  )`);
+
+  // Migración segura para bases de datos ya existentes (ignora error si la columna ya existe)
+  db.run(`ALTER TABLE ordenes_trabajo ADD COLUMN activo_id INTEGER`, () => {});
+  db.run(`ALTER TABLE ordenes_trabajo ADD COLUMN datos_json TEXT`, () => {});
+  db.run(`ALTER TABLE ordenes_trabajo ADD COLUMN id_cliente TEXT`, () => {});
+  db.run(`ALTER TABLE ordenes_trabajo ADD COLUMN prioridad TEXT DEFAULT 'media'`, () => {});
+  db.run(`ALTER TABLE ordenes_trabajo ADD COLUMN tecnicos_apoyo TEXT`, () => {});
+  db.run(`ALTER TABLE ordenes_trabajo ADD COLUMN fecha_programada DATE`, () => {});
+  db.run(`ALTER TABLE ordenes_trabajo ADD COLUMN fecha_cierre TIMESTAMP`, () => {});
+  db.run(`ALTER TABLE ordenes_trabajo ADD COLUMN responsable_id INTEGER`, () => {});
+
+  db.run(`CREATE TABLE IF NOT EXISTS visitas (
+    id TEXT PRIMARY KEY,
+    orden_id TEXT NOT NULL,
+    fecha DATE,
+    tecnico_id INTEGER,
+    hora_inicio TEXT,
+    hora_fin TEXT,
+    id_mantis TEXT,
+    proyecto TEXT,
+    descripcion TEXT,
+    checklist_tipo TEXT,
+    checklist_json TEXT,
+    materiales_json TEXT,
+    fotos_json TEXT,
+    videos_json TEXT,
+    medio_ambiente_json TEXT,
+    seguridad_json TEXT,
+    desplazamientos_json TEXT,
+    firma TEXT,
+    firma_nombre TEXT,
+    finalizado INTEGER DEFAULT 0,
+    creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(orden_id) REFERENCES ordenes_trabajo(id),
+    FOREIGN KEY(tecnico_id) REFERENCES usuarios(id)
+  )`);
+
+  db.run(`ALTER TABLE visitas ADD COLUMN videos_json TEXT`, () => {});
+
+  db.run(`CREATE TABLE IF NOT EXISTS materiales (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    cliente_id INTEGER,
+    tipo TEXT,
+    descripcion TEXT NOT NULL,
+    unidad TEXT DEFAULT 'ud',
+    historial_json TEXT DEFAULT '[]',
+    creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(cliente_id) REFERENCES clientes(id)
+  )`);
+
+  // ===== INVENTARIO DE SWITCHES (SPA) =====
+  db.run(`CREATE TABLE IF NOT EXISTS switches (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id_interno TEXT,
+    codigo TEXT,
+    nombre TEXT NOT NULL,
+    tipo TEXT DEFAULT 'Switch',
+    lat REAL,
+    lon REAL,
+    reportado_por TEXT,
+    fecha DATE,
+    hora TEXT,
+    nota TEXT,
+    foto_interior TEXT,
+    foto_exterior TEXT,
+    fotos_extra_json TEXT DEFAULT '[]',
+    etiqueta_fotos_extra TEXT,
+    creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  )`);
+  db.run(`ALTER TABLE switches ADD COLUMN id_interno TEXT`, () => {});
+
+  // Carga automática (solo la primera vez, si la tabla está vacía) del inventario inicial de switches
+  db.get('SELECT COUNT(*) as n FROM switches', (err, row) => {
+    if (err) return;
+    if (!row || row.n === 0) {
+      const seedPath = path.join(__dirname, 'seed_switches.json');
+      if (fs.existsSync(seedPath)) {
+        try {
+          const seed = JSON.parse(fs.readFileSync(seedPath, 'utf8'));
+          const stmt = db.prepare(`INSERT INTO switches (id_interno, codigo, nombre, tipo, lat, lon, reportado_por, fecha, hora, nota, foto_interior, foto_exterior, fotos_extra_json, etiqueta_fotos_extra)
+                                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+          seed.forEach(s => {
+            stmt.run(s.id_interno, s.codigo, s.nombre, s.tipo || 'Switch', s.lat, s.lon, s.reportado_por, s.fecha, s.hora, s.nota,
+              s.foto_interior, s.foto_exterior, JSON.stringify(s.fotos_extra || []), s.etiqueta_fotos_extra);
+          });
+          stmt.finalize(() => {
+            console.log(`✓ Cargado inventario inicial de switches (${seed.length} registros)`);
+            registrarCamposSwitch();
+            registrarCamposPersiana();
+            migrarSwitchesAActivos();
+          });
+          return;
+        } catch (e) {
+          console.error('Error cargando seed_switches.json:', e.message);
         }
-        body.dark-theme {
-            --surface-0: #0d1117;
-            --surface-1: #161b22;
-            --surface-2: #21262d;
-            --text-primary: #e6edf3;
-            --text-secondary: #8b949e;
-            --text-muted: #6e7681;
-            --border: #30363d;
-            --fill-accent: #1f6feb;
-            --fill-accent-dark: #1960e8;
-            --on-accent: #ffffff;
-            --fill-success: #238636;
-            --on-success: #ffffff;
-            --fill-danger: #da3633;
-            --on-danger: #ffffff;
-            --fill-orange: #f5820a;
-            --fill-orange-dark: #d96f00;
-            --bg-accent: #0d47a1;
-            --bg-success: #1b4620;
-            --bg-danger: #3d2626;
-            --bg-warning: #3d3000;
-            --header-bg: #0f2f6b;
-            --header-bg-dark: #0a2050;
-            --header-text: #ffffff;
+      }
+    }
+    // Si la tabla switches ya tenía datos de un despliegue anterior (o no había seed que cargar),
+    // igualmente comprobamos si falta migrarlos a Activos.
+    registrarCamposSwitch();
+    registrarCamposPersiana();
+    migrarSwitchesAActivos();
+  });
+
+  db.run(`CREATE TABLE IF NOT EXISTS ordenes_guardia (
+    id TEXT PRIMARY KEY,
+    tecnico_id INTEGER NOT NULL,
+    titulo TEXT NOT NULL,
+    descripcion TEXT,
+    creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    estado TEXT DEFAULT 'pendiente',
+    FOREIGN KEY(tecnico_id) REFERENCES usuarios(id)
+  )`);
+
+  db.run(`CREATE TABLE IF NOT EXISTS contratos (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    cliente_id INTEGER NOT NULL,
+    nombre TEXT NOT NULL,
+    descripcion TEXT,
+    fecha_inicio DATE,
+    fecha_fin DATE,
+    estado TEXT DEFAULT 'Activo',
+    campos_extra TEXT DEFAULT '{}',
+    creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(cliente_id) REFERENCES clientes(id)
+  )`);
+  db.run(`ALTER TABLE contratos ADD COLUMN campos_extra TEXT DEFAULT '{}'`, () => {});
+
+  db.run(`CREATE TABLE IF NOT EXISTS zonas (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    nombre TEXT NOT NULL,
+    creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  )`);
+
+  // Migración: si la tabla zonas ya existe con la antigua columna contrato_id (versión previa
+  // donde una Zona dependía incorrectamente de un Contrato), la recreamos sin esa columna,
+  // preservando id/nombre/creado_en. Una Zona y un Emplazamiento son lugares físicos: pueden
+  // contener activos de distintos clientes y contratos.
+  db.all(`PRAGMA table_info(zonas)`, (err, cols) => {
+    if (err) return;
+    const tieneContratoId = cols.some(c => c.name === 'contrato_id');
+    if (tieneContratoId) {
+      db.serialize(() => {
+        db.run(`ALTER TABLE zonas RENAME TO zonas_old_migracion`);
+        db.run(`CREATE TABLE zonas (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          nombre TEXT NOT NULL,
+          creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`);
+        db.run(`INSERT INTO zonas (id, nombre, creado_en) SELECT id, nombre, creado_en FROM zonas_old_migracion`);
+        db.run(`DROP TABLE zonas_old_migracion`, (err2) => {
+          if (err2) console.error('Error al migrar tabla zonas:', err2);
+          else console.log('✓ Migración: zonas ya no dependen de contrato_id');
+        });
+      });
+    }
+  });
+
+  db.run(`CREATE TABLE IF NOT EXISTS emplazamientos (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    zona_id INTEGER NOT NULL,
+    nombre TEXT NOT NULL,
+    direccion TEXT,
+    lat REAL,
+    lon REAL,
+    creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(zona_id) REFERENCES zonas(id)
+  )`);
+  db.run(`ALTER TABLE emplazamientos ADD COLUMN lat REAL`, () => {});
+  db.run(`ALTER TABLE emplazamientos ADD COLUMN lon REAL`, () => {});
+
+  db.run(`CREATE TABLE IF NOT EXISTS activos (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    emplazamiento_id INTEGER NOT NULL,
+    contrato_id INTEGER NOT NULL,
+    tipo TEXT,
+    nombre TEXT NOT NULL,
+    fabricante TEXT,
+    modelo TEXT,
+    estado TEXT DEFAULT 'Activo',
+    observaciones TEXT,
+    campos_extra TEXT DEFAULT '{}',
+    fotos_json TEXT DEFAULT '[]',
+    creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(emplazamiento_id) REFERENCES emplazamientos(id),
+    FOREIGN KEY(contrato_id) REFERENCES contratos(id)
+  )`);
+  db.run(`ALTER TABLE activos ADD COLUMN campos_extra TEXT DEFAULT '{}'`, () => {});
+  db.run(`ALTER TABLE activos ADD COLUMN fotos_json TEXT DEFAULT '[]'`, () => {});
+
+  db.run(`CREATE TABLE IF NOT EXISTS tipos_activo (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    nombre TEXT UNIQUE NOT NULL,
+    checklist_json TEXT DEFAULT '[]',
+    creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  )`);
+
+  // Checklists por defecto (idénticos a los que venían predefinidos en la app)
+  const CHECKLIST_PUERTA = [
+    { type: 'fields', title: 'Datos del Equipo', fields: [
+      { key: 'fabricante', label: 'Fabricante', type: 'text' },
+      { key: 'modelo', label: 'Modelo', type: 'text' },
+      { key: 'cuadro_control', label: 'Cuadro de control', type: 'text' },
+      { key: 'telemando', label: 'Telemando', type: 'select', options: ['Sí', 'No'] },
+      { key: 'tipo_telemando', label: 'Tipo de telemando', type: 'text' },
+      { key: 'ref_ubicacion', label: 'Referencia de ubicación', type: 'text' },
+      { key: 'fecha_instalacion', label: 'Fecha instalación', type: 'date' },
+      { key: 'anio_fabricacion', label: 'Año fabricación', type: 'text' },
+      { key: 'dispositivos_seguridad', label: 'Dispositivos de seguridad', type: 'select', options: ['Sí', 'No'] },
+      { key: 'tipo_dispositivo_seguridad', label: 'Tipo de dispositivo', type: 'text' },
+      { key: 'finales_carrera', label: 'Finales de carrera', type: 'select', options: ['Sí', 'No'] },
+      { key: 'tipo_finales_carrera', label: 'Tipo finales de carrera', type: 'text' }
+    ]},
+    { type: 'inspection', title: 'Inspección', grupos: [
+      { titulo: 'Inspección', items: [
+        'Comprobación visual', 'Control de estructura y fijaciones', 'Verificación de correcta apertura y cierre',
+        'Comprobación de elementos de seguridad', 'Comprobación de finales de carrera',
+        'Verificación de mecanismo de mando de emergencia', 'Lubricación de partes mecánicas'
+      ]},
+      { titulo: 'Limpieza y ajuste general de los mecanismos', items: [
+        'Limpieza interior cajón mecanismo y revisión de sistema de fijación operador',
+        'Limpieza y verificación estado perfil de rodadura',
+        'Ajuste y revisión correa de tracción, piñones motor y poleas de transmisión',
+        'Carros desplazamiento. Revisión tornillería y suspensiones hojas. Ajuste ruedas concéntricas/excéntricas. Revisión gomas.',
+        'Repaso y ajuste tornillería de todos los elementos del operador. Revisión topes final de carrera.',
+        'Inspección y sustitución de topes goma final carrera (si requiere)',
+        'Inspección de grupo motor',
+        'Inspección y cambio de ruedas concéntricas y excéntricas (si requiere)',
+        'Inspección de carril de rodadura', 'Verificación, ajuste y ensayo'
+      ]},
+      { titulo: 'Ajuste y verificación de hojas y guías', items: [
+        'Revisión y ajuste de hojas móviles. Verificación desplazamiento.',
+        'Revisión, limpieza, engrase y fijación de guiadores, guías SOS y guías de seguridad.',
+        'Cambio de guías (si requiere)'
+      ]},
+      { titulo: 'Verificación de conexiones eléctricas, elementos de seguridad y mando', items: [
+        'Detectores magnéticos', 'Revisión y ensayo cerrojo interior. Comprobación de la holgura del cerrojo con pletinas cierre.',
+        'Revisión y ensayo fotocélulas seguridad y/o apertura.', 'Revisión y ensayo selector de mando.',
+        'Revisión y ensayo llave exterior/pulsadores/avisadores acústicos y conexiones a elementos externos',
+        'Comprobación de automáticos diferenciales'
+      ]},
+      { titulo: 'Reglaje de parámetros y ensayo. Sistemas antipánico', items: [
+        'Reglaje de rádares', 'Verificar y ajustar parámetros + autoajuste de la puerta',
+        'Batería antipánico 24V. Comprobar carga. Ensayo y maniobra. (Si aplica)',
+        'Cambio de la batería (si requiere)',
+        'Antipánico puerta SOS. Ensayo de maniobra. Comprobar fuerza a aplicar abatibilidad de hojas.',
+        'Antipánico mecánico CO-48. Revisión conexiones, poleas y caucho tracción. Ensayo de maniobra.'
+      ]},
+      { titulo: 'Telemando', items: [
+        'Comprobación de apertura y cierre telemandado',
+        'Comprobación de señales de estado (puerta abierta, cerrada, en tránsito)',
+        'Verificación de cuadro de control de telemando', 'Conexión con autómata y test',
+        'Comprobación de modos de funcionamiento (paso libre, bloqueo, sólo salida)',
+        'Comprobación de interruptor de mando local de puerta'
+      ]}
+    ]}
+  ];
+
+  const CHECKLIST_PERSIANA = [
+    { type: 'fields', title: 'Datos del Equipo', fields: [
+      { key: 'tipo_lamas', label: 'Tipo de lamas', type: 'text' },
+      { key: 'motor', label: 'Motor', type: 'text' },
+      { key: 'telemando', label: 'Telemando', type: 'select', options: ['Sí', 'No'] },
+      { key: 'tipo_telemando', label: 'Tipo de telemando', type: 'text' },
+      { key: 'ref_ubicacion', label: 'Referencia de ubicación', type: 'text' },
+      { key: 'fecha_instalacion', label: 'Fecha instalación', type: 'date' },
+      { key: 'anio_fabricacion', label: 'Año fabricación', type: 'text' },
+      { key: 'finales_carrera_adicionales', label: 'Finales de carrera adicionales', type: 'select', options: ['Sí', 'No'] },
+      { key: 'tipo_finales_carrera_ad', label: 'Tipo (finales adicionales)', type: 'text' },
+      { key: 'detectores_presencia', label: 'Detectores de presencia', type: 'select', options: ['Sí', 'No'] },
+      { key: 'tipo_detectores', label: 'Tipo detectores', type: 'text' },
+      { key: 'mecanismo_desbloqueo', label: 'Mecanismo desbloqueo emergencia', type: 'select', options: ['Sí', 'No'] },
+      { key: 'tipo_mec_desbloqueo', label: 'Tipo mecanismo desbloqueo', type: 'text' }
+    ]},
+    { type: 'inspection', title: 'Inspección', grupos: [
+      { titulo: 'Inspección', items: [
+        'Comprobación visual', 'Control de estructura y fijaciones', 'Verificación de correcta apertura y cierre',
+        'Comprobación de elementos de seguridad', 'Comprobación de finales de carrera',
+        'Verificación de mecanismo de desbloqueo de emergencia', 'Revisión de cerradura, lubricación y limpieza'
+      ]},
+      { titulo: 'Limpieza y ajuste del cajón de la persiana', items: [
+        'Limpieza interior cajón de la persiana y revisión del motor.',
+        'Ajuste y revisión del eje del motor de la persiana.',
+        'Revisión del estado del cojinete del eje de la persiana.',
+        'Repaso y ajuste tornillería de todos los elementos del grupo motor.',
+        'Estado de las tapas y chapas del exterior del cajón de la persiana.',
+        'Revisión del cable del mecanismo de apertura manual de emergencia.',
+        'Verificación de la existencia de manivela de apertura de emergencia.'
+      ]},
+      { titulo: 'Ajuste y verificación de las lamas', items: [
+        'Revisión de los topes de las lamas de la persiana.',
+        'Revisión del estado de la goma de la lama inferior de la persiana.',
+        'Revisión de las lamas de la persiana.',
+        'Revisión de los flejes de sujeción de las lamas al eje del motor.',
+        'Limpieza, lubricación y verificación del estado de las guías y gomas.'
+      ]},
+      { titulo: 'Verificación de conexiones eléctricas, elementos de seguridad y mando', items: [
+        'Revisión y ensayo del sistema de desbloqueo manual de emergencia.',
+        'Revisión y ensayo del funcionamiento de los finales de carrera del motor.',
+        'Revisión y ensayo del funcionamiento del motor (subir/bajar persiana).',
+        'Revisión y ensayo del pulsador de la cerradura de la persiana.',
+        'Revisión y ensayo de los pulsadores de subida y bajada del cuadro de control.',
+        'Revisión y ensayo de los detectores de presencia de seguridad.'
+      ]},
+      { titulo: 'Telemando', items: [
+        'Comprobación de apertura y cierre telemandado.',
+        'Comprobación de señales de estado (abierta, cerrada, en tránsito).',
+        'Verificación de cuadro de control de telemando.', 'Conexión con autómata y test.',
+        'Comprobación del funcionamiento de los detectores de presencia.',
+        'Comprobación de interruptor de mando local de la persiana.', 'Comprobación de relés.'
+      ]}
+    ]}
+  ];
+
+  const CHECKLIST_CCAA_VEHICULAR = [
+    { type: 'grid', title: 'Barreras', rows: ['Entrada Ext', 'Entrada Int', 'Salida Ext', 'Salida Int'],
+      columns: ['E. Físico', 'Motor/Red', 'Muelle', 'Engrase', 'Semáforo', 'Mástil', 'Fotocélulas', 'Leds', 'Detectores', 'Lazos', 'Conexiones'],
+      options: ['ok', 'no ok', 'N/A'] },
+    { type: 'grid', title: 'Rack', rows: ['Rack'],
+      columns: ['E. Físico', 'Controlador', 'Diferenciales', 'SAI', 'Interfonía E', 'Interfonía S', 'Conexiones'],
+      options: ['ok', 'no ok', 'N/A'] },
+    { type: 'grid', title: 'Cámara OCR', rows: ['Entrada Ext', 'Salida Int'],
+      columns: ['E. Físico', 'Fijación', 'Lectura', 'Conexiones'],
+      options: ['ok', 'no ok', 'N/A'] },
+    { type: 'textarea', title: 'Observaciones Generales', key: 'observaciones_generales' }
+  ];
+
+  const CHECKLIST_CCAA_PEATONAL = [
+    { type: 'grid', title: 'Torno', rows: ['Torno'],
+      columns: ['E. Físico', 'Controlador', 'Lector RFID', 'Lector QR', 'Engrase', 'Conexiones'],
+      options: ['ok', 'no ok', 'N/A'] },
+    { type: 'grid', title: 'Rack', rows: ['Rack'],
+      columns: ['E. Físico', 'Controlador', 'Diferenciales', 'SAI', 'Interfonía E', 'Interfonía S', 'Conexiones'],
+      options: ['ok', 'no ok', 'N/A'] },
+    { type: 'grid', title: 'Portón', rows: ['Portón'],
+      columns: ['E. Físico', 'Motor', 'Engrase'],
+      options: ['ok', 'no ok', 'N/A'] },
+    { type: 'textarea', title: 'Observaciones Generales', key: 'observaciones_generales' }
+  ];
+
+  const CHECKLIST_CCTV = [
+    { type: 'fields', title: 'Datos de la Cámara', fields: [
+      { key: 'estado_camara', label: 'Estado general cámara', type: 'select', options: ['OK', 'NO OK'] },
+      { key: 'estado_cableado', label: 'Estado general cableado', type: 'select', options: ['OK', 'NO OK'] },
+      { key: 'estado_soporte', label: 'Estado general soporte', type: 'select', options: ['OK', 'NO OK'] },
+      { key: 'limpieza_camara', label: 'Limpieza de cámara realizada', type: 'select', options: ['SI', 'NO'] },
+      { key: 'tratamiento_insectos', label: 'Tratamiento insectos realizado', type: 'select', options: ['SI', 'NO'] }
+    ]},
+    { type: 'textarea', title: 'Observaciones', key: 'observaciones' }
+  ];
+
+  const seedTipo = (nombre, checklist) => {
+    db.run(`INSERT OR IGNORE INTO tipos_activo (nombre, checklist_json) VALUES (?, ?)`, [nombre, JSON.stringify(checklist)]);
+  };
+  seedTipo('Puerta Automática', CHECKLIST_PUERTA);
+  seedTipo('Persiana Motorizada', CHECKLIST_PERSIANA);
+  seedTipo('Control Acceso Vehicular', CHECKLIST_CCAA_VEHICULAR);
+  seedTipo('Control Acceso Peatonal', CHECKLIST_CCAA_PEATONAL);
+  seedTipo('CCTV', CHECKLIST_CCTV);
+  seedTipo('Otro', []);
+
+  // Insertar datos iniciales (contraseñas encriptadas)
+  const adminPass = bcrypt.hashSync('admin123', 10);
+  const supervisorPass = bcrypt.hashSync('supervisor123', 10);
+  const tecnicoPass = bcrypt.hashSync('tecnico123', 10);
+  
+  db.run(`INSERT OR IGNORE INTO usuarios (id, nombre, email, password_hash, rol, activo) 
+          VALUES (1, 'Admin', 'admin@gmao.com', ?, 'admin', 1)`, [adminPass]);
+  db.run(`INSERT OR IGNORE INTO usuarios (id, nombre, email, password_hash, rol, activo) 
+          VALUES (2, 'Supervisor', 'supervisor@gmao.com', ?, 'supervisor', 1)`, [supervisorPass]);
+  db.run(`INSERT OR IGNORE INTO usuarios (id, nombre, email, password_hash, rol, activo) 
+          VALUES (3, 'Técnico 1', 'tecnico@gmao.com', ?, 'tecnico', 1)`, [tecnicoPass]);
+
+  db.run(`INSERT OR IGNORE INTO clientes (id, nombre, contacto, telefono) VALUES (1, 'Renfe', 'contacto@renfe.com', '911234567')`);
+  db.run(`INSERT OR IGNORE INTO clientes (id, nombre, contacto, telefono) VALUES (2, 'Deimos', 'info@deimos.com', '912345678')`);
+  db.run(`INSERT OR IGNORE INTO clientes (id, nombre, contacto, telefono) VALUES (3, 'Inetum', 'soporte@inetum.com', '913456789')`);
+  db.run(`INSERT OR IGNORE INTO clientes (id, nombre, contacto, telefono) VALUES (4, 'SPA', 'admin@spa.com', '914567890')`);
+});
+
+// AUTENTICACIÓN
+app.post('/api/auth/login', (req, res) => {
+  const { email, password } = req.body;
+  db.get('SELECT * FROM usuarios WHERE email = ? AND activo = 1', [email], (err, row) => {
+    if (err) return res.status(500).json({ error: 'Error en servidor' });
+    if (row && bcrypt.compareSync(password, row.password_hash)) {
+      res.json({ id: row.id, nombre: row.nombre, email: row.email, rol: row.rol });
+    } else {
+      res.status(401).json({ error: 'Email o contraseña inválida' });
+    }
+  });
+});
+
+// USUARIOS
+app.get('/api/usuarios', (req, res) => {
+  db.all('SELECT id, nombre, email, rol, activo FROM usuarios', (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows);
+  });
+});
+
+app.post('/api/usuarios', (req, res) => {
+  const { nombre, email, password, rol } = req.body;
+  if (!nombre || !email || !password) {
+    return res.status(400).json({ error: 'Nombre, email y contraseña requeridos' });
+  }
+  
+  const passwordHash = bcrypt.hashSync(password, 10);
+  db.run('INSERT INTO usuarios (nombre, email, password_hash, rol, activo) VALUES (?, ?, ?, ?, 1)',
+    [nombre, email, passwordHash, rol], function(err) {
+      if (err) {
+        if (err.message.includes('UNIQUE')) {
+          return res.status(400).json({ error: 'El email ya está registrado' });
         }
-        html, body { max-width: 100%; overflow-x: hidden; }
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--surface-0); color: var(--text-primary); line-height: 1.6; transition: background-color 0.3s, color 0.3s; }
-        .container { max-width: 100%; width: 100%; }
-        .login-screen { min-height: 100vh; padding: 2rem 1rem; background: linear-gradient(135deg, var(--header-bg) 0%, var(--header-bg-dark) 100%); display: flex; align-items: center; justify-content: center; }
-        .login-card { background: var(--surface-1); border-radius: 12px; padding: 2rem; width: 100%; max-width: 420px; box-shadow: 0 10px 40px rgba(0,0,0,0.15); }
-        .login-logo { display: flex; justify-content: center; margin-bottom: 1rem; }
-        .login-logo img { max-width: 220px; height: auto; }
-        .login-card h1 { font-size: 28px; font-weight: 700; text-align: center; margin-bottom: 0.5rem; color: var(--fill-accent); }
-        .login-card p { text-align: center; color: var(--text-secondary); margin-bottom: 2rem; font-size: 14px; }
-        .form-group { margin-bottom: 14px; }
-        .form-group label { display: block; font-size: 13px; margin-bottom: 6px; color: var(--text-primary); font-weight: 500; }
-        input, select, textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; font-family: inherit; background: var(--surface-1); color: var(--text-primary); }
-        input:focus, select:focus, textarea:focus { outline: none; border-color: var(--fill-accent); box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1); }
-        .login-btn { width: 100%; padding: 12px; background: linear-gradient(135deg, var(--header-bg) 0%, var(--header-bg-dark) 100%); color: white; border: none; border-radius: 8px; font-weight: 600; font-size: 15px; cursor: pointer; transition: opacity 0.2s; margin-top: 1rem; }
-        .login-btn:hover:not(:disabled) { opacity: 0.9; }
-        .login-btn:disabled { opacity: 0.6; cursor: not-allowed; }
-        .error-message { color: var(--fill-danger); font-size: 12px; margin-bottom: 12px; }
-        .credentials-info { margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--border); }
-        .credentials-info p { font-size: 12px; color: var(--text-secondary); margin-bottom: 8px; }
-        .credentials-list { font-size: 11px; color: var(--text-muted); }
-        .credentials-list p { margin: 4px 0; }
-        .dashboard { min-height: 100vh; background: var(--surface-0); overflow-x: hidden; max-width: 100%; }
-        .header { background: var(--header-bg); border-bottom: 1px solid var(--header-bg-dark); padding: 1rem; position: sticky; top: 0; z-index: 100; }
-        .header-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
-        .header-left { display: flex; align-items: center; gap: 12px; }
-        .header-logo { width: 130px; height: 40px; border-radius: 8px; background: #ffffff; display: flex; align-items: center; justify-content: center; flex-shrink: 0; padding: 4px 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.15); }
-        .header-logo img { width: 100%; height: 100%; object-fit: contain; }
-        .header-user { display: flex; flex-direction: column; }
-        .header-user h2 { font-size: 15px; font-weight: 600; margin: 0; color: var(--header-text); }
-        .header-user p { font-size: 12px; color: rgba(255,255,255,0.8); margin: 2px 0 0 0; }
-        .header-right { display: flex; gap: 8px; align-items: center; }
-        .theme-toggle { padding: 8px 12px; background: #ffffff; border: 1px solid #ffffff; border-radius: 8px; cursor: pointer; font-size: 12px; color: var(--header-bg); font-weight: 600; transition: all 0.2s; }
-        .theme-toggle:hover { background: rgba(255,255,255,0.9); }
-        .logout-btn { padding: 8px 12px; background: #ffffff; border: 1px solid #ffffff; border-radius: 8px; cursor: pointer; font-size: 12px; color: var(--header-bg); font-weight: 600; transition: all 0.2s; }
-        .logout-btn:hover { background: rgba(255,255,255,0.9); }
-        .nav-tabs { display: flex; overflow-x: auto; -webkit-overflow-scrolling: touch; gap: 4px; scrollbar-width: thin; padding-bottom: 2px; }
-        .nav-btn { padding: 8px 14px; background: transparent; border: none; border-radius: 8px; cursor: pointer; font-size: 12px; font-weight: 500; transition: all 0.2s; color: rgba(255,255,255,0.85); flex: 0 0 auto; white-space: nowrap; }
-        .nav-btn:hover { background: rgba(255,255,255,0.12); color: #ffffff; }
-        .nav-btn.active { background: #ffffff; color: var(--header-bg); font-weight: 700; }
-        .content { padding: 1rem; }
-        .section-title { font-size: 20px; font-weight: 600; margin-bottom: 1.5rem; color: var(--text-primary); }
-        .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 1rem; margin-bottom: 1rem; }
-        .card-title { font-size: 14px; font-weight: 600; color: var(--text-primary); }
-        .card-text { font-size: 12px; color: var(--text-secondary); margin: 4px 0; }
-        .metrics-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 1.5rem; }
-        .metric-card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; text-align: center; }
-        .metric-label { font-size: 12px; color: var(--text-secondary); margin-bottom: 8px; }
-        .metric-value { font-size: 24px; font-weight: 700; color: var(--fill-accent); }
-        textarea { resize: vertical; min-height: 80px; }
-        .btn { padding: 8px 12px; border: none; border-radius: 8px; cursor: pointer; font-size: 12px; font-weight: 500; transition: all 0.2s; }
-        .btn-primary { background: var(--fill-accent); color: white; }
-        .btn-primary:hover { background: var(--fill-accent-dark); }
-        .btn-success { background: var(--fill-accent); color: white; }
-        .btn-success:hover { background: var(--fill-accent-dark); }
-        .btn-crear { background: var(--fill-orange); color: white; }
-        .btn-crear:hover { background: var(--fill-orange-dark); }
-        .btn-danger { background: var(--fill-danger); color: white; }
-        .btn-secondary { background: var(--surface-1); border: 1px solid var(--border); color: var(--text-primary); }
-        .btn-secondary:hover { background: var(--surface-2); }
-        .btn-group { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 1rem; }
-        .list { display: grid; gap: 12px; }
-        .list-item { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 1rem; }
-        .list-item:hover { border-color: var(--fill-accent); }
-        .list-item-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; }
-        .empty-state { text-align: center; padding: 2rem; color: var(--text-secondary); }
-        .badge { font-size: 11px; padding: 4px 8px; border-radius: 6px; font-weight: 500; }
-        .badge.correctivo { background: var(--bg-danger); color: var(--fill-danger); }
-        .badge.preventivo { background: var(--bg-success); color: var(--fill-success); }
-        .badge.obra { background: var(--bg-warning); color: #b8860b; }
-        .badge.admin { background: var(--bg-accent); color: var(--fill-accent); }
-        .badge.supervisor { background: #e8f0ff; color: #0052a3; }
-        .badge.tecnico { background: #f0f0f0; color: #666; }
-        @media (max-width: 768px) { .metrics-grid { grid-template-columns: repeat(2, 1fr); } }
-        .toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-        .btn-excel { background: var(--surface-1); border: 1px solid var(--border); color: var(--text-primary); display: inline-flex; align-items: center; gap: 4px; }
-        .btn-excel:hover { background: var(--surface-2); }
-        .btn-import { background: var(--surface-1); border: 1px solid var(--border); color: var(--text-primary); }
-        .file-input-hidden { display: none; }
-        .breadcrumb-path { font-size: 11px; color: var(--text-muted); margin: 2px 0; }
-        .select-disabled { opacity: 0.5; cursor: not-allowed; }
-        .import-summary { background: var(--bg-accent); border-radius: 8px; padding: 10px; font-size: 12px; margin-top: 8px; color: var(--text-primary); }
-        .checklist-section { margin-bottom: 1.25rem; }
-        .checklist-section-title { font-size: 13px; font-weight: 700; color: var(--fill-accent); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; padding-bottom: 4px; border-bottom: 2px solid var(--border); }
-        .insp-table { width: 100%; border-collapse: collapse; font-size: 12px; }
-        .insp-table th { text-align: left; padding: 6px 4px; border-bottom: 1px solid var(--border); color: var(--text-secondary); font-weight: 600; }
-        .insp-table td { padding: 6px 4px; border-bottom: 1px solid var(--border); vertical-align: middle; }
-        .insp-radio-group { display: flex; gap: 10px; align-items: center; }
-        .insp-radio-group label { display: flex; align-items: center; gap: 3px; font-size: 11px; white-space: nowrap; }
-        .insp-obs-input { min-width: 90px; }
-        .grid-table-wrap { overflow-x: auto; }
-        .grid-table { width: 100%; border-collapse: collapse; font-size: 11px; min-width: 500px; }
-        .grid-table th, .grid-table td { border: 1px solid var(--border); padding: 4px; text-align: center; }
-        .grid-table th { background: var(--surface-2); font-weight: 600; }
-        .grid-table select { font-size: 11px; padding: 4px; }
-        .dyn-row { display: grid; gap: 6px; padding: 8px; background: var(--surface-2); border-radius: 8px; margin-bottom: 6px; }
-        .dyn-row-actions { display: flex; justify-content: flex-end; }
-        .btn-remove-row { background: var(--bg-danger); color: var(--fill-danger); font-size: 11px; padding: 4px 8px; border: none; border-radius: 6px; cursor: pointer; }
-        .btn-add-row { background: var(--bg-success); color: var(--fill-success); font-size: 12px; padding: 6px 10px; border: none; border-radius: 6px; cursor: pointer; margin-top: 4px; }
-        .tipo-filter-bar { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 1rem; }
-        .tipo-filter-btn { padding: 6px 10px; border-radius: 20px; border: 1px solid var(--border); background: transparent; color: var(--text-primary); font-size: 11px; cursor: pointer; }
-        .tipo-filter-btn.active { background: var(--fill-accent); color: white; border-color: var(--fill-accent); }
-        .badge.guardia { background: var(--bg-warning); color: #b8860b; }
-        .readonly-view { font-size: 12px; }
-        .readonly-view .rv-row { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed var(--border); }
-        .readonly-view .rv-label { color: var(--text-secondary); }
-        .readonly-view .rv-value { font-weight: 600; text-align: right; }
-        .photo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); gap: 8px; margin-top: 8px; }
-        .photo-thumb { position: relative; aspect-ratio: 1; border-radius: 8px; overflow: hidden; border: 1px solid var(--border); }
-        .photo-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
-        .photo-thumb .photo-remove { position: absolute; top: 2px; right: 2px; background: rgba(0,0,0,0.6); color: white; border: none; border-radius: 50%; width: 20px; height: 20px; font-size: 12px; cursor: pointer; line-height: 1; }
-        .photo-add-btn { display: flex; align-items: center; justify-content: center; aspect-ratio: 1; border: 2px dashed var(--border); border-radius: 8px; cursor: pointer; color: var(--text-secondary); font-size: 24px; background: var(--surface-2); }
-        .signature-pad-wrap { border: 1px solid var(--border); border-radius: 8px; background: white; touch-action: none; }
-        .signature-pad-wrap canvas { display: block; width: 100%; height: 150px; }
-        .material-picker-row { display: grid; grid-template-columns: 2fr 1fr; gap: 6px; margin-bottom: 6px; }
-        .prioridad-badge { font-size: 10px; padding: 2px 6px; border-radius: 4px; font-weight: 600; margin-left: 6px; }
-        .prioridad-badge.baja { background: #e8f0ff; color: #0052a3; }
-        .prioridad-badge.media { background: var(--bg-warning); color: #b8860b; }
-        .prioridad-badge.alta { background: var(--bg-danger); color: var(--fill-danger); }
-        .prioridad-badge.urgente { background: var(--fill-danger); color: white; }
-        .visita-card { background: var(--surface-2); border-radius: 8px; padding: 10px; margin-bottom: 8px; }
-        .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
-        .cal-weekday { text-align: center; font-size: 10px; color: var(--text-muted); font-weight: 600; padding: 4px 0; }
-        .cal-cell { aspect-ratio: 1; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-1); display: flex; flex-direction: column; align-items: center; justify-content: center; cursor: pointer; padding: 2px; }
-        .cal-cell.empty { border: none; background: transparent; cursor: default; }
-        .cal-cell.today { border-color: var(--fill-accent); border-width: 2px; }
-        .cal-daynum { font-size: 12px; font-weight: 600; }
-        .cal-dots { display: flex; gap: 2px; margin-top: 2px; }
-        .cal-dots i { width: 5px; height: 5px; border-radius: 50%; display: inline-block; }
-        .cal-legend { display: flex; gap: 12px; font-size: 11px; margin-bottom: 8px; color: var(--text-secondary); }
-        .cal-legend i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 4px; }
-        .price-history-row { display: flex; justify-content: space-between; font-size: 12px; padding: 4px 0; border-bottom: 1px dashed var(--border); }
-        .campo-badge-visible { background: var(--bg-success); color: var(--fill-success); }
-        .campo-badge-oculto { background: var(--bg-danger); color: var(--fill-danger); }
-        .tipo-count-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
-        .tipo-count-pill { font-size: 11px; padding: 3px 8px; border-radius: 12px; border: 1px solid; font-weight: 600; }
-        .bar-chart-wrap { width: 100%; }
-        .tecnico-dash-card { margin-bottom: 10px; }
-        .tecnico-dash-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
-        .grid-row-card { margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
-        .grid-row-title { font-weight: 600; font-size: 13px; margin-bottom: 6px; }
-        .grid-radio-wrap { display: flex; flex-wrap: wrap; gap: 10px; }
-        .grid-radio-col { min-width: 100px; }
-        .grid-radio-label { font-size: 11px; color: var(--text-secondary); margin-bottom: 4px; }
-        .grid-radio-options { display: flex; flex-direction: column; gap: 2px; }
-        .grid-radio-option { display: flex; align-items: center; gap: 4px; font-size: 11px; white-space: nowrap; }
-        .grid-row-obs { margin-top: 8px; }
-        .video-list { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
-        .video-item { position: relative; background: var(--surface-2); border-radius: 8px; padding: 6px; }
-        .video-item video { width: 100%; border-radius: 6px; display: block; }
-        .video-remove { margin-top: 4px; }
-        .btn-video-add { display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; border: 2px dashed var(--border); border-radius: 8px; cursor: pointer; color: var(--text-secondary); background: var(--surface-2); font-size: 12px; }
-        .finalizar-banner { display: flex; align-items: center; gap: 12px; padding: 14px; border-radius: 12px; margin: 16px 0; cursor: pointer; border: 2px solid var(--border); background: var(--surface-2); transition: all 0.2s; }
-        .finalizar-banner.activo { background: var(--bg-success); border-color: var(--fill-success); }
-        .finalizar-banner input[type="checkbox"] { width: 22px; height: 22px; flex-shrink: 0; cursor: pointer; }
-        .finalizar-banner-text { flex: 1; }
-        .finalizar-banner-title { font-weight: 700; font-size: 14px; margin: 0; }
-        .finalizar-banner.activo .finalizar-banner-title { color: var(--fill-success); }
-        .finalizar-banner-sub { font-size: 12px; color: var(--text-secondary); margin: 2px 0 0; }
-        .notif-toggle { padding: 8px 10px; background: #ffffff; border: 1px solid #ffffff; border-radius: 8px; cursor: pointer; font-size: 12px; color: var(--header-bg); font-weight: 600; }
-        .notif-toggle.on { background: var(--fill-orange); border-color: var(--fill-orange); color: white; }
-        .toast-wrap { position: fixed; top: 16px; right: 16px; left: 16px; z-index: 1000; display: flex; flex-direction: column; gap: 8px; align-items: flex-end; pointer-events: none; }
-        .toast-card { pointer-events: auto; background: var(--surface-1); border: 1px solid var(--fill-orange); border-left: 5px solid var(--fill-orange); border-radius: 10px; padding: 12px 14px; max-width: 360px; width: 100%; box-shadow: 0 8px 24px rgba(0,0,0,0.2); cursor: pointer; animation: toast-in 0.25s ease-out; }
-        @keyframes toast-in { from { transform: translateY(-12px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
-        .toast-title { font-weight: 700; font-size: 13px; margin: 0 0 2px; color: var(--fill-orange); }
-        .toast-body { font-size: 12px; color: var(--text-primary); margin: 0; }
-        .field-with-add { display: flex; gap: 6px; align-items: stretch; }
-        .field-with-add select, .field-with-add input { flex: 1; }
-        .btn-quickadd { flex-shrink: 0; padding: 0 12px; background: var(--bg-accent); color: var(--fill-accent); border: 1px solid var(--fill-accent); border-radius: 8px; cursor: pointer; font-size: 16px; font-weight: 700; line-height: 1; }
-        .btn-quickadd:hover { background: var(--fill-accent); color: white; }
-        .quickadd-box { background: var(--bg-accent); border: 1px dashed var(--fill-accent); border-radius: 8px; padding: 10px; margin-top: 6px; }
-        .quickadd-box input, .quickadd-box select { margin-bottom: 6px; }
-        .quickadd-actions { display: flex; gap: 8px; margin-top: 4px; }
-        .nav-badge { position: absolute; top: -4px; right: -4px; background: var(--fill-danger); color: white; font-size: 10px; font-weight: 700; border-radius: 10px; padding: 1px 5px; min-width: 16px; text-align: center; }
-        .field-locked { opacity: 0.6; }
-        .lock-note { font-size: 11px; color: var(--text-muted); margin: -4px 0 8px; font-style: italic; }
-    </style>
-</head>
-<body class="light-theme">
-    <div id="root"></div>
+        return res.status(500).json({ error: err.message });
+      }
+      res.json({ id: this.lastID, nombre, email, rol, activo: 1 });
+    });
+});
 
-    <script type="text/babel">
-        const { useState, useEffect, useContext, createContext } = React;
-        const API_URL = typeof window !== 'undefined' && window.location.hostname === 'localhost' 
-            ? 'http://localhost:3001'
-            : '';
-
-        const AppContext = createContext();
-
-        function LoginScreen({ onLogin }) {
-            const [email, setEmail] = useState('');
-            const [password, setPassword] = useState('');
-            const [loading, setLoading] = useState(false);
-            const [error, setError] = useState('');
-
-            const handleLogin = async (e) => {
-                e.preventDefault();
-                setError('');
-                setLoading(true);
-
-                try {
-                    const response = await fetch(`${API_URL}/api/auth/login`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ email, password })
-                    });
-
-                    if (response.ok) {
-                        const user = await response.json();
-                        onLogin(user);
-                    } else {
-                        setError('Email o contraseña inválida');
-                    }
-                } catch (err) {
-                    setError('Error al autenticarse');
-                } finally {
-                    setLoading(false);
-                }
-            };
-
-            return (
-                <div className="login-screen">
-                    <div className="login-card">
-                        <div className="login-logo"><img src="data:image/png;base64,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" alt="eco computer Facilities" /></div>
-                        <h1>GMAO</h1>
-                        <p>Sistema de Gestión de Órdenes de Trabajo</p>
-
-                        <form onSubmit={handleLogin}>
-                            <div className="form-group">
-                                <label>📧 Email</label>
-                                <input
-                                    type="email"
-                                    placeholder="usuario@empresa.com"
-                                    value={email}
-                                    onChange={(e) => setEmail(e.target.value)}
-                                    required
-                                    autoFocus
-                                />
-                            </div>
-
-                            <div className="form-group">
-                                <label>🔐 Contraseña</label>
-                                <input
-                                    type="password"
-                                    placeholder="Tu contraseña"
-                                    value={password}
-                                    onChange={(e) => setPassword(e.target.value)}
-                                    required
-                                />
-                            </div>
-
-                            {error && <div className="error-message">❌ {error}</div>}
-
-                            <button type="submit" className="login-btn" disabled={loading}>
-                                {loading ? 'Accediendo...' : 'Acceder'}
-                            </button>
-                        </form>
-
-                        <div className="credentials-info">
-                            <p><strong>Usuarios de prueba:</strong></p>
-                            <div className="credentials-list">
-                                <p>👤 admin@gmao.com / admin123</p>
-                                <p>👤 supervisor@gmao.com / supervisor123</p>
-                                <p>👤 tecnico@gmao.com / tecnico123</p>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            );
+app.put('/api/usuarios/:id', (req, res) => {
+  const { nombre, email, password, rol, activo } = req.body;
+  
+  if (password) {
+    const passwordHash = bcrypt.hashSync(password, 10);
+    db.run('UPDATE usuarios SET nombre = ?, email = ?, password_hash = ?, rol = ?, activo = ? WHERE id = ?',
+      [nombre, email, passwordHash, rol, activo, req.params.id], (err) => {
+        if (err) {
+          if (err.message.includes('UNIQUE')) {
+            return res.status(400).json({ error: 'El email ya está registrado' });
+          }
+          return res.status(500).json({ error: err.message });
         }
-
-        function playBeep() {
-            try {
-                const ctx = new (window.AudioContext || window.webkitAudioContext)();
-                const osc = ctx.createOscillator();
-                const gain = ctx.createGain();
-                osc.connect(gain);
-                gain.connect(ctx.destination);
-                osc.type = 'sine';
-                osc.frequency.setValueAtTime(880, ctx.currentTime);
-                gain.gain.setValueAtTime(0.15, ctx.currentTime);
-                osc.start();
-                osc.frequency.setValueAtTime(660, ctx.currentTime + 0.15);
-                gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
-                osc.stop(ctx.currentTime + 0.5);
-            } catch (e) { /* audio no soportado, se ignora */ }
+        res.json({ id: req.params.id, nombre, email, rol, activo });
+      });
+  } else {
+    db.run('UPDATE usuarios SET nombre = ?, email = ?, rol = ?, activo = ? WHERE id = ?',
+      [nombre, email, rol, activo, req.params.id], (err) => {
+        if (err) {
+          if (err.message.includes('UNIQUE')) {
+            return res.status(400).json({ error: 'El email ya está registrado' });
+          }
+          return res.status(500).json({ error: err.message });
         }
+        res.json({ id: req.params.id, nombre, email, rol, activo });
+      });
+  }
+});
 
-        function Dashboard({ user, onLogout }) {
-            const [activeTab, setActiveTab] = useState('dashboard');
-            const [clientes, setClientes] = useState([]);
-            const [contratos, setContratos] = useState([]);
-            const [zonas, setZonas] = useState([]);
-            const [emplazamientos, setEmplazamientos] = useState([]);
-            const [activos, setActivos] = useState([]);
-            const [tiposActivo, setTiposActivo] = useState([]);
-            const [ordenes, setOrdenes] = useState([]);
-            const [usuarios, setUsuarios] = useState([]);
-            const [materiales, setMateriales] = useState([]);
-            const [camposConfig, setCamposConfig] = useState([]);
-            const [isDarkMode, setIsDarkMode] = useState(document.body.classList.contains('dark-theme'));
-            const [notifPermission, setNotifPermission] = useState(typeof Notification !== 'undefined' ? Notification.permission : 'unsupported');
-            const [toasts, setToasts] = useState([]);
-            const seenGuardiaIds = React.useRef(null);
-            const esGestorGlobal = user.rol === 'admin' || user.rol === 'supervisor';
+app.delete('/api/usuarios/:id', (req, res) => {
+  db.run('DELETE FROM usuarios WHERE id = ?', [req.params.id], (err) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ success: true });
+  });
+});
 
-            useEffect(() => {
-                cargarDatos();
-            }, []);
+// CLIENTES
+app.get('/api/clientes', (req, res) => {
+  db.all('SELECT * FROM clientes', (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows);
+  });
+});
 
-            // ===== VIGÍA DE GUARDIAS NUEVAS (mientras la app está abierta) =====
-            useEffect(() => {
-                if (!esGestorGlobal) return;
+app.post('/api/clientes', (req, res) => {
+  const { nombre, contacto, telefono, campos_extra } = req.body;
+  db.run('INSERT INTO clientes (nombre, contacto, telefono, campos_extra) VALUES (?, ?, ?, ?)',
+    [nombre, contacto, telefono, campos_extra || '{}'], function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ id: this.lastID, nombre, contacto, telefono, campos_extra: campos_extra || '{}' });
+    });
+});
 
-                const revisarGuardias = async () => {
-                    try {
-                        const res = await fetch(`${API_URL}/api/guardias-pendientes`);
-                        const lista = await res.json();
-                        const idsActuales = new Set(lista.map(g => g.id));
+app.put('/api/clientes/:id', (req, res) => {
+  const { nombre, contacto, telefono, campos_extra } = req.body;
+  db.run('UPDATE clientes SET nombre = ?, contacto = ?, telefono = ?, campos_extra = ? WHERE id = ?',
+    [nombre, contacto, telefono, campos_extra || '{}', req.params.id], (err) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ id: req.params.id, nombre, contacto, telefono, campos_extra: campos_extra || '{}' });
+    });
+});
 
-                        if (seenGuardiaIds.current === null) {
-                            // Primera comprobación: solo establece la base, sin avisar de las ya existentes
-                            seenGuardiaIds.current = idsActuales;
-                            return;
-                        }
+app.delete('/api/clientes/:id', (req, res) => {
+  db.run('DELETE FROM clientes WHERE id = ?', [req.params.id], (err) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ success: true });
+  });
+});
 
-                        const nuevas = lista.filter(g => !seenGuardiaIds.current.has(g.id));
-                        if (nuevas.length > 0) {
-                            playBeep();
-                            nuevas.forEach(g => {
-                                if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-                                    try {
-                                        new Notification('🔔 Nueva Guardia', {
-                                            body: `${g.titulo}${g.tecnico_nombre ? ' — ' + g.tecnico_nombre : ''}`,
-                                            tag: g.id
-                                        });
-                                    } catch (e) {}
-                                }
-                            });
-                            setToasts(prev => [...prev, ...nuevas.map(g => ({ id: g.id, titulo: g.titulo, tecnico: g.tecnico_nombre }))]);
-                            cargarDatos();
-                        }
-                        seenGuardiaIds.current = idsActuales;
-                    } catch (e) { /* fallo de red puntual, se reintenta en el próximo ciclo */ }
-                };
+// CONTRATOS
+app.get('/api/contratos', (req, res) => {
+  db.all(`SELECT c.*, cl.nombre as cliente_nombre 
+          FROM contratos c 
+          LEFT JOIN clientes cl ON c.cliente_id = cl.id
+          ORDER BY c.creado_en DESC`, (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows);
+  });
+});
 
-                revisarGuardias();
-                const intervalo = setInterval(revisarGuardias, 15000);
-                return () => clearInterval(intervalo);
-            }, [esGestorGlobal]);
+app.post('/api/contratos', (req, res) => {
+  const { cliente_id, nombre, descripcion, fecha_inicio, fecha_fin, estado, campos_extra } = req.body;
+  db.run('INSERT INTO contratos (cliente_id, nombre, descripcion, fecha_inicio, fecha_fin, estado, campos_extra) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    [cliente_id, nombre, descripcion, fecha_inicio, fecha_fin, estado || 'Activo', campos_extra || '{}'], function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ id: this.lastID, cliente_id, nombre, descripcion, fecha_inicio, fecha_fin, estado: estado || 'Activo', campos_extra: campos_extra || '{}' });
+    });
+});
 
-            const dismissToast = (id) => setToasts(prev => prev.filter(t => t.id !== id));
+app.put('/api/contratos/:id', (req, res) => {
+  const { cliente_id, nombre, descripcion, fecha_inicio, fecha_fin, estado, campos_extra } = req.body;
+  db.run('UPDATE contratos SET cliente_id = ?, nombre = ?, descripcion = ?, fecha_inicio = ?, fecha_fin = ?, estado = ?, campos_extra = ? WHERE id = ?',
+    [cliente_id, nombre, descripcion, fecha_inicio, fecha_fin, estado, campos_extra || '{}', req.params.id], (err) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ id: req.params.id, cliente_id, nombre, descripcion, fecha_inicio, fecha_fin, estado, campos_extra: campos_extra || '{}' });
+    });
+});
 
-            useEffect(() => {
-                if (toasts.length === 0) return;
-                const timers = toasts.map(t => setTimeout(() => dismissToast(t.id), 8000));
-                return () => timers.forEach(clearTimeout);
-            }, [toasts]);
+app.delete('/api/contratos/:id', (req, res) => {
+  db.run('DELETE FROM contratos WHERE id = ?', [req.params.id], (err) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ success: true });
+  });
+});
 
-            const solicitarNotificaciones = async () => {
-                if (typeof Notification === 'undefined') return;
-                const permiso = await Notification.requestPermission();
-                setNotifPermission(permiso);
-            };
+// ZONAS
+app.get('/api/zonas', (req, res) => {
+  db.all(`SELECT * FROM zonas ORDER BY nombre`, (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows);
+  });
+});
 
-            const cargarDatos = async () => {
-                try {
-                    const [clientesRes, contratosRes, zonasRes, emplazamientosRes, activosRes, tiposActivoRes, ordenesRes, usuariosRes, materialesRes, camposConfigRes] = await Promise.all([
-                        fetch(`${API_URL}/api/clientes`),
-                        fetch(`${API_URL}/api/contratos`),
-                        fetch(`${API_URL}/api/zonas`),
-                        fetch(`${API_URL}/api/emplazamientos`),
-                        fetch(`${API_URL}/api/activos`),
-                        fetch(`${API_URL}/api/tipos-activo`),
-                        fetch(`${API_URL}/api/ordenes`),
-                        fetch(`${API_URL}/api/usuarios`),
-                        fetch(`${API_URL}/api/materiales`),
-                        fetch(`${API_URL}/api/campos-config`)
-                    ]);
+app.post('/api/zonas', (req, res) => {
+  const { nombre } = req.body;
+  if (!nombre) return res.status(400).json({ error: 'El nombre es obligatorio' });
+  db.run('INSERT INTO zonas (nombre) VALUES (?)',
+    [nombre], function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ id: this.lastID, nombre });
+    });
+});
 
-                    setClientes(await clientesRes.json());
-                    setContratos(await contratosRes.json());
-                    setZonas(await zonasRes.json());
-                    setEmplazamientos(await emplazamientosRes.json());
-                    setActivos(await activosRes.json());
-                    setTiposActivo(await tiposActivoRes.json());
-                    setOrdenes(await ordenesRes.json());
-                    setUsuarios(await usuariosRes.json());
-                    setMateriales(await materialesRes.json());
-                    setCamposConfig(await camposConfigRes.json());
-                } catch (err) {
-                    console.error('Error cargando datos:', err);
-                }
-            };
+app.put('/api/zonas/:id', (req, res) => {
+  const { nombre } = req.body;
+  db.run('UPDATE zonas SET nombre = ? WHERE id = ?',
+    [nombre, req.params.id], (err) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ id: req.params.id, nombre });
+    });
+});
 
-            const toggleTheme = () => {
-                const newDarkMode = !isDarkMode;
-                setIsDarkMode(newDarkMode);
-                document.body.classList.toggle('dark-theme', newDarkMode);
-                document.body.classList.toggle('light-theme', !newDarkMode);
-                localStorage.setItem('gmao-theme', newDarkMode ? 'dark' : 'light');
-            };
+app.delete('/api/zonas/:id', (req, res) => {
+  db.run('DELETE FROM zonas WHERE id = ?', [req.params.id], (err) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ success: true });
+  });
+});
 
-            const getTabs = () => {
-                const common = [{ id: 'dashboard', label: 'Dashboard' }];
-                const guardiasPendientes = ordenes.filter(o => o.tipo === 'guardia').length;
+// EMPLAZAMIENTOS
+app.get('/api/emplazamientos', (req, res) => {
+  db.all(`SELECT e.*, z.nombre as zona_nombre
+          FROM emplazamientos e
+          LEFT JOIN zonas z ON e.zona_id = z.id
+          ORDER BY e.nombre`, (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows);
+  });
+});
 
-                if (user.rol === 'admin' || user.rol === 'supervisor') {
-                    return [
-                        ...common,
-                        { id: 'ordenes', label: 'Órdenes' },
-                        { id: 'guardias', label: 'Guardias', badge: guardiasPendientes },
-                        { id: 'calendario', label: 'Calendario' },
-                        { id: 'inventario', label: 'Inventario' },
-                        { id: 'preciario', label: 'Preciario' },
-                        { id: 'usuarios', label: 'Usuarios' }
-                    ];
-                } else {
-                    return [{ id: 'ordenes', label: 'Mis Órdenes' }];
-                }
-            };
+app.post('/api/emplazamientos', (req, res) => {
+  const { zona_id, nombre, direccion, lat, lon } = req.body;
+  if (!zona_id || !nombre) return res.status(400).json({ error: 'Zona y nombre requeridos' });
+  db.run('INSERT INTO emplazamientos (zona_id, nombre, direccion, lat, lon) VALUES (?, ?, ?, ?, ?)',
+    [zona_id, nombre, direccion, lat || null, lon || null], function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ id: this.lastID, zona_id, nombre, direccion, lat, lon });
+    });
+});
 
-            return (
-                <div className="dashboard">
-                    {toasts.length > 0 && (
-                        <div className="toast-wrap">
-                            {toasts.map(t => (
-                                <div key={t.id} className="toast-card" onClick={() => { setActiveTab('guardias'); dismissToast(t.id); }}>
-                                    <p className="toast-title">🔔 Nueva Guardia</p>
-                                    <p className="toast-body">{t.titulo}{t.tecnico ? ` — ${t.tecnico}` : ''}</p>
-                                </div>
-                            ))}
-                        </div>
-                    )}                    <div className="header">
-                        <div className="header-top">
-                            <div className="header-left">
-                                <div className="header-logo"><img src="data:image/png;base64,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" alt="eco computer Facilities" /></div>
-                                <div className="header-user">
-                                    <h2>{user.nombre}</h2>
-                                    <p>📍 {user.rol}</p>
-                                </div>
-                            </div>
+app.put('/api/emplazamientos/:id', (req, res) => {
+  const { zona_id, nombre, direccion, lat, lon } = req.body;
+  db.run('UPDATE emplazamientos SET zona_id = ?, nombre = ?, direccion = ?, lat = ?, lon = ? WHERE id = ?',
+    [zona_id, nombre, direccion, lat || null, lon || null, req.params.id], (err) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ id: req.params.id, zona_id, nombre, direccion, lat, lon });
+    });
+});
 
-                            <div className="header-right">
-                                {esGestorGlobal && typeof Notification !== 'undefined' && notifPermission !== 'granted' && (
-                                    <button className="notif-toggle" onClick={solicitarNotificaciones}>🔔 Activar avisos</button>
-                                )}
-                                {esGestorGlobal && notifPermission === 'granted' && (
-                                    <span className="notif-toggle on" title="Avisos activados">🔔 Avisos ON</span>
-                                )}
-                                <button className="theme-toggle" onClick={toggleTheme}>
-                                    {isDarkMode ? '☀️ Claro' : '🌙 Oscuro'}
-                                </button>
-                                <button className="logout-btn" onClick={onLogout}>Salir</button>
-                            </div>
-                        </div>
+app.delete('/api/emplazamientos/:id', (req, res) => {
+  db.run('DELETE FROM emplazamientos WHERE id = ?', [req.params.id], (err) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ success: true });
+  });
+});
 
-                        <div className="nav-tabs">
-                            {getTabs().map(tab => (
-                                <button
-                                    key={tab.id}
-                                    className={`nav-btn ${activeTab === tab.id ? 'active' : ''}`}
-                                    onClick={() => setActiveTab(tab.id)}
-                                    style={{ position: 'relative' }}
-                                >
-                                    {tab.label}
-                                    {!!tab.badge && <span className="nav-badge">{tab.badge}</span>}
-                                </button>
-                            ))}
-                        </div>
-                    </div>
+// ACTIVOS
+app.get('/api/activos', (req, res) => {
+  db.all(`SELECT a.*, 
+                 e.nombre as emplazamiento_nombre,
+                 z.id as zona_id, z.nombre as zona_nombre,
+                 c.nombre as contrato_nombre,
+                 cl.id as cliente_id, cl.nombre as cliente_nombre
+          FROM activos a
+          LEFT JOIN emplazamientos e ON a.emplazamiento_id = e.id
+          LEFT JOIN zonas z ON e.zona_id = z.id
+          LEFT JOIN contratos c ON a.contrato_id = c.id
+          LEFT JOIN clientes cl ON c.cliente_id = cl.id
+          ORDER BY a.creado_en DESC`, (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows);
+  });
+});
 
-                    <div className="content">
-                        {activeTab === 'dashboard' && <DashboardView user={user} usuarios={usuarios} ordenes={ordenes} clientes={clientes} activos={activos} contratos={contratos} />}
-                        {activeTab === 'ordenes' && <OrdenesView user={user} ordenes={ordenes} clientes={clientes} contratos={contratos} activos={activos} tiposActivo={tiposActivo} usuarios={usuarios} materiales={materiales} onRefresh={cargarDatos} />}
-                        {activeTab === 'guardias' && (user.rol === 'admin' || user.rol === 'supervisor') && <OrdenesView user={user} ordenes={ordenes} clientes={clientes} contratos={contratos} activos={activos} tiposActivo={tiposActivo} usuarios={usuarios} materiales={materiales} onRefresh={cargarDatos} filtroInicialTipo="guardia" />}
-                        {activeTab === 'calendario' && (user.rol === 'admin' || user.rol === 'supervisor') && <CalendarView user={user} ordenes={ordenes} usuarios={usuarios} activos={activos} onRefresh={cargarDatos} />}
-                        {activeTab === 'inventario' && (user.rol === 'admin' || user.rol === 'supervisor') && <InventarioView user={user} activos={activos} emplazamientos={emplazamientos} zonas={zonas} clientes={clientes} contratos={contratos} tiposActivo={tiposActivo} camposConfig={camposConfig} onRefresh={cargarDatos} />}
-                        {activeTab === 'preciario' && (user.rol === 'admin' || user.rol === 'supervisor') && <PreciarioView user={user} materiales={materiales} clientes={clientes} onRefresh={cargarDatos} />}
-                        {activeTab === 'usuarios' && (user.rol === 'admin' || user.rol === 'supervisor') && <UsuariosView user={user} usuarios={usuarios} onRefresh={cargarDatos} />}
-                    </div>
-                </div>
-            );
+app.post('/api/activos', (req, res) => {
+  const { emplazamiento_id, contrato_id, tipo, nombre, fabricante, modelo, estado, observaciones, campos_extra, fotos_json } = req.body;
+  if (!emplazamiento_id || !contrato_id || !nombre) {
+    return res.status(400).json({ error: 'Emplazamiento, contrato y nombre requeridos' });
+  }
+  db.run(`INSERT INTO activos (emplazamiento_id, contrato_id, tipo, nombre, fabricante, modelo, estado, observaciones, campos_extra, fotos_json) 
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [emplazamiento_id, contrato_id, tipo, nombre, fabricante, modelo, estado || 'Activo', observaciones, campos_extra || '{}', fotos_json || '[]'], function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ id: this.lastID, emplazamiento_id, contrato_id, tipo, nombre, fabricante, modelo, estado: estado || 'Activo', observaciones, campos_extra: campos_extra || '{}', fotos_json: fotos_json || '[]' });
+    });
+});
+
+app.put('/api/activos/:id', (req, res) => {
+  const { emplazamiento_id, contrato_id, tipo, nombre, fabricante, modelo, estado, observaciones, campos_extra, fotos_json } = req.body;
+  db.run(`UPDATE activos SET emplazamiento_id = ?, contrato_id = ?, tipo = ?, nombre = ?, fabricante = ?, 
+          modelo = ?, estado = ?, observaciones = ?, campos_extra = ?, fotos_json = ? WHERE id = ?`,
+    [emplazamiento_id, contrato_id, tipo, nombre, fabricante, modelo, estado, observaciones, campos_extra || '{}', fotos_json || '[]', req.params.id], (err) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ id: req.params.id, emplazamiento_id, contrato_id, tipo, nombre, fabricante, modelo, estado, observaciones, campos_extra: campos_extra || '{}', fotos_json: fotos_json || '[]' });
+    });
+});
+
+app.delete('/api/activos/:id', (req, res) => {
+  db.run('DELETE FROM activos WHERE id = ?', [req.params.id], (err) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ success: true });
+  });
+});
+
+// CAMPOS PERSONALIZABLES (Cliente / Contrato / Activo)
+app.get('/api/campos-config', (req, res) => {
+  const { entidad } = req.query;
+  let sql = 'SELECT * FROM campos_config';
+  const params = [];
+  if (entidad) { sql += ' WHERE entidad = ?'; params.push(entidad); }
+  sql += ' ORDER BY entidad, orden, id';
+  db.all(sql, params, (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows);
+  });
+});
+
+app.post('/api/campos-config', (req, res) => {
+  const { entidad, etiqueta, tipo, opciones, tipo_activo } = req.body;
+  if (!entidad || !etiqueta) return res.status(400).json({ error: 'Entidad y etiqueta requeridos' });
+  const clave = 'custom_' + etiqueta.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') + '_' + Date.now();
+  db.run(`INSERT INTO campos_config (entidad, clave, etiqueta, tipo, opciones, es_sistema, visible, orden, tipo_activo) VALUES (?, ?, ?, ?, ?, 0, 1, 999, ?)`,
+    [entidad, clave, etiqueta, tipo || 'text', JSON.stringify(opciones || []), tipo_activo || null], function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ id: this.lastID, entidad, clave, etiqueta, tipo: tipo || 'text', opciones: JSON.stringify(opciones || []), es_sistema: 0, visible: 1, tipo_activo: tipo_activo || null });
+    });
+});
+
+app.put('/api/campos-config/:id', (req, res) => {
+  const { etiqueta, tipo, opciones, visible, orden, ocultar_en_tipos } = req.body;
+  db.get('SELECT * FROM campos_config WHERE id = ?', [req.params.id], (err, campo) => {
+    if (err || !campo) return res.status(404).json({ error: 'Campo no encontrado' });
+    // Los campos de sistema solo permiten cambiar etiqueta/visible/orden/ocultar_en_tipos (no tipo/opciones, para no romper el resto de la app)
+    const nuevoTipo = campo.es_sistema ? campo.tipo : (tipo || campo.tipo);
+    const nuevasOpciones = campo.es_sistema ? campo.opciones : JSON.stringify(opciones || []);
+    const nuevoOcultarEnTipos = ocultar_en_tipos !== undefined ? JSON.stringify(ocultar_en_tipos) : campo.ocultar_en_tipos;
+    db.run(`UPDATE campos_config SET etiqueta = ?, tipo = ?, opciones = ?, visible = ?, orden = ?, ocultar_en_tipos = ? WHERE id = ?`,
+      [etiqueta ?? campo.etiqueta, nuevoTipo, nuevasOpciones, visible !== undefined ? (visible ? 1 : 0) : campo.visible, orden !== undefined ? orden : campo.orden, nuevoOcultarEnTipos, req.params.id],
+      (err2) => {
+        if (err2) return res.status(500).json({ error: err2.message });
+        res.json({ success: true });
+      });
+  });
+});
+
+app.delete('/api/campos-config/:id', (req, res) => {
+  db.get('SELECT * FROM campos_config WHERE id = ?', [req.params.id], (err, campo) => {
+    if (err || !campo) return res.status(404).json({ error: 'Campo no encontrado' });
+    if (campo.es_sistema) return res.status(400).json({ error: 'Los campos de sistema no se pueden eliminar, solo ocultar' });
+    db.run('DELETE FROM campos_config WHERE id = ?', [req.params.id], (err2) => {
+      if (err2) return res.status(500).json({ error: err2.message });
+      res.json({ success: true });
+    });
+  });
+});
+
+// VIGÍA DE NOTIFICACIONES: guardias pendientes (endpoint ligero, sin joins pesados)
+app.get('/api/guardias-pendientes', (req, res) => {
+  db.all(`SELECT o.id, o.titulo, o.creado_en, u.nombre as tecnico_nombre
+          FROM ordenes_trabajo o
+          LEFT JOIN usuarios u ON o.asignado_a = u.id
+          WHERE o.tipo = 'guardia'
+          ORDER BY o.creado_en DESC`, (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows);
+  });
+});
+
+// TIPOS DE ACTIVO Y SUS CHECKLISTS
+app.get('/api/tipos-activo', (req, res) => {
+  db.all('SELECT * FROM tipos_activo ORDER BY nombre', (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows);
+  });
+});
+
+app.post('/api/tipos-activo', (req, res) => {
+  const { nombre, checklist_json } = req.body;
+  if (!nombre || !nombre.trim()) return res.status(400).json({ error: 'El nombre es obligatorio' });
+  db.run('INSERT INTO tipos_activo (nombre, checklist_json) VALUES (?, ?)',
+    [nombre.trim(), checklist_json || '[]'], function(err) {
+      if (err) {
+        if (err.message.includes('UNIQUE')) return res.status(400).json({ error: 'Ya existe un tipo con ese nombre' });
+        return res.status(500).json({ error: err.message });
+      }
+      res.json({ id: this.lastID, nombre: nombre.trim(), checklist_json: checklist_json || '[]' });
+    });
+});
+
+app.put('/api/tipos-activo/:id', (req, res) => {
+  const { nombre, checklist_json } = req.body;
+  db.run('UPDATE tipos_activo SET nombre = ?, checklist_json = ? WHERE id = ?',
+    [nombre, checklist_json, req.params.id], (err) => {
+      if (err) {
+        if (err.message.includes('UNIQUE')) return res.status(400).json({ error: 'Ya existe un tipo con ese nombre' });
+        return res.status(500).json({ error: err.message });
+      }
+      res.json({ id: req.params.id, nombre, checklist_json });
+    });
+});
+
+app.delete('/api/tipos-activo/:id', (req, res) => {
+  db.run('DELETE FROM tipos_activo WHERE id = ?', [req.params.id], (err) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ success: true });
+  });
+});
+
+// INVENTARIO
+app.get('/api/inventario', (req, res) => {
+  db.all('SELECT * FROM inventario', (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows);
+  });
+});
+
+app.post('/api/inventario', (req, res) => {
+  const { contrato, zona, equipo, tipo, estado } = req.body;
+  db.run('INSERT INTO inventario (contrato, zona, equipo, tipo, estado) VALUES (?, ?, ?, ?, ?)',
+    [contrato, zona, equipo, tipo, estado || 'Activo'], function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ id: this.lastID, contrato, zona, equipo, tipo, estado: estado || 'Activo' });
+    });
+});
+
+app.put('/api/inventario/:id', (req, res) => {
+  const { contrato, zona, equipo, tipo, estado } = req.body;
+  db.run('UPDATE inventario SET contrato = ?, zona = ?, equipo = ?, tipo = ?, estado = ? WHERE id = ?',
+    [contrato, zona, equipo, tipo, estado, req.params.id], (err) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ id: req.params.id, contrato, zona, equipo, tipo, estado });
+    });
+});
+
+app.delete('/api/inventario/:id', (req, res) => {
+  db.run('DELETE FROM inventario WHERE id = ?', [req.params.id], (err) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ success: true });
+  });
+});
+
+// ÓRDENES DE TRABAJO
+app.get('/api/ordenes', (req, res) => {
+  db.all(`SELECT o.*, 
+                 c.nombre as cliente_nombre, 
+                 u.nombre as tecnico_nombre,
+                 r.nombre as responsable_nombre,
+                 a.nombre as activo_nombre,
+                 a.tipo as activo_tipo,
+                 e.nombre as emplazamiento_nombre,
+                 z.nombre as zona_nombre,
+                 (SELECT COUNT(*) FROM visitas v WHERE v.orden_id = o.id) as num_visitas,
+                 (SELECT MAX(fecha) FROM visitas v WHERE v.orden_id = o.id) as ultima_visita
+          FROM ordenes_trabajo o 
+          LEFT JOIN clientes c ON o.cliente_id = c.id
+          LEFT JOIN usuarios u ON o.asignado_a = u.id
+          LEFT JOIN usuarios r ON o.responsable_id = r.id
+          LEFT JOIN activos a ON o.activo_id = a.id
+          LEFT JOIN emplazamientos e ON a.emplazamiento_id = e.id
+          LEFT JOIN zonas z ON e.zona_id = z.id
+          ORDER BY o.creado_en DESC`, (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows);
+  });
+});
+
+app.post('/api/ordenes', (req, res) => {
+  const { ticket, id_cliente, cliente_id, tipo, estado, prioridad, responsable_id, asignado_a, tecnicos_apoyo,
+          titulo, notas, activo_id, datos_json, fecha_programada, fecha_cierre } = req.body;
+  const id = `OT-${Date.now()}`;
+  db.run(`INSERT INTO ordenes_trabajo (id, ticket, id_cliente, cliente_id, tipo, estado, prioridad, responsable_id, asignado_a, 
+          tecnicos_apoyo, titulo, notas, activo_id, datos_json, fecha_programada, fecha_cierre) 
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [id, ticket, id_cliente, cliente_id || null, tipo, estado, prioridad || 'media', responsable_id || null, asignado_a,
+     tecnicos_apoyo || null, titulo, notas, activo_id || null, datos_json || null, fecha_programada || null, fecha_cierre || null],
+    function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ id, ticket, id_cliente, cliente_id, tipo, estado, prioridad, responsable_id, asignado_a, tecnicos_apoyo, titulo, notas, activo_id, datos_json, fecha_programada, fecha_cierre });
+    });
+});
+
+app.put('/api/ordenes/:id', (req, res) => {
+  const { ticket, id_cliente, cliente_id, tipo, estado, prioridad, responsable_id, asignado_a, tecnicos_apoyo,
+          titulo, notas, activo_id, datos_json, fecha_programada, fecha_cierre } = req.body;
+  db.run(`UPDATE ordenes_trabajo SET ticket = ?, id_cliente = ?, cliente_id = ?, tipo = ?, estado = ?, prioridad = ?, 
+          responsable_id = ?, asignado_a = ?, tecnicos_apoyo = ?, titulo = ?, notas = ?, activo_id = ?, datos_json = ?, 
+          fecha_programada = ?, fecha_cierre = ? WHERE id = ?`,
+    [ticket, id_cliente, cliente_id || null, tipo, estado, prioridad || 'media', responsable_id || null, asignado_a, tecnicos_apoyo || null,
+     titulo, notas, activo_id || null, datos_json || null, fecha_programada || null, fecha_cierre || null, req.params.id],
+    (err) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ id: req.params.id, ticket, id_cliente, cliente_id, tipo, estado, prioridad, responsable_id, asignado_a, tecnicos_apoyo, titulo, notas, activo_id, datos_json, fecha_programada, fecha_cierre });
+    });
+});
+
+app.delete('/api/ordenes/:id', (req, res) => {
+  db.run('DELETE FROM visitas WHERE orden_id = ?', [req.params.id], () => {
+    db.run('DELETE FROM ordenes_trabajo WHERE id = ?', [req.params.id], (err) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ success: true });
+    });
+  });
+});
+
+// VISITAS (revisiones/ejecuciones dentro de una OT)
+app.get('/api/visitas', (req, res) => {
+  const { orden_id } = req.query;
+  let sql = `SELECT v.*, u.nombre as tecnico_nombre FROM visitas v LEFT JOIN usuarios u ON v.tecnico_id = u.id`;
+  const params = [];
+  if (orden_id) { sql += ' WHERE v.orden_id = ?'; params.push(orden_id); }
+  sql += ' ORDER BY v.fecha DESC, v.creado_en DESC';
+  db.all(sql, params, (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows);
+  });
+});
+
+app.post('/api/visitas', (req, res) => {
+  const { orden_id, fecha, tecnico_id, hora_inicio, hora_fin, id_mantis, proyecto, descripcion,
+          checklist_tipo, checklist_json, materiales_json, fotos_json, videos_json, medio_ambiente_json,
+          seguridad_json, desplazamientos_json, firma, firma_nombre, finalizado } = req.body;
+  if (!orden_id) return res.status(400).json({ error: 'orden_id requerido' });
+  const id = `VIS-${Date.now()}`;
+  db.run(`INSERT INTO visitas (id, orden_id, fecha, tecnico_id, hora_inicio, hora_fin, id_mantis, proyecto, 
+          descripcion, checklist_tipo, checklist_json, materiales_json, fotos_json, videos_json, medio_ambiente_json, 
+          seguridad_json, desplazamientos_json, firma, firma_nombre, finalizado) 
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [id, orden_id, fecha, tecnico_id, hora_inicio, hora_fin, id_mantis, proyecto, descripcion,
+     checklist_tipo, checklist_json, materiales_json, fotos_json, videos_json, medio_ambiente_json,
+     seguridad_json, desplazamientos_json, firma, firma_nombre, finalizado ? 1 : 0],
+    function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      // Si la visita finaliza el trabajo, marcamos la OT como resuelta
+      if (finalizado) {
+        db.run(`UPDATE ordenes_trabajo SET estado = 'resuelta', fecha_cierre = CURRENT_TIMESTAMP WHERE id = ?`, [orden_id]);
+      } else {
+        db.run(`UPDATE ordenes_trabajo SET estado = 'en_curso' WHERE id = ? AND estado = 'abierta'`, [orden_id]);
+      }
+      res.json({ id, orden_id, fecha, tecnico_id, hora_inicio, hora_fin, id_mantis, proyecto, descripcion,
+        checklist_tipo, checklist_json, materiales_json, fotos_json, videos_json, medio_ambiente_json,
+        seguridad_json, desplazamientos_json, firma, firma_nombre, finalizado: finalizado ? 1 : 0 });
+    });
+});
+
+app.put('/api/visitas/:id', (req, res) => {
+  const { fecha, tecnico_id, hora_inicio, hora_fin, id_mantis, proyecto, descripcion,
+          checklist_tipo, checklist_json, materiales_json, fotos_json, videos_json, medio_ambiente_json,
+          seguridad_json, desplazamientos_json, firma, firma_nombre, finalizado, orden_id } = req.body;
+  db.run(`UPDATE visitas SET fecha = ?, tecnico_id = ?, hora_inicio = ?, hora_fin = ?, id_mantis = ?, 
+          proyecto = ?, descripcion = ?, checklist_tipo = ?, checklist_json = ?, materiales_json = ?, 
+          fotos_json = ?, videos_json = ?, medio_ambiente_json = ?, seguridad_json = ?, desplazamientos_json = ?, 
+          firma = ?, firma_nombre = ?, finalizado = ? WHERE id = ?`,
+    [fecha, tecnico_id, hora_inicio, hora_fin, id_mantis, proyecto, descripcion, checklist_tipo,
+     checklist_json, materiales_json, fotos_json, videos_json, medio_ambiente_json, seguridad_json,
+     desplazamientos_json, firma, firma_nombre, finalizado ? 1 : 0, req.params.id],
+    (err) => {
+      if (err) return res.status(500).json({ error: err.message });
+      if (orden_id) {
+        if (finalizado) {
+          db.run(`UPDATE ordenes_trabajo SET estado = 'resuelta', fecha_cierre = CURRENT_TIMESTAMP WHERE id = ?`, [orden_id]);
+        } else {
+          db.run(`UPDATE ordenes_trabajo SET estado = 'en_curso' WHERE id = ? AND estado = 'abierta'`, [orden_id]);
         }
-
-        function BarChart({ data, height = 110 }) {
-            const max = Math.max(1, ...data.map(d => d.value));
-            return (
-                <div className="bar-chart-wrap" style={{ display: 'flex', alignItems: 'flex-end', gap: '8px', height: height + 'px', padding: '4px 2px 0' }}>
-                    {data.map((d, i) => {
-                        const barPct = max > 0 ? (d.value / max) * 100 : 0;
-                        return (
-                            <div key={i} style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', height: '100%' }}>
-                                <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '3px' }}>{d.value}</span>
-                                <div style={{
-                                    width: '100%', maxWidth: '34px',
-                                    height: (d.value > 0 ? Math.max(barPct, 4) : 0) + '%',
-                                    background: d.color, borderRadius: '4px 4px 0 0',
-                                    transition: 'height 0.2s'
-                                }}></div>
-                                <span style={{ fontSize: '9.5px', color: 'var(--text-secondary)', marginTop: '4px', textAlign: 'center', lineHeight: '1.2' }}>{d.label}</span>
-                            </div>
-                        );
-                    })}
-                </div>
-            );
-        }
-
-        const TIPOS_OT_DASHBOARD = [
-            { key: 'correctivo', label: 'Correctivo', color: 'var(--fill-danger)' },
-            { key: 'preventivo', label: 'Preventivo', color: 'var(--fill-success)' },
-            { key: 'obra', label: 'Obra', color: 'var(--fill-accent)' },
-            { key: 'guardia', label: 'Guardia', color: 'var(--fill-orange)' }
-        ];
-        const ESTADOS_ABIERTOS_DASHBOARD = ['pendiente', 'abierta', 'en_curso'];
-
-        function DashboardView({ user, usuarios, ordenes, clientes, activos, contratos }) {
-            const esGestor = user.rol === 'admin' || user.rol === 'supervisor';
-            const [vistaPersonal, setVistaPersonal] = useState(false);
-            const contarPorTipo = (lista) => TIPOS_OT_DASHBOARD.map(t => ({ label: t.label, color: t.color, value: lista.filter(o => o.tipo === t.key).length }));
-
-            if (!esGestor || vistaPersonal) {
-                const misOrdenes = ordenes.filter(o => o.asignado_a === user.id);
-                const pendientes = misOrdenes.filter(o => ESTADOS_ABIERTOS_DASHBOARD.includes(o.estado));
-                const datosTipo = contarPorTipo(misOrdenes);
-
-                return (
-                    <div>
-                        {esGestor && <button className="btn btn-secondary" style={{ marginBottom: '10px' }} onClick={() => setVistaPersonal(false)}>← Volver al Dashboard general</button>}
-                        <h3 className="section-title">Mi Dashboard</h3>
-                        <div className="metrics-grid">
-                            <div className="metric-card"><div className="metric-label">Total Asignadas</div><div className="metric-value">{misOrdenes.length}</div></div>
-                            <div className="metric-card"><div className="metric-label">Pendientes</div><div className="metric-value">{pendientes.length}</div></div>
-                        </div>
-
-                        <div className="card">
-                            <h4 className="card-title">Mis Órdenes por Tipo</h4>
-                            <BarChart data={datosTipo} />
-                            <div className="tipo-count-row">
-                                {datosTipo.map(d => <span key={d.label} className="tipo-count-pill" style={{ borderColor: d.color, color: d.color }}>{d.label}: {d.value}</span>)}
-                            </div>
-                        </div>
-
-                        <div className="card">
-                            <h4 className="card-title">📋 Últimas Órdenes</h4>
-                            {misOrdenes.slice(0, 3).length === 0 ? (
-                                <p className="card-text">No tienes órdenes asignadas</p>
-                            ) : (
-                                misOrdenes.slice(0, 3).map(order => (
-                                    <div key={order.id} style={{ paddingBottom: '8px', borderBottom: '1px solid var(--border)' }}>
-                                        <p style={{ margin: '0', fontSize: '13px', fontWeight: '600' }}>{order.id}</p>
-                                        <p className="card-text">{order.titulo}</p>
-                                    </div>
-                                ))
-                            )}
-                        </div>
-                    </div>
-                );
-            }
-
-            const stats = [
-                { label: 'Órdenes Totales', value: ordenes.length },
-                { label: 'Clientes', value: clientes.length },
-                { label: 'Activos', value: activos.length },
-                { label: 'Contratos', value: contratos.length }
-            ];
-            const datosTipoGlobal = contarPorTipo(ordenes);
-            const tecnicos = usuarios.filter(u => u.activo);
-
-            return (
-                <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
-                        <h3 className="section-title" style={{ margin: 0 }}>Dashboard</h3>
-                        <button className="btn btn-secondary" onClick={() => setVistaPersonal(true)}>👤 Mi Dashboard</button>
-                    </div>
-                    <div className="metrics-grid">
-                        {stats.map((stat, i) => (
-                            <div key={i} className="metric-card">
-                                <div className="metric-label">{stat.label}</div>
-                                <div className="metric-value">{stat.value}</div>
-                            </div>
-                        ))}
-                    </div>
-
-                    <div className="card">
-                        <h4 className="card-title">Órdenes por Tipo</h4>
-                        <BarChart data={datosTipoGlobal} />
-                        <div className="tipo-count-row">
-                            {datosTipoGlobal.map(d => <span key={d.label} className="tipo-count-pill" style={{ borderColor: d.color, color: d.color }}>{d.label}: {d.value}</span>)}
-                        </div>
-                    </div>
-
-                    <div className="card">
-                        <h4 className="card-title">Órdenes por Técnico</h4>
-                        <div className="list">
-                            {tecnicos.length === 0 ? <p className="card-text">No hay usuarios activos</p> : tecnicos.map(t => {
-                                const suyas = ordenes.filter(o => o.asignado_a === t.id);
-                                const datosT = contarPorTipo(suyas);
-                                return (
-                                    <div key={t.id} className="tecnico-dash-card">
-                                        <div className="tecnico-dash-header">
-                                            <p className="card-title" style={{ margin: 0 }}>{t.nombre}</p>
-                                            <span className="badge" style={{ background: 'var(--bg-accent)', color: 'var(--fill-accent)' }}>{suyas.length} total</span>
-                                        </div>
-                                        <BarChart data={datosT} height={80} />
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    </div>
-
-                    <div className="card">
-                        <h4 className="card-title">📋 Últimas Órdenes</h4>
-                        {ordenes.slice(0, 3).length === 0 ? (
-                            <p className="card-text">No hay órdenes</p>
-                        ) : (
-                            ordenes.slice(0, 3).map(order => (
-                                <div key={order.id} style={{ paddingBottom: '8px', borderBottom: '1px solid var(--border)' }}>
-                                    <p style={{ margin: '0', fontSize: '13px', fontWeight: '600' }}>{order.id}</p>
-                                    <p className="card-text">{order.titulo}</p>
-                                </div>
-                            ))
-                        )}
-                    </div>
-                </div>
-            );
-        }
-
-
-        // ===== COMPONENTES GENÉRICOS DE CHECKLIST =====
-        function InspectionTable({ items, grupos, value, onChange, readOnly }) {
-            const data = value || {};
-            const gruposFinal = grupos && grupos.length ? grupos : [{ titulo: null, items: items || [] }];
-
-            const setItem = (rowKey, field, val) => {
-                onChange({ ...data, [rowKey]: { ...(data[rowKey] || {}), [field]: val } });
-            };
-
-            const ESTADOS = [
-                { value: 'Correcto', icon: '✅' },
-                { value: 'Incorrecto', icon: '❌' },
-                { value: 'N/A', icon: '➖' }
-            ];
-
-            return (
-                <div>
-                    {gruposFinal.map((grupo, gi) => (
-                        <div key={gi} style={{ marginBottom: '14px' }}>
-                            {grupo.titulo && <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--fill-accent)', margin: '8px 0 4px' }}>{grupo.titulo}</div>}
-                            <div className="grid-table-wrap">
-                                <table className="insp-table">
-                                    <thead>
-                                        <tr><th>Elemento</th><th>Resultado</th><th>Observaciones</th></tr>
-                                    </thead>
-                                    <tbody>
-                                        {grupo.items.map(item => {
-                                            const rowKey = `${gi}::${item}`;
-                                            const row = data[rowKey] || {};
-                                            return (
-                                                <tr key={rowKey}>
-                                                    <td>{item}</td>
-                                                    <td>
-                                                        {readOnly ? (row.resultado || '—') : (
-                                                            <div className="insp-radio-group">
-                                                                {ESTADOS.map(es => (
-                                                                    <label key={es.value}>
-                                                                        <input type="radio" name={rowKey} checked={row.resultado === es.value} onChange={() => setItem(rowKey, 'resultado', es.value)} /> {es.icon}
-                                                                    </label>
-                                                                ))}
-                                                            </div>
-                                                        )}
-                                                    </td>
-                                                    <td>
-                                                        {row.resultado === 'Incorrecto' ? (
-                                                            readOnly ? (row.observaciones || '—') : (
-                                                                <input className="insp-obs-input" type="text" placeholder="Describe el problema..." value={row.observaciones || ''} onChange={(e) => setItem(rowKey, 'observaciones', e.target.value)} />
-                                                            )
-                                                        ) : (
-                                                            <span className="card-text">—</span>
-                                                        )}
-                                                    </td>
-                                                </tr>
-                                            );
-                                        })}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                    ))}
-                </div>
-            );
-        }
-
-        function ComponentGrid({ rows, columns, options, value, onChange, readOnly }) {
-            const data = value || {};
-            const setCell = (row, col, val) => {
-                onChange({ ...data, [row]: { ...(data[row] || {}), [col]: val } });
-            };
-            const setObs = (row, val) => {
-                onChange({ ...data, [row]: { ...(data[row] || {}), __obs: val } });
-            };
-            const filaTieneProblema = (row) => {
-                const rowData = data[row] || {};
-                return columns.some(col => rowData[col] && rowData[col] !== options[0]);
-            };
-
-            return (
-                <div>
-                    {rows.map(row => {
-                        const rowData = data[row] || {};
-                        const mostrarObs = filaTieneProblema(row) || !!rowData.__obs;
-                        return (
-                            <div key={row} className="grid-row-card">
-                                <p className="grid-row-title">{row}</p>
-                                <div className="grid-radio-wrap">
-                                    {columns.map(col => {
-                                        const val = rowData[col] || '';
-                                        return (
-                                            <div key={col} className="grid-radio-col">
-                                                <p className="grid-radio-label">{col}</p>
-                                                {readOnly ? (
-                                                    <p className="card-text">{val || '—'}</p>
-                                                ) : (
-                                                    <div className="grid-radio-options">
-                                                        {options.map(o => (
-                                                            <label key={o} className="grid-radio-option">
-                                                                <input type="radio" name={`${row}__${col}`} checked={val === o} onChange={() => setCell(row, col, o)} /> {o}
-                                                            </label>
-                                                        ))}
-                                                    </div>
-                                                )}
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-                                {mostrarObs && (
-                                    <div className="grid-row-obs">
-                                        {readOnly ? (
-                                            <p className="card-text">📝 {rowData.__obs || 'Sin observaciones'}</p>
-                                        ) : (
-                                            <input type="text" placeholder={`Observaciones de "${row}"`} value={rowData.__obs || ''} onChange={(e) => setObs(row, e.target.value)} />
-                                        )}
-                                    </div>
-                                )}
-                            </div>
-                        );
-                    })}
-                </div>
-            );
-        }
-
-        function DynamicChecklistForm({ sections, value, onChange, readOnly }) {
-            const data = value || {};
-
-            if (!sections || sections.length === 0) {
-                return <p className="card-text">⚠️ Este tipo de activo no tiene checklist configurado todavía.</p>;
-            }
-
-            const updateSection = (sectionKey, sectionValue) => {
-                onChange({ ...data, [sectionKey]: sectionValue });
-            };
-
-            return (
-                <div>
-                    {sections.map((section, idx) => {
-                        const sectionKey = section.key || `section_${idx}`;
-                        return (
-                            <div key={idx} className="checklist-section">
-                                <div className="checklist-section-title">{section.title}</div>
-
-                                {section.type === 'fields' && (
-                                    <div>
-                                        {section.fields.map(f => (
-                                            <div className="form-group" key={f.key}>
-                                                <label>{f.label}</label>
-                                                {readOnly ? (
-                                                    <p className="card-text">{(data[sectionKey] || {})[f.key] || '—'}</p>
-                                                ) : f.type === 'select' ? (
-                                                    <select value={(data[sectionKey] || {})[f.key] || ''} onChange={(e) => updateSection(sectionKey, { ...(data[sectionKey] || {}), [f.key]: e.target.value })}>
-                                                        <option value="">-- Selecciona --</option>
-                                                        {f.options.map(o => <option key={o} value={o}>{o}</option>)}
-                                                    </select>
-                                                ) : (
-                                                    <input type="text" value={(data[sectionKey] || {})[f.key] || ''} onChange={(e) => updateSection(sectionKey, { ...(data[sectionKey] || {}), [f.key]: e.target.value })} />
-                                                )}
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
-
-                                {section.type === 'inspection' && (
-                                    <InspectionTable items={section.items} grupos={section.grupos} value={data[sectionKey]} onChange={(v) => updateSection(sectionKey, v)} readOnly={readOnly} />
-                                )}
-
-                                {section.type === 'grid' && (
-                                    <ComponentGrid rows={section.rows} columns={section.columns} options={section.options} value={data[sectionKey]} onChange={(v) => updateSection(sectionKey, v)} readOnly={readOnly} />
-                                )}
-
-                                {section.type === 'textarea' && (
-                                    readOnly ? (
-                                        <p className="card-text">{data[section.key] || '—'}</p>
-                                    ) : (
-                                        <textarea value={data[section.key] || ''} onChange={(e) => onChange({ ...data, [section.key]: e.target.value })}></textarea>
-                                    )
-                                )}
-                            </div>
-                        );
-                    })}
-                </div>
-            );
-        }
-
-        // ===== PARTE DE TRABAJO (para OT tipo Obra) =====
-        // ===== CAPTURA DE FOTOS (comprimidas a base64) =====
-        function compressImageFile(file, maxWidth = 900, quality = 0.6) {
-            return new Promise((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onload = (e) => {
-                    const img = new Image();
-                    img.onload = () => {
-                        const scale = Math.min(1, maxWidth / img.width);
-                        const canvas = document.createElement('canvas');
-                        canvas.width = img.width * scale;
-                        canvas.height = img.height * scale;
-                        const ctx = canvas.getContext('2d');
-                        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-                        resolve(canvas.toDataURL('image/jpeg', quality));
-                    };
-                    img.onerror = reject;
-                    img.src = e.target.result;
-                };
-                reader.onerror = reject;
-                reader.readAsDataURL(file);
-            });
-        }
-
-        function PhotoCapture({ value, onChange, readOnly }) {
-            const fotos = value || [];
-            const handleFiles = async (e) => {
-                const files = Array.from(e.target.files || []);
-                const compressed = await Promise.all(files.map(f => compressImageFile(f)));
-                onChange([...fotos, ...compressed]);
-                e.target.value = '';
-            };
-            const removeFoto = (idx) => {
-                const copy = [...fotos];
-                copy.splice(idx, 1);
-                onChange(copy);
-            };
-            return (
-                <div className="photo-grid">
-                    {fotos.map((f, i) => (
-                        <div key={i} className="photo-thumb">
-                            <img src={f} />
-                            {!readOnly && <button className="photo-remove" onClick={() => removeFoto(i)}>✕</button>}
-                        </div>
-                    ))}
-                    {!readOnly && (
-                        <label className="photo-add-btn">
-                            📷
-                            <input type="file" accept="image/*" capture="environment" multiple className="file-input-hidden" onChange={handleFiles} />
-                        </label>
-                    )}
-                    {fotos.length === 0 && readOnly && <p className="card-text">Sin fotos.</p>}
-                </div>
-            );
-        }
-
-        // ===== CAPTURA DE VÍDEOS (base64, con límite de tamaño) =====
-        function fileToDataUrl(file) {
-            return new Promise((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onload = (e) => resolve(e.target.result);
-                reader.onerror = reject;
-                reader.readAsDataURL(file);
-            });
-        }
-
-        function VideoCapture({ value, onChange, readOnly }) {
-            const videos = value || [];
-            const MAX_MB = 25;
-
-            const handleFiles = async (e) => {
-                const files = Array.from(e.target.files || []);
-                const validos = [];
-                for (const f of files) {
-                    if (f.size > MAX_MB * 1024 * 1024) {
-                        alert(`El vídeo "${f.name}" pesa más de ${MAX_MB}MB y no se puede adjuntar. Graba clips más cortos.`);
-                        continue;
-                    }
-                    const dataUrl = await fileToDataUrl(f);
-                    validos.push({ nombre: f.name, dataUrl, tamanoMB: (f.size / (1024 * 1024)).toFixed(1) });
-                }
-                onChange([...videos, ...validos]);
-                e.target.value = '';
-            };
-
-            const removeVideo = (idx) => {
-                const copy = [...videos];
-                copy.splice(idx, 1);
-                onChange(copy);
-            };
-
-            return (
-                <div>
-                    <div className="video-list">
-                        {videos.map((v, i) => (
-                            <div key={i} className="video-item">
-                                <video src={v.dataUrl} controls></video>
-                                <p className="card-text">{v.nombre} ({v.tamanoMB} MB)</p>
-                                {!readOnly && <button className="btn btn-danger video-remove" onClick={() => removeVideo(i)}>Eliminar vídeo</button>}
-                            </div>
-                        ))}
-                    </div>
-                    {!readOnly && (
-                        <label className="btn-video-add" style={{ marginTop: '8px' }}>
-                            🎥 Añadir vídeo (máx. {MAX_MB}MB)
-                            <input type="file" accept="video/*" capture="environment" multiple className="file-input-hidden" onChange={handleFiles} />
-                        </label>
-                    )}
-                    {videos.length === 0 && readOnly && <p className="card-text">Sin vídeos.</p>}
-                </div>
-            );
-        }
-
-        // ===== FIRMA DIGITAL (pad) =====
-        function SignaturePad({ value, onChange, readOnly }) {
-            const canvasRef = React.useRef(null);
-            const drawing = React.useRef(false);
-
-            useEffect(() => {
-                const canvas = canvasRef.current;
-                if (!canvas) return;
-                const dpr = window.devicePixelRatio || 1;
-                canvas.width = canvas.clientWidth * dpr;
-                canvas.height = canvas.clientHeight * dpr;
-                const ctx = canvas.getContext('2d');
-                ctx.scale(dpr, dpr);
-                ctx.lineWidth = 2;
-                ctx.lineCap = 'round';
-                ctx.strokeStyle = '#1a1d23';
-                if (value) {
-                    const img = new Image();
-                    img.onload = () => ctx.drawImage(img, 0, 0, canvas.clientWidth, canvas.clientHeight);
-                    img.src = value;
-                }
-            }, []);
-
-            if (readOnly) {
-                return value ? (
-                    <div className="signature-pad-wrap"><img src={value} style={{ width: '100%', display: 'block' }} /></div>
-                ) : <p className="card-text">Sin rúbrica registrada.</p>;
-            }
-
-            const getPos = (e) => {
-                const rect = canvasRef.current.getBoundingClientRect();
-                const point = e.touches ? e.touches[0] : e;
-                return { x: point.clientX - rect.left, y: point.clientY - rect.top };
-            };
-
-            const start = (e) => { e.preventDefault(); drawing.current = true; const { x, y } = getPos(e); const ctx = canvasRef.current.getContext('2d'); ctx.beginPath(); ctx.moveTo(x, y); };
-            const move = (e) => { if (!drawing.current) return; e.preventDefault(); const { x, y } = getPos(e); const ctx = canvasRef.current.getContext('2d'); ctx.lineTo(x, y); ctx.stroke(); };
-            const end = () => { if (!drawing.current) return; drawing.current = false; onChange(canvasRef.current.toDataURL('image/png')); };
-            const clear = () => { const canvas = canvasRef.current; const ctx = canvas.getContext('2d'); ctx.clearRect(0, 0, canvas.width, canvas.height); onChange(''); };
-
-            return (
-                <div>
-                    <div className="signature-pad-wrap">
-                        <canvas ref={canvasRef}
-                            onMouseDown={start} onMouseMove={move} onMouseUp={end} onMouseLeave={end}
-                            onTouchStart={start} onTouchMove={move} onTouchEnd={end}></canvas>
-                    </div>
-                    <button className="btn btn-secondary" style={{ marginTop: '6px' }} onClick={clear}>Limpiar firma</button>
-                </div>
-            );
-        }
-
-        // ===== SELECTOR DE MATERIALES (desde Preciario) =====
-        function MaterialesPicker({ value, onChange, materiales, clienteId, readOnly }) {
-            const filas = value && value.length ? value : [{ material_id: '', descripcion: '', cantidad: 1 }];
-            const materialesCliente = clienteId ? materiales.filter(m => !m.cliente_id || m.cliente_id === parseInt(clienteId)) : materiales;
-
-            const updateRow = (i, field, val) => {
-                const copy = [...filas];
-                copy[i] = { ...copy[i], [field]: val };
-                if (field === 'material_id' && val) {
-                    const mat = materiales.find(m => m.id === parseInt(val));
-                    if (mat) copy[i].descripcion = mat.descripcion;
-                }
-                onChange(copy);
-            };
-            const addRow = () => onChange([...filas, { material_id: '', descripcion: '', cantidad: 1 }]);
-            const removeRow = (i) => { const copy = [...filas]; copy.splice(i, 1); onChange(copy); };
-
-            if (readOnly) {
-                return filas.filter(f => f.descripcion).length ? (
-                    <div className="mini-list">
-                        {filas.filter(f => f.descripcion).map((f, i) => (
-                            <p key={i} className="card-text">• {f.descripcion} × {f.cantidad}</p>
-                        ))}
-                    </div>
-                ) : <p className="card-text">No se registraron materiales.</p>;
-            }
-
-            return (
-                <div>
-                    {filas.map((f, i) => (
-                        <div key={i} className="material-picker-row">
-                            <select value={f.material_id} onChange={(e) => updateRow(i, 'material_id', e.target.value)}>
-                                <option value="">-- Material del preciario (opcional) --</option>
-                                {materialesCliente.map(m => <option key={m.id} value={m.id}>{m.descripcion}</option>)}
-                            </select>
-                            <input type="number" min="0" placeholder="Cantidad" value={f.cantidad} onChange={(e) => updateRow(i, 'cantidad', e.target.value)} />
-                            <input style={{ gridColumn: '1 / -1' }} type="text" placeholder="Descripción (si no está en el preciario)" value={f.descripcion} onChange={(e) => updateRow(i, 'descripcion', e.target.value)} />
-                            {filas.length > 1 && <div style={{ gridColumn: '1 / -1' }}><button className="btn-remove-row" onClick={() => removeRow(i)}>Quitar</button></div>}
-                        </div>
-                    ))}
-                    <button className="btn-add-row" onClick={addRow}>+ Añadir material</button>
-                </div>
-            );
-        }
-
-        function DesplazamientosForm({ value, onChange, readOnly }) {
-            const desplazamientos = (value && value.length) ? value : [{ matricula: '', origen: '', destino: '', kilometros: '' }];
-            const updateItem = (idx, field, val) => {
-                const arr = [...desplazamientos];
-                arr[idx] = { ...arr[idx], [field]: val };
-                onChange(arr);
-            };
-            const addRow = () => onChange([...desplazamientos, { matricula: '', origen: '', destino: '', kilometros: '' }]);
-            const removeRow = (idx) => { const arr = [...desplazamientos]; arr.splice(idx, 1); onChange(arr); };
-            if (readOnly) {
-                return desplazamientos.filter(d => d.matricula || d.origen).length ? (
-                    desplazamientos.map((d, i) => <p key={i} className="card-text">🚗 {d.matricula || '—'} · {d.origen || '—'} → {d.destino || '—'} ({d.kilometros || 0} km)</p>)
-                ) : <p className="card-text">Sin desplazamientos registrados.</p>;
-            }
-            return (
-                <div>
-                    {desplazamientos.map((d, i) => (
-                        <div key={i} className="dyn-row">
-                            <input placeholder="Matrícula" value={d.matricula} onChange={(e) => updateItem(i, 'matricula', e.target.value)} />
-                            <input placeholder="Origen" value={d.origen} onChange={(e) => updateItem(i, 'origen', e.target.value)} />
-                            <input placeholder="Destino" value={d.destino} onChange={(e) => updateItem(i, 'destino', e.target.value)} />
-                            <input placeholder="Total Kilómetros" value={d.kilometros} onChange={(e) => updateItem(i, 'kilometros', e.target.value)} />
-                            {desplazamientos.length > 1 && <div className="dyn-row-actions"><button className="btn-remove-row" onClick={() => removeRow(i)}>Quitar</button></div>}
-                        </div>
-                    ))}
-                    <button className="btn-add-row" onClick={addRow}>+ Añadir desplazamiento</button>
-                </div>
-            );
-        }
-
-        function ParteTrabajoForm({ value, onChange, readOnly }) {
-            const data = value || {};
-            const medioAmbiente = data.medioAmbiente || [{ tipoResiduo: '', cantidad: '', destino: '' }];
-            const desplazamientos = data.desplazamientos || [{ matricula: '', origen: '', destino: '', kilometros: '' }];
-            const seguridad = data.seguridad || { epis: '', maquinariaBuenEstado: '', mediosElevacion: '', mediosElevacionTipo: '' };
-
-            const updateArray = (key, arr) => onChange({ ...data, [key]: arr });
-            const updateArrayItem = (key, idx, field, val) => {
-                const arr = [...(data[key] || [])];
-                arr[idx] = { ...arr[idx], [field]: val };
-                updateArray(key, arr);
-            };
-            const addRow = (key, empty) => updateArray(key, [...(data[key] || [empty]), empty]);
-            const removeRow = (key, idx) => {
-                const arr = [...(data[key] || [])];
-                arr.splice(idx, 1);
-                updateArray(key, arr);
-            };
-
-            return (
-                <div>
-                    <div className="checklist-section">
-                        <div className="checklist-section-title">🌱 Medio Ambiente</div>
-                        {readOnly ? (
-                            medioAmbiente.filter(r => r.tipoResiduo).length ? medioAmbiente.map((r, i) => <p key={i} className="card-text">🌱 {r.tipoResiduo} · {r.cantidad} · {r.destino}</p>) : <p className="card-text">Sin residuos registrados.</p>
-                        ) : (
-                            <>
-                                {medioAmbiente.map((r, i) => (
-                                    <div key={i} className="dyn-row">
-                                        <input placeholder="Tipo de Residuo" value={r.tipoResiduo} onChange={(e) => updateArrayItem('medioAmbiente', i, 'tipoResiduo', e.target.value)} />
-                                        <input placeholder="Cantidad" value={r.cantidad} onChange={(e) => updateArrayItem('medioAmbiente', i, 'cantidad', e.target.value)} />
-                                        <input placeholder="Destino del residuo" value={r.destino} onChange={(e) => updateArrayItem('medioAmbiente', i, 'destino', e.target.value)} />
-                                        {medioAmbiente.length > 1 && <div className="dyn-row-actions"><button className="btn-remove-row" onClick={() => removeRow('medioAmbiente', i)}>Quitar</button></div>}
-                                    </div>
-                                ))}
-                                <button className="btn-add-row" onClick={() => addRow('medioAmbiente', { tipoResiduo: '', cantidad: '', destino: '' })}>+ Añadir residuo</button>
-                            </>
-                        )}
-                    </div>
-
-                    <div className="checklist-section">
-                        <div className="checklist-section-title">🦺 Seguridad y Salud</div>
-                        {readOnly ? (
-                            <div className="readonly-view">
-                                <div className="rv-row"><span className="rv-label">EPIs utilizados</span><span className="rv-value">{seguridad.epis || '—'}</span></div>
-                                <div className="rv-row"><span className="rv-label">Maquinaria en buen estado</span><span className="rv-value">{seguridad.maquinariaBuenEstado || '—'}</span></div>
-                                <div className="rv-row"><span className="rv-label">Medios de elevación</span><span className="rv-value">{seguridad.mediosElevacion || '—'}{seguridad.mediosElevacion === 'SI' && seguridad.mediosElevacionTipo ? ' — ' + seguridad.mediosElevacionTipo : ''}</span></div>
-                            </div>
-                        ) : (
-                            <>
-                                <div className="form-group">
-                                    <label>¿Se utilizaron EPIs para realizar los trabajos?</label>
-                                    <select value={seguridad.epis} onChange={(e) => onChange({ ...data, seguridad: { ...seguridad, epis: e.target.value } })}>
-                                        <option value="">-- Selecciona --</option>
-                                        <option value="SI">SI</option>
-                                        <option value="NO">NO</option>
-                                    </select>
-                                </div>
-                                <div className="form-group">
-                                    <label>¿La maquinaria y equipos se encontraban en buen estado?</label>
-                                    <select value={seguridad.maquinariaBuenEstado} onChange={(e) => onChange({ ...data, seguridad: { ...seguridad, maquinariaBuenEstado: e.target.value } })}>
-                                        <option value="">-- Selecciona --</option>
-                                        <option value="SI">SI</option>
-                                        <option value="NO">NO</option>
-                                    </select>
-                                </div>
-                                <div className="form-group">
-                                    <label>¿Han sido necesarios medios de elevación?</label>
-                                    <select value={seguridad.mediosElevacion} onChange={(e) => onChange({ ...data, seguridad: { ...seguridad, mediosElevacion: e.target.value } })}>
-                                        <option value="">-- Selecciona --</option>
-                                        <option value="SI">SI</option>
-                                        <option value="NO">NO</option>
-                                    </select>
-                                </div>
-                                {seguridad.mediosElevacion === 'SI' && (
-                                    <div className="form-group">
-                                        <label>Medios de elevación utilizados</label>
-                                        <input type="text" value={seguridad.mediosElevacionTipo} onChange={(e) => onChange({ ...data, seguridad: { ...seguridad, mediosElevacionTipo: e.target.value } })} />
-                                    </div>
-                                )}
-                            </>
-                        )}
-                    </div>
-                </div>
-            );
-        }
-
-
-        function OrdenesView({ user, ordenes, clientes, contratos, activos, tiposActivo, usuarios, materiales, onRefresh, filtroInicialTipo }) {
-            const esGestor = user.rol === 'admin' || user.rol === 'supervisor';
-            const [mode, setMode] = useState('list'); // list | form-ot | detail | form-visita | view-visita
-            const [filtroTipo, setFiltroTipo] = useState(filtroInicialTipo || 'todas');
-            const [filtroEstado, setFiltroEstado] = useState('todas');
-            const [selectedOtId, setSelectedOtId] = useState(null);
-            const [visitas, setVisitas] = useState([]);
-            const [editingOtId, setEditingOtId] = useState(null);
-            const [selectedCliente, setSelectedCliente] = useState('');
-            const [activoSearch, setActivoSearch] = useState('');
-            const [editingVisitId, setEditingVisitId] = useState(null);
-            const [viewingVisitId, setViewingVisitId] = useState(null);
-
-            const tecnicosDisponibles = usuarios.filter(u => u.activo);
-            const responsablesDisponibles = usuarios.filter(u => u.activo && (u.rol === 'admin' || u.rol === 'supervisor'));
-
-            const getSeccionesTipo = (nombreTipo) => {
-                const tipo = tiposActivo.find(t => t.nombre === nombreTipo);
-                if (!tipo) return [];
-                try { return JSON.parse(tipo.checklist_json || '[]'); } catch { return []; }
-            };
-
-            const initialOtForm = {
-                titulo: '', tipo: esGestor ? 'correctivo' : 'guardia', ticket: '', id_cliente: '',
-                cliente_id: '', activo_id: '', prioridad: 'media', fecha_programada: '',
-                responsable_id: user.id, asignado_a: user.id, tecnicos_apoyo: [], notas: '', estado: esGestor ? 'pendiente' : 'pendiente'
-            };
-            const [otForm, setOtForm] = useState(initialOtForm);
-
-            // Un técnico solo edita libremente sus Guardias; en el resto de tipos, solo Estado y Notas
-            const puedeEditarTodo = esGestor || otForm.tipo === 'guardia';
-
-            const blankVisita = () => ({
-                fecha: new Date().toISOString().slice(0, 10), tecnico_id: user.id, hora_inicio: '', hora_fin: '',
-                id_mantis: '', proyecto: '', descripcion: '', checklist_json: {}, materiales_json: [], fotos_json: [], videos_json: [],
-                medio_ambiente_json: {}, seguridad_json: {}, desplazamientos_json: [], firma: '', firma_nombre: '', finalizado: false
-            });
-            const [visitaForm, setVisitaForm] = useState(blankVisita());
-
-            const otSeleccionada = ordenes.find(o => o.id === selectedOtId);
-            const visitaViendo = viewingVisitId ? visitas.find(v => v.id === viewingVisitId) : null;
-
-            const cargarVisitas = async (otId) => {
-                try {
-                    const res = await fetch(`${API_URL}/api/visitas?orden_id=${otId}`);
-                    setVisitas(await res.json());
-                } catch { setVisitas([]); }
-            };
-
-            const abrirDetalle = (otId) => {
-                setSelectedOtId(otId);
-                setMode('detail');
-                cargarVisitas(otId);
-            };
-
-            const contratosFiltrados = selectedCliente ? contratos.filter(c => c.cliente_id === parseInt(selectedCliente)) : contratos;
-            const activosFiltrados = activoSearch ? activos.filter(a => a.nombre.toLowerCase().includes(activoSearch.toLowerCase())) : activos;
-
-            const abrirNuevaOt = () => {
-                setOtForm(initialOtForm);
-                setSelectedCliente('');
-                setActivoSearch('');
-                setEditingOtId(null);
-                setMode('form-ot');
-            };
-
-            const abrirEditarOt = (o) => {
-                let tecApoyo = [];
-                try { tecApoyo = o.tecnicos_apoyo ? JSON.parse(o.tecnicos_apoyo) : []; } catch { tecApoyo = []; }
-                setOtForm({
-                    titulo: o.titulo, tipo: o.tipo, ticket: o.ticket || '', id_cliente: o.id_cliente || '',
-                    cliente_id: o.cliente_id || '', activo_id: o.activo_id || '', prioridad: o.prioridad || 'media',
-                    fecha_programada: o.fecha_programada || '', responsable_id: o.responsable_id || user.id, asignado_a: o.asignado_a || user.id,
-                    tecnicos_apoyo: tecApoyo, notas: o.notas || '', estado: o.estado
-                });
-                if (o.cliente_id) setSelectedCliente(String(o.cliente_id));
-                setEditingOtId(o.id);
-                setMode('form-ot');
-            };
-
-            const abrirConvertirGuardia = (o) => {
-                abrirEditarOt(o);
-                setOtForm(f => ({ ...f, tipo: 'correctivo' }));
-            };
-
-            const guardarOt = async () => {
-                if (!otForm.titulo.trim()) { alert('El título es obligatorio'); return; }
-                if (otForm.tipo === 'preventivo' && !otForm.activo_id) { alert('Selecciona el activo a revisar'); return; }
-                const payload = {
-                    ...otForm,
-                    cliente_id: otForm.cliente_id || null,
-                    activo_id: otForm.activo_id || null,
-                    tecnicos_apoyo: JSON.stringify(otForm.tecnicos_apoyo || [])
-                };
-                try {
-                    const url = editingOtId ? `${API_URL}/api/ordenes/${editingOtId}` : `${API_URL}/api/ordenes`;
-                    const method = editingOtId ? 'PUT' : 'POST';
-                    await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-                    setMode(editingOtId ? 'detail' : 'list');
-                    onRefresh();
-                } catch { alert('Error al guardar la orden'); }
-            };
-
-            const eliminarOt = async (id) => {
-                if (!confirm('¿Eliminar esta orden y todas sus visitas?')) return;
-                await fetch(`${API_URL}/api/ordenes/${id}`, { method: 'DELETE' });
-                setMode('list');
-                onRefresh();
-            };
-
-            const asignarmeOt = async (o) => {
-                await fetch(`${API_URL}/api/ordenes/${o.id}`, {
-                    method: 'PUT', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ ...o, asignado_a: user.id })
-                });
-                onRefresh();
-            };
-
-            const abrirNuevaVisita = () => {
-                setVisitaForm(blankVisita());
-                setEditingVisitId(null);
-                setMode('form-visita');
-            };
-
-            const abrirEditarVisita = (v) => {
-                let checklist = {}, mats = [], fotos = [], videos = [], medio = {}, seg = {}, desp = [];
-                try { checklist = v.checklist_json ? JSON.parse(v.checklist_json) : {}; } catch {}
-                try { mats = v.materiales_json ? JSON.parse(v.materiales_json) : []; } catch {}
-                try { fotos = v.fotos_json ? JSON.parse(v.fotos_json) : []; } catch {}
-                try { videos = v.videos_json ? JSON.parse(v.videos_json) : []; } catch {}
-                try { medio = v.medio_ambiente_json ? JSON.parse(v.medio_ambiente_json) : {}; } catch {}
-                try { seg = v.seguridad_json ? JSON.parse(v.seguridad_json) : {}; } catch {}
-                try { desp = v.desplazamientos_json ? JSON.parse(v.desplazamientos_json) : []; } catch {}
-                setVisitaForm({
-                    fecha: v.fecha || '', tecnico_id: v.tecnico_id || user.id, hora_inicio: v.hora_inicio || '', hora_fin: v.hora_fin || '',
-                    id_mantis: v.id_mantis || '', proyecto: v.proyecto || '', descripcion: v.descripcion || '',
-                    checklist_json: checklist, materiales_json: mats, fotos_json: fotos, videos_json: videos,
-                    medio_ambiente_json: medio, seguridad_json: seg, desplazamientos_json: desp,
-                    firma: v.firma || '', firma_nombre: v.firma_nombre || '', finalizado: !!v.finalizado
-                });
-                setEditingVisitId(v.id);
-                setMode('form-visita');
-            };
-
-            const guardarVisita = async () => {
-                if (!visitaForm.fecha) { alert('La fecha es obligatoria'); return; }
-                const payload = {
-                    orden_id: selectedOtId,
-                    fecha: visitaForm.fecha, tecnico_id: visitaForm.tecnico_id, hora_inicio: visitaForm.hora_inicio, hora_fin: visitaForm.hora_fin,
-                    id_mantis: visitaForm.id_mantis, proyecto: visitaForm.proyecto, descripcion: visitaForm.descripcion,
-                    checklist_tipo: otSeleccionada && otSeleccionada.activo_tipo ? otSeleccionada.activo_tipo : null,
-                    checklist_json: JSON.stringify(visitaForm.checklist_json || {}),
-                    materiales_json: JSON.stringify(visitaForm.materiales_json || []),
-                    fotos_json: JSON.stringify(visitaForm.fotos_json || []),
-                    videos_json: JSON.stringify(visitaForm.videos_json || []),
-                    medio_ambiente_json: JSON.stringify(visitaForm.medio_ambiente_json || {}),
-                    seguridad_json: JSON.stringify(visitaForm.seguridad_json || {}),
-                    desplazamientos_json: JSON.stringify(visitaForm.desplazamientos_json || []),
-                    firma: visitaForm.firma, firma_nombre: visitaForm.firma_nombre,
-                    finalizado: visitaForm.finalizado ? 1 : 0
-                };
-                try {
-                    const url = editingVisitId ? `${API_URL}/api/visitas/${editingVisitId}` : `${API_URL}/api/visitas`;
-                    const method = editingVisitId ? 'PUT' : 'POST';
-                    await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-                    setMode('detail');
-                    cargarVisitas(selectedOtId);
-                    onRefresh();
-                } catch { alert('Error al guardar la visita'); }
-            };
-
-            const eliminarVisita = async (id) => {
-                if (!confirm('¿Eliminar esta visita?')) return;
-                await fetch(`${API_URL}/api/visitas/${id}`, { method: 'DELETE' });
-                cargarVisitas(selectedOtId);
-                onRefresh();
-            };
-
-            // El técnico puede VER todas las órdenes (la edición se restringe aparte, según asignación)
-            const ordenesBase = ordenes;
-            let ordenesFiltradas = filtroTipo === 'todas' ? ordenesBase : ordenesBase.filter(o => o.tipo === filtroTipo);
-            if (filtroEstado !== 'todas') ordenesFiltradas = ordenesFiltradas.filter(o => o.estado === filtroEstado);
-
-            // ============ RENDER: LIST ============
-            if (mode === 'list') {
-                return (
-                    <div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '8px' }}>
-                            <h3 className="section-title" style={{ margin: 0 }}>📋 {esGestor ? 'Órdenes de Trabajo' : 'Mis Órdenes'}</h3>
-                            <button className="btn btn-crear" onClick={abrirNuevaOt}>+ Nueva {!esGestor && 'Guardia'}</button>
-                        </div>
-
-                        <div className="tipo-filter-bar">
-                            {['todas', 'correctivo', 'preventivo', 'obra', 'guardia'].map(t => (
-                                <button key={t} className={`tipo-filter-btn ${filtroTipo === t ? 'active' : ''}`} onClick={() => setFiltroTipo(t)}>
-                                    {t === 'todas' ? 'Todas' : t.charAt(0).toUpperCase() + t.slice(1)}
-                                </button>
-                            ))}
-                        </div>
-                        <div className="tipo-filter-bar">
-                            {['todas', 'abierta', 'en_curso', 'resuelta', 'pendiente'].map(t => (
-                                <button key={t} className={`tipo-filter-btn ${filtroEstado === t ? 'active' : ''}`} onClick={() => setFiltroEstado(t)}>
-                                    {t === 'todas' ? 'Cualquier estado' : t.replace('_', ' ')}
-                                </button>
-                            ))}
-                        </div>
-
-                        <div className="list">
-                            {ordenesFiltradas.length === 0 ? (
-                                <div className="empty-state">No hay órdenes</div>
-                            ) : (
-                                ordenesFiltradas.map(order => (
-                                    <div key={order.id} className="list-item" style={{ cursor: 'pointer' }} onClick={() => abrirDetalle(order.id)}>
-                                        <div className="list-item-header">
-                                            <div>
-                                                <p className="card-title">{order.id} <span className={`prioridad-badge ${order.prioridad || 'media'}`}>{order.prioridad || 'media'}</span></p>
-                                                <p className="card-text">{order.titulo}</p>
-                                            </div>
-                                            <span className={`badge ${order.tipo}`}>{order.tipo}</span>
-                                        </div>
-                                        {order.cliente_nombre && <p className="card-text">👤 {order.cliente_nombre}</p>}
-                                        {order.activo_nombre && <p className="card-text">⚙️ {order.activo_nombre}</p>}
-                                        {order.fecha_programada && <p className="card-text">📅 Programada: {order.fecha_programada}</p>}
-                                        <p className="card-text">✓ {order.estado} · 📋 Visitas: {order.num_visitas || 0}{order.ultima_visita ? ` (última ${order.ultima_visita})` : ''}</p>
-                                    </div>
-                                ))
-                            )}
-                        </div>
-                    </div>
-                );
-            }
-
-            // ============ RENDER: FORM OT ============
-            if (mode === 'form-ot') {
-                return (
-                    <div>
-                        <button className="btn btn-secondary" onClick={() => setMode(editingOtId ? 'detail' : 'list')}>← Volver</button>
-                        <h3 className="section-title" style={{ marginTop: '10px' }}>{editingOtId ? 'Editar Orden' : 'Nueva Orden'}</h3>
-
-                        <div className="card">
-                            {!puedeEditarTodo && (
-                                <p className="lock-note">🔒 Solo puedes modificar el Estado y las Notas de esta orden. El resto de campos los gestiona tu responsable.</p>
-                            )}
-
-                            <div className={`form-group ${!puedeEditarTodo ? 'field-locked' : ''}`}>
-                                <label>Título</label>
-                                <input type="text" placeholder="Título de la orden" value={otForm.titulo} disabled={!puedeEditarTodo} onChange={(e) => setOtForm({ ...otForm, titulo: e.target.value })} />
-                            </div>
-
-                            {esGestor ? (
-                                <div className={`form-group ${!puedeEditarTodo ? 'field-locked' : ''}`}>
-                                    <label>Tipo</label>
-                                    <select value={otForm.tipo} disabled={!puedeEditarTodo} onChange={(e) => setOtForm({ ...otForm, tipo: e.target.value, activo_id: '' })}>
-                                        <option value="correctivo">Correctiva</option>
-                                        <option value="preventivo">Preventiva</option>
-                                        <option value="obra">Obra</option>
-                                        <option value="guardia">Guardia</option>
-                                    </select>
-                                </div>
-                            ) : otForm.tipo === 'guardia' ? (
-                                <p className="card-text">🔔 Como técnico, tus órdenes se crean como <strong>Guardia</strong>. Un supervisor las revisará y convertirá en Correctivo si procede.</p>
-                            ) : (
-                                <p className="card-text">Tipo: <strong>{otForm.tipo}</strong></p>
-                            )}
-
-                            {(esGestor || otForm.ticket || otForm.id_cliente) && (
-                                <>
-                                    <div className={`form-group ${!puedeEditarTodo ? 'field-locked' : ''}`}>
-                                        <label>Ticket</label>
-                                        <input type="text" placeholder="Nº de ticket (opcional)" value={otForm.ticket} disabled={!puedeEditarTodo} onChange={(e) => setOtForm({ ...otForm, ticket: e.target.value })} />
-                                    </div>
-                                    <div className={`form-group ${!puedeEditarTodo ? 'field-locked' : ''}`}>
-                                        <label>ID Cliente (referencia externa)</label>
-                                        <input type="text" placeholder="Ej: RF-2201" value={otForm.id_cliente} disabled={!puedeEditarTodo} onChange={(e) => setOtForm({ ...otForm, id_cliente: e.target.value })} />
-                                    </div>
-                                </>
-                            )}
-
-                            <div className={`form-group ${!puedeEditarTodo ? 'field-locked' : ''}`}>
-                                <label>Cliente{otForm.tipo === 'guardia' ? ' (opcional)' : ''}</label>
-                                <select value={otForm.cliente_id} disabled={!puedeEditarTodo} onChange={(e) => { setOtForm({ ...otForm, cliente_id: e.target.value }); setSelectedCliente(e.target.value); }}>
-                                    <option value="">-- Selecciona un cliente --</option>
-                                    {clientes.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-                                </select>
-                            </div>
-
-                            {(otForm.tipo === 'preventivo' || otForm.tipo === 'guardia' || otForm.tipo === 'correctivo') && (
-                                <>
-                                    {puedeEditarTodo && (
-                                        <div className="form-group">
-                                            <label>Buscar Activo{otForm.tipo !== 'preventivo' ? ' (opcional)' : ''}</label>
-                                            <input type="text" placeholder="Escribe para filtrar..." value={activoSearch} onChange={(e) => setActivoSearch(e.target.value)} />
-                                        </div>
-                                    )}
-                                    <div className={`form-group ${!puedeEditarTodo ? 'field-locked' : ''}`}>
-                                        <label>Activo{otForm.tipo !== 'preventivo' ? ' Relacionado (opcional, indica el tipo y su checklist)' : ' a Revisar'}</label>
-                                        <select value={otForm.activo_id} disabled={!puedeEditarTodo} onChange={(e) => setOtForm({ ...otForm, activo_id: e.target.value })}>
-                                            <option value="">-- Selecciona un activo --</option>
-                                            {activosFiltrados.map(a => (
-                                                <option key={a.id} value={a.id}>{a.nombre} · {a.tipo} ({a.cliente_nombre} › {a.emplazamiento_nombre})</option>
-                                            ))}
-                                        </select>
-                                    </div>
-                                </>
-                            )}
-
-                            <div className={`form-group ${!puedeEditarTodo ? 'field-locked' : ''}`}>
-                                <label>Prioridad</label>
-                                <select value={otForm.prioridad} disabled={!puedeEditarTodo} onChange={(e) => setOtForm({ ...otForm, prioridad: e.target.value })}>
-                                    <option value="baja">Baja</option>
-                                    <option value="media">Media</option>
-                                    <option value="alta">Alta</option>
-                                    <option value="urgente">Urgente</option>
-                                </select>
-                            </div>
-
-                            <div className="form-group">
-                                <label>Estado</label>
-                                <select value={otForm.estado} onChange={(e) => setOtForm({ ...otForm, estado: e.target.value })}>
-                                    <option value="pendiente">Pendiente</option>
-                                    <option value="abierta">Asignada / Abierta</option>
-                                    <option value="en_curso">En curso</option>
-                                    <option value="resuelta">Resuelta</option>
-                                    <option value="cancelada">Cancelada</option>
-                                </select>
-                            </div>
-
-                            {esGestor && (
-                                <>
-                                    <div className="form-group">
-                                        <label>Fecha Programada</label>
-                                        <input type="date" value={otForm.fecha_programada} onChange={(e) => setOtForm({ ...otForm, fecha_programada: e.target.value })} />
-                                    </div>
-                                    <div className="form-group">
-                                        <label>Responsable (Admin / Supervisor)</label>
-                                        <select value={otForm.responsable_id} onChange={(e) => setOtForm({ ...otForm, responsable_id: parseInt(e.target.value) })}>
-                                            {responsablesDisponibles.map(u => <option key={u.id} value={u.id}>{u.nombre} ({u.rol})</option>)}
-                                        </select>
-                                    </div>
-                                </>
-                            )}
-
-                            <div className={`form-group ${!puedeEditarTodo ? 'field-locked' : ''}`}>
-                                <label>Técnico Principal</label>
-                                <select value={otForm.asignado_a} disabled={!puedeEditarTodo} onChange={(e) => setOtForm({ ...otForm, asignado_a: parseInt(e.target.value) })}>
-                                    {tecnicosDisponibles.map(u => <option key={u.id} value={u.id}>{u.nombre} ({u.rol})</option>)}
-                                </select>
-                            </div>
-
-                            {esGestor && (
-                                <div className="form-group">
-                                    <label>Técnicos de Apoyo</label>
-                                    {tecnicosDisponibles.filter(u => u.id !== otForm.asignado_a).map(u => (
-                                        <label key={u.id} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', marginBottom: '4px' }}>
-                                            <input type="checkbox" checked={otForm.tecnicos_apoyo.includes(u.id)} disabled={!puedeEditarTodo} onChange={(e) => {
-                                                const checked = e.target.checked;
-                                                setOtForm(f => ({ ...f, tecnicos_apoyo: checked ? [...f.tecnicos_apoyo, u.id] : f.tecnicos_apoyo.filter(id => id !== u.id) }));
-                                            }} /> {u.nombre}
-                                        </label>
-                                    ))}
-                                </div>
-                            )}
-
-                            <div className="form-group">
-                                <label>Notas / Descripción</label>
-                                <textarea placeholder="Describe el trabajo o incidencia..." value={otForm.notas} onChange={(e) => setOtForm({ ...otForm, notas: e.target.value })}></textarea>
-                            </div>
-
-                            <div className="btn-group">
-                                <button className="btn btn-success" onClick={guardarOt}>{editingOtId ? 'Guardar' : 'Crear'}</button>
-                                <button className="btn btn-secondary" onClick={() => setMode(editingOtId ? 'detail' : 'list')}>Cancelar</button>
-                            </div>
-                        </div>
-                    </div>
-                );
-            }
-
-            // ============ RENDER: DETAIL ============
-            if (mode === 'detail') {
-                if (!otSeleccionada) return <div className="empty-state">Orden no encontrada</div>;
-                let tecApoyoIds = [];
-                try { tecApoyoIds = otSeleccionada.tecnicos_apoyo ? JSON.parse(otSeleccionada.tecnicos_apoyo) : []; } catch {}
-                const nombresApoyo = tecApoyoIds.map(id => (usuarios.find(u => u.id === id) || {}).nombre).filter(Boolean);
-
-                return (
-                    <div>
-                        <button className="btn btn-secondary" onClick={() => setMode('list')}>← Volver</button>
-
-                        <div className="card" style={{ marginTop: '10px' }}>
-                            <div className="list-item-header">
-                                <div>
-                                    <p className="card-title">{otSeleccionada.id} <span className={`prioridad-badge ${otSeleccionada.prioridad || 'media'}`}>{otSeleccionada.prioridad || 'media'}</span></p>
-                                    <p className="card-text">{otSeleccionada.titulo}</p>
-                                </div>
-                                <span className={`badge ${otSeleccionada.tipo}`}>{otSeleccionada.tipo}</span>
-                            </div>
-                            <div className="readonly-view">
-                                {otSeleccionada.cliente_nombre && <div className="rv-row"><span className="rv-label">Cliente</span><span className="rv-value">{otSeleccionada.cliente_nombre}</span></div>}
-                                {otSeleccionada.activo_nombre && <div className="rv-row"><span className="rv-label">Activo</span><span className="rv-value">{otSeleccionada.activo_nombre}</span></div>}
-                                {otSeleccionada.ticket && <div className="rv-row"><span className="rv-label">Ticket</span><span className="rv-value">{otSeleccionada.ticket}</span></div>}
-                                {otSeleccionada.id_cliente && <div className="rv-row"><span className="rv-label">ID Cliente</span><span className="rv-value">{otSeleccionada.id_cliente}</span></div>}
-                                {otSeleccionada.fecha_programada && <div className="rv-row"><span className="rv-label">Programada</span><span className="rv-value">{otSeleccionada.fecha_programada}</span></div>}
-                                <div className="rv-row"><span className="rv-label">Técnico</span><span className="rv-value">{otSeleccionada.tecnico_nombre || '—'}</span></div>
-                                <div className="rv-row"><span className="rv-label">Responsable</span><span className="rv-value">{otSeleccionada.responsable_nombre || '—'}</span></div>
-                                {nombresApoyo.length > 0 && <div className="rv-row"><span className="rv-label">Apoyo</span><span className="rv-value">{nombresApoyo.join(', ')}</span></div>}
-                                <div className="rv-row"><span className="rv-label">Estado</span><span className="rv-value">{otSeleccionada.estado}</span></div>
-                                {otSeleccionada.notas && <div className="rv-row"><span className="rv-label">Notas</span><span className="rv-value">{otSeleccionada.notas}</span></div>}
-                            </div>
-                            {(() => {
-                                const puedeGestionar = esGestor || otSeleccionada.asignado_a === user.id;
-                                const sinAsignar = !otSeleccionada.asignado_a;
-                                return (
-                                    <div style={{ marginTop: '10px' }}>
-                                        {!esGestor && !puedeGestionar && !sinAsignar && (
-                                            <p className="lock-note">🔒 Esta orden está asignada a otro técnico ({otSeleccionada.tecnico_nombre}). Solo puedes verla.</p>
-                                        )}
-                                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                                            {puedeGestionar && <button className="btn btn-primary" onClick={() => abrirEditarOt(otSeleccionada)}>Editar</button>}
-                                            {!esGestor && !puedeGestionar && sinAsignar && (
-                                                <button className="btn btn-crear" onClick={() => asignarmeOt(otSeleccionada)}>Asignarme para Gestionar</button>
-                                            )}
-                                            {esGestor && otSeleccionada.tipo === 'guardia' && <button className="btn btn-success" onClick={() => abrirConvertirGuardia(otSeleccionada)}>Convertir a Correctivo</button>}
-                                            {esGestor && <button className="btn btn-danger" onClick={() => eliminarOt(otSeleccionada.id)}>Eliminar OT</button>}
-                                        </div>
-                                    </div>
-                                );
-                            })()}
-                        </div>
-
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '14px 0 8px' }}>
-                            <h4 className="card-title" style={{ margin: 0 }}>📋 Visitas ({visitas.length})</h4>
-                            {(esGestor || otSeleccionada.asignado_a === user.id) && <button className="btn btn-crear" onClick={abrirNuevaVisita}>+ Nueva Visita</button>}
-                        </div>
-
-                        <div className="list">
-                            {visitas.length === 0 ? (
-                                <div className="empty-state">No hay visitas registradas</div>
-                            ) : (
-                                visitas.map(v => (
-                                    <div key={v.id} className="visita-card">
-                                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                            <div>
-                                                <p style={{ fontWeight: 600, fontSize: '13px', margin: 0 }}>📅 {v.fecha}</p>
-                                                <p className="card-text">👤 {v.tecnico_nombre || '—'} {v.hora_inicio && `· ${v.hora_inicio}${v.hora_fin ? '-' + v.hora_fin : ''}`}</p>
-                                            </div>
-                                            <span className="badge" style={{ background: v.finalizado ? 'var(--bg-success)' : 'var(--bg-warning)', color: v.finalizado ? 'var(--fill-success)' : '#b8860b' }}>
-                                                {v.finalizado ? 'Finalizada' : 'En curso'}
-                                            </span>
-                                        </div>
-                                        {v.descripcion && <p className="card-text">{v.descripcion}</p>}
-                                        <div style={{ marginTop: '6px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                                            <button className="btn btn-secondary" onClick={() => { setViewingVisitId(v.id); setMode('view-visita'); }}>Ver</button>
-                                            {(esGestor || v.tecnico_id === user.id) && <button className="btn btn-primary" onClick={() => abrirEditarVisita(v)}>Editar</button>}
-                                            {esGestor && <button className="btn btn-danger" onClick={() => eliminarVisita(v.id)}>Eliminar</button>}
-                                        </div>
-                                    </div>
-                                ))
-                            )}
-                        </div>
-                    </div>
-                );
-            }
-
-            // ============ RENDER: FORM VISITA ============
-            if (mode === 'form-visita') {
-                return (
-                    <div>
-                        <button className="btn btn-secondary" onClick={() => setMode('detail')}>← Volver</button>
-                        <div className="card" style={{ marginTop: '10px' }}>
-                            <h4 className="card-title">{editingVisitId ? 'Editar Visita' : 'Nueva Visita'}</h4>
-
-                            <div className="form-group"><label>Fecha</label><input type="date" value={visitaForm.fecha} onChange={(e) => setVisitaForm({ ...visitaForm, fecha: e.target.value })} /></div>
-                            <div className="form-group">
-                                <label>Técnico</label>
-                                <select value={visitaForm.tecnico_id} onChange={(e) => setVisitaForm({ ...visitaForm, tecnico_id: parseInt(e.target.value) })}>
-                                    {tecnicosDisponibles.map(u => <option key={u.id} value={u.id}>{u.nombre}</option>)}
-                                </select>
-                            </div>
-                            <div className="form-group"><label>Hora inicio</label><input type="time" value={visitaForm.hora_inicio} onChange={(e) => setVisitaForm({ ...visitaForm, hora_inicio: e.target.value })} /></div>
-                            <div className="form-group"><label>Hora fin</label><input type="time" value={visitaForm.hora_fin} onChange={(e) => setVisitaForm({ ...visitaForm, hora_fin: e.target.value })} /></div>
-                            <div className="form-group"><label>ID Mantis / Ticket</label><input type="text" value={visitaForm.id_mantis} onChange={(e) => setVisitaForm({ ...visitaForm, id_mantis: e.target.value })} /></div>
-                            <div className="form-group"><label>Proyecto</label><input type="text" value={visitaForm.proyecto} onChange={(e) => setVisitaForm({ ...visitaForm, proyecto: e.target.value })} /></div>
-                            <div className="form-group"><label>Descripción</label><textarea value={visitaForm.descripcion} onChange={(e) => setVisitaForm({ ...visitaForm, descripcion: e.target.value })}></textarea></div>
-
-                            {otSeleccionada && otSeleccionada.activo_tipo && (
-                                <div className="checklist-section">
-                                    <div className="checklist-section-title">✅ Checklist: {otSeleccionada.activo_tipo}</div>
-                                    <DynamicChecklistForm sections={getSeccionesTipo(otSeleccionada.activo_tipo)} value={visitaForm.checklist_json} onChange={(v) => setVisitaForm({ ...visitaForm, checklist_json: v })} />
-                                </div>
-                            )}
-
-                            {otSeleccionada && otSeleccionada.tipo === 'obra' && (
-                                <div className="checklist-section">
-                                    <div className="checklist-section-title">📝 Parte de Trabajo</div>
-                                    <ParteTrabajoForm
-                                        value={{ medioAmbiente: visitaForm.medio_ambiente_json, seguridad: visitaForm.seguridad_json }}
-                                        onChange={(v) => setVisitaForm({ ...visitaForm, medio_ambiente_json: v.medioAmbiente || [], seguridad_json: v.seguridad || {} })}
-                                    />
-                                    <div className="checklist-section-title" style={{ marginTop: '10px' }}>✍️ Firma</div>
-                                    <div className="form-group"><label>Firmado por</label><input type="text" value={visitaForm.firma_nombre} onChange={(e) => setVisitaForm({ ...visitaForm, firma_nombre: e.target.value })} /></div>
-                                    <SignaturePad value={visitaForm.firma} onChange={(v) => setVisitaForm({ ...visitaForm, firma: v })} />
-                                </div>
-                            )}
-
-                            <div className="checklist-section">
-                                <div className="checklist-section-title">🚗 Vehículo y Kilómetros</div>
-                                <DesplazamientosForm value={visitaForm.desplazamientos_json} onChange={(v) => setVisitaForm({ ...visitaForm, desplazamientos_json: v })} />
-                            </div>
-
-                            <div className="checklist-section">
-                                <div className="checklist-section-title">📦 Materiales Utilizados</div>
-                                <MaterialesPicker value={visitaForm.materiales_json} onChange={(v) => setVisitaForm({ ...visitaForm, materiales_json: v })} materiales={materiales} clienteId={otSeleccionada ? otSeleccionada.cliente_id : ''} />
-                            </div>
-
-                            <div className="checklist-section">
-                                <div className="checklist-section-title">📷 Fotos</div>
-                                <PhotoCapture value={visitaForm.fotos_json} onChange={(v) => setVisitaForm({ ...visitaForm, fotos_json: v })} />
-                            </div>
-
-                            <div className="checklist-section">
-                                <div className="checklist-section-title">🎥 Vídeos</div>
-                                <VideoCapture value={visitaForm.videos_json} onChange={(v) => setVisitaForm({ ...visitaForm, videos_json: v })} />
-                            </div>
-
-                            <label className={`finalizar-banner ${visitaForm.finalizado ? 'activo' : ''}`}>
-                                <input type="checkbox" checked={visitaForm.finalizado} onChange={(e) => setVisitaForm({ ...visitaForm, finalizado: e.target.checked })} />
-                                <div className="finalizar-banner-text">
-                                    <p className="finalizar-banner-title">{visitaForm.finalizado ? '✅ Parte marcado como FINALIZADO' : '🔓 Marcar este parte como finalizado'}</p>
-                                    <p className="finalizar-banner-sub">Al finalizar, la orden de trabajo se marca como resuelta.</p>
-                                </div>
-                            </label>
-
-                            <div className="btn-group">
-                                <button className="btn btn-success" onClick={guardarVisita}>{editingVisitId ? 'Guardar' : 'Crear'}</button>
-                                <button className="btn btn-secondary" onClick={() => setMode('detail')}>Cancelar</button>
-                            </div>
-                        </div>
-                    </div>
-                );
-            }
-
-            // ============ RENDER: VIEW VISITA (solo lectura) ============
-            if (mode === 'view-visita') {
-                if (!visitaViendo) return <div className="empty-state">Visita no encontrada</div>;
-                let checklist = {}, mats = [], fotos = [], videos = [], medio = {}, seg = {}, desp = [];
-                try { checklist = visitaViendo.checklist_json ? JSON.parse(visitaViendo.checklist_json) : {}; } catch {}
-                try { mats = visitaViendo.materiales_json ? JSON.parse(visitaViendo.materiales_json) : []; } catch {}
-                try { fotos = visitaViendo.fotos_json ? JSON.parse(visitaViendo.fotos_json) : []; } catch {}
-                try { videos = visitaViendo.videos_json ? JSON.parse(visitaViendo.videos_json) : []; } catch {}
-                try { medio = visitaViendo.medio_ambiente_json ? JSON.parse(visitaViendo.medio_ambiente_json) : {}; } catch {}
-                try { seg = visitaViendo.seguridad_json ? JSON.parse(visitaViendo.seguridad_json) : {}; } catch {}
-                try { desp = visitaViendo.desplazamientos_json ? JSON.parse(visitaViendo.desplazamientos_json) : []; } catch {}
-
-                return (
-                    <div>
-                        <button className="btn btn-secondary" onClick={() => setMode('detail')}>← Volver</button>
-                        <div className="card" style={{ marginTop: '10px' }}>
-                            <h4 className="card-title">👁️ Visita del {visitaViendo.fecha}</h4>
-                            <div className="readonly-view">
-                                <div className="rv-row"><span className="rv-label">Técnico</span><span className="rv-value">{visitaViendo.tecnico_nombre || '—'}</span></div>
-                                <div className="rv-row"><span className="rv-label">Horario</span><span className="rv-value">{visitaViendo.hora_inicio || '—'}{visitaViendo.hora_fin ? ' - ' + visitaViendo.hora_fin : ''}</span></div>
-                                {visitaViendo.id_mantis && <div className="rv-row"><span className="rv-label">ID Mantis</span><span className="rv-value">{visitaViendo.id_mantis}</span></div>}
-                                {visitaViendo.proyecto && <div className="rv-row"><span className="rv-label">Proyecto</span><span className="rv-value">{visitaViendo.proyecto}</span></div>}
-                            </div>
-                            {visitaViendo.descripcion && <p className="card-text" style={{ marginTop: '8px' }}>{visitaViendo.descripcion}</p>}
-
-                            {otSeleccionada && visitaViendo.checklist_tipo && (
-                                <div className="checklist-section">
-                                    <div className="checklist-section-title">✅ Checklist: {visitaViendo.checklist_tipo}</div>
-                                    <DynamicChecklistForm sections={getSeccionesTipo(visitaViendo.checklist_tipo)} value={checklist} onChange={() => {}} readOnly={true} />
-                                </div>
-                            )}
-
-                            {otSeleccionada && otSeleccionada.tipo === 'obra' && (
-                                <div className="checklist-section">
-                                    <div className="checklist-section-title">📝 Parte de Trabajo</div>
-                                    <ParteTrabajoForm value={{ medioAmbiente: medio, seguridad: seg }} onChange={() => {}} readOnly={true} />
-                                    <div className="checklist-section-title" style={{ marginTop: '10px' }}>✍️ Firma</div>
-                                    {visitaViendo.firma_nombre && <p className="card-text">Firmado por: {visitaViendo.firma_nombre}</p>}
-                                    <SignaturePad value={visitaViendo.firma} onChange={() => {}} readOnly={true} />
-                                </div>
-                            )}
-
-                            <div className="checklist-section">
-                                <div className="checklist-section-title">🚗 Vehículo y Kilómetros</div>
-                                <DesplazamientosForm value={desp} onChange={() => {}} readOnly={true} />
-                            </div>
-
-                            <div className="checklist-section">
-                                <div className="checklist-section-title">📦 Materiales Utilizados</div>
-                                <MaterialesPicker value={mats} onChange={() => {}} materiales={materiales} clienteId="" readOnly={true} />
-                            </div>
-
-                            <div className="checklist-section">
-                                <div className="checklist-section-title">📷 Fotos</div>
-                                <PhotoCapture value={fotos} onChange={() => {}} readOnly={true} />
-                            </div>
-
-                            <div className="checklist-section">
-                                <div className="checklist-section-title">🎥 Vídeos</div>
-                                <VideoCapture value={videos} onChange={() => {}} readOnly={true} />
-                            </div>
-
-                            <p className="card-text" style={{ marginTop: '10px' }}>
-                                <span className="badge" style={{ background: visitaViendo.finalizado ? 'var(--bg-success)' : 'var(--bg-warning)', color: visitaViendo.finalizado ? 'var(--fill-success)' : '#b8860b' }}>
-                                    {visitaViendo.finalizado ? 'Finalizada / OT resuelta' : 'En curso'}
-                                </span>
-                            </p>
-
-                            <div className="btn-group">
-                                {(esGestor || visitaViendo.tecnico_id === user.id) && <button className="btn btn-primary" onClick={() => abrirEditarVisita(visitaViendo)}>Editar Visita</button>}
-                                <button className="btn btn-secondary" onClick={() => setMode('detail')}>Cerrar</button>
-                            </div>
-                        </div>
-                    </div>
-                );
-            }
-
-            return null;
-        }
-
-        // ===== HELPERS EXCEL (SheetJS) =====
-        function exportToExcel(data, filename, columns) {
-            if (!data || data.length === 0) {
-                alert('No hay datos para exportar');
-                return;
-            }
-            const rows = data.map(item => {
-                const row = {};
-                columns.forEach(col => { row[col.label] = item[col.key] ?? ''; });
-                return row;
-            });
-            const ws = XLSX.utils.json_to_sheet(rows);
-            const wb = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(wb, ws, 'Datos');
-            XLSX.writeFile(wb, `${filename}.xlsx`);
-        }
-
-        function ExcelImportButton({ onRows, label }) {
-            const inputRef = React.useRef(null);
-            const handleFile = (e) => {
-                const file = e.target.files[0];
-                if (!file) return;
-                const reader = new FileReader();
-                reader.onload = (evt) => {
-                    const wb = XLSX.read(evt.target.result, { type: 'binary' });
-                    const ws = wb.Sheets[wb.SheetNames[0]];
-                    const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
-                    onRows(rows);
-                };
-                reader.readAsBinaryString(file);
-                e.target.value = '';
-            };
-            return (
-                <label className="btn btn-import" style={{ cursor: 'pointer' }}>
-                    📥 {label || 'Importar Excel'}
-                    <input ref={inputRef} type="file" accept=".xlsx,.xls" className="file-input-hidden" onChange={handleFile} />
-                </label>
-            );
-        }
-
-        // Hace scroll automático hasta el formulario cuando se abre (crear o editar),
-        // para no tener que buscarlo manualmente si la lista es larga.
-        function useAutoScrollForm(abierto) {
-            const ref = React.useRef(null);
-            useEffect(() => {
-                if (abierto && ref.current) {
-                    ref.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                }
-            }, [abierto]);
-            return ref;
-        }
-
-        // ===== ZONAS =====
-        function ZonasView({ user, zonas, onRefresh }) {
-            const [showForm, setShowForm] = useState(false);
-            const [editingId, setEditingId] = useState(null);
-            const [formData, setFormData] = useState({ nombre: '' });
-            const formRef = useAutoScrollForm(showForm);
-            const [importMsg, setImportMsg] = useState('');
-
-            const handleAdd = async () => {
-                if (!formData.nombre.trim()) { alert('Escribe un nombre para la zona'); return; }
-                try {
-                    const url = editingId ? `${API_URL}/api/zonas/${editingId}` : `${API_URL}/api/zonas`;
-                    const method = editingId ? 'PUT' : 'POST';
-                    await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(formData) });
-                    setFormData({ nombre: '' });
-                    setEditingId(null);
-                    setShowForm(false);
-                    onRefresh();
-                } catch (err) { alert('Error al guardar zona'); }
-            };
-
-            const handleDelete = async (id) => {
-                if (!confirm('¿Eliminar esta zona? Esto puede afectar emplazamientos vinculados.')) return;
-                await fetch(`${API_URL}/api/zonas/${id}`, { method: 'DELETE' });
-                onRefresh();
-            };
-
-            const handleEdit = (z) => {
-                setFormData({ nombre: z.nombre });
-                setEditingId(z.id);
-                setShowForm(true);
-            };
-
-            const handleImportRows = async (rows) => {
-                let ok = 0, fail = 0;
-                for (const row of rows) {
-                    const nombre = row['Zona'] || row['nombre'] || row['Nombre'];
-                    if (!nombre) { fail++; continue; }
-                    try {
-                        await fetch(`${API_URL}/api/zonas`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nombre }) });
-                        ok++;
-                    } catch { fail++; }
-                }
-                setImportMsg(`✅ Importadas: ${ok} | ❌ Fallidas: ${fail}`);
-                onRefresh();
-            };
-
-            return (
-                <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '8px' }}>
-                        <h3 className="section-title" style={{ margin: 0 }}>🗺️ Zonas</h3>
-                        <div className="toolbar">
-                            <button className="btn btn-excel" onClick={() => exportToExcel(zonas, 'zonas', [
-                                { key: 'nombre', label: 'Zona' }
-                            ])}>📤 Exportar</button>
-                            <ExcelImportButton onRows={handleImportRows} />
-                            <button className="btn btn-crear" onClick={() => { setShowForm(!showForm); setEditingId(null); }}>+ Nueva</button>
-                        </div>
-                    </div>
-
-                    {importMsg && <div className="import-summary">{importMsg}</div>}
-                    <p className="lock-note">Una zona es un lugar físico (ej: "Asturias"). Puede contener activos de cualquier cliente o contrato.</p>
-
-                    {showForm && (
-                        <div className="card" ref={formRef} style={{ marginBottom: '1rem' }}>
-                            <div className="form-group">
-                                <label>Nombre de la Zona</label>
-                                <input type="text" placeholder="Ej: Asturias, Andalucía..." value={formData.nombre} onChange={(e) => setFormData({ ...formData, nombre: e.target.value })} />
-                            </div>
-                            <div className="btn-group">
-                                <button className="btn btn-success" onClick={handleAdd}>{editingId ? 'Guardar' : 'Crear'}</button>
-                                <button className="btn btn-secondary" onClick={() => { setShowForm(false); setEditingId(null); }}>Cancelar</button>
-                            </div>
-                        </div>
-                    )}
-
-                    <div className="list">
-                        {zonas.length === 0 ? <div className="empty-state">No hay zonas</div> : zonas.map(z => (
-                            <div key={z.id} className="list-item">
-                                <p className="card-title">🗺️ {z.nombre}</p>
-                                <div style={{ marginTop: '8px', display: 'flex', gap: '8px' }}>
-                                    <button className="btn btn-primary" onClick={() => handleEdit(z)}>Editar</button>
-                                    <button className="btn btn-danger" onClick={() => handleDelete(z.id)}>Eliminar</button>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            );
-        }
-
-        // ===== EMPLAZAMIENTOS =====
-        // Formulario compacto (estilo "quickadd-box") para crear o editar un Activo sin salir
-        // de la tarjeta del Emplazamiento donde se está trabajando.
-        function ActivoInlineForm({ emplazamientoId, activoExistente, clientes, contratos, tiposActivo, camposConfig, onSaved, onCancel }) {
-            const contratoInicial = activoExistente ? contratos.find(c => c.id === activoExistente.contrato_id) : null;
-            const [selectedCliente, setSelectedCliente] = useState(contratoInicial ? String(contratoInicial.cliente_id) : '');
-            const [formData, setFormData] = useState(() => {
-                if (!activoExistente) return { contrato_id: '', tipo: '', nombre: '', fabricante: '', modelo: '', estado: 'Activo', observaciones: '', campos_extra: {}, fotos_json: [] };
-                let extra = {}; try { extra = activoExistente.campos_extra ? JSON.parse(activoExistente.campos_extra) : {}; } catch { extra = {}; }
-                let fotos = []; try { fotos = activoExistente.fotos_json ? JSON.parse(activoExistente.fotos_json) : []; } catch { fotos = []; }
-                return {
-                    contrato_id: activoExistente.contrato_id, tipo: activoExistente.tipo || '', nombre: activoExistente.nombre,
-                    fabricante: activoExistente.fabricante || '', modelo: activoExistente.modelo || '', estado: activoExistente.estado || 'Activo',
-                    observaciones: activoExistente.observaciones || '', campos_extra: extra, fotos_json: fotos
-                };
-            });
-
-            const contratosFiltrados = selectedCliente ? contratos.filter(c => c.cliente_id === parseInt(selectedCliente)) : contratos;
-
-            const guardar = async () => {
-                if (!formData.nombre.trim() || !formData.contrato_id) { alert('Selecciona contrato y nombre'); return; }
-                const payload = {
-                    ...formData, emplazamiento_id: emplazamientoId,
-                    campos_extra: JSON.stringify(formData.campos_extra || {}),
-                    fotos_json: JSON.stringify(formData.fotos_json || [])
-                };
-                const url = activoExistente ? `${API_URL}/api/activos/${activoExistente.id}` : `${API_URL}/api/activos`;
-                const method = activoExistente ? 'PUT' : 'POST';
-                await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-                onSaved();
-            };
-
-            return (
-                <div className="quickadd-box" style={{ marginTop: '10px' }}>
-                    <p className="card-text" style={{ fontWeight: 600, marginBottom: '6px' }}>{activoExistente ? 'Editar Activo' : '+ Añadir Activo Nuevo'}</p>
-
-                    <div className="form-group">
-                        <label>Cliente</label>
-                        <select value={selectedCliente} onChange={(e) => { setSelectedCliente(e.target.value); setFormData({ ...formData, contrato_id: '' }); }}>
-                            <option value="">-- Selecciona un cliente --</option>
-                            {clientes.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-                        </select>
-                    </div>
-                    <div className="form-group">
-                        <label>Contrato</label>
-                        <select value={formData.contrato_id} disabled={!selectedCliente} className={!selectedCliente ? 'select-disabled' : ''} onChange={(e) => setFormData({ ...formData, contrato_id: e.target.value })}>
-                            <option value="">-- Selecciona un contrato --</option>
-                            {contratosFiltrados.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-                        </select>
-                    </div>
-                    <div className="form-group">
-                        <label>Tipo de Activo</label>
-                        <select value={formData.tipo} onChange={(e) => setFormData({ ...formData, tipo: e.target.value })}>
-                            <option value="">-- Selecciona tipo --</option>
-                            {tiposActivo.map(t => <option key={t.id} value={t.nombre}>{t.nombre}</option>)}
-                        </select>
-                    </div>
-                    <div className="form-group">
-                        <label>Nombre / Identificador</label>
-                        <input type="text" placeholder="Ej: Puerta Andén 1" value={formData.nombre} onChange={(e) => setFormData({ ...formData, nombre: e.target.value })} />
-                    </div>
-
-                    <DynamicExtraFields entidad="activo" camposConfig={camposConfig} formData={formData} setFormData={setFormData} tipoActivo={formData.tipo} />
-
-                    <div className="form-group">
-                        <label>Fotos</label>
-                        <PhotoCapture value={formData.fotos_json} onChange={(v) => setFormData({ ...formData, fotos_json: v })} />
-                    </div>
-
-                    <div className="btn-group">
-                        <button className="btn btn-success" onClick={guardar}>{activoExistente ? 'Guardar' : 'Crear'}</button>
-                        <button className="btn btn-secondary" onClick={onCancel}>Cancelar</button>
-                    </div>
-                </div>
-            );
-        }
-
-        // ===== EMPLAZAMIENTOS =====
-        function EmplazamientosView({ user, emplazamientos, zonas, activos, clientes, contratos, tiposActivo, camposConfig, onRefresh }) {
-            const [showForm, setShowForm] = useState(false);
-            const [editingId, setEditingId] = useState(null);
-            const [formData, setFormData] = useState({ zona_id: '', nombre: '', direccion: '' });
-            const [importMsg, setImportMsg] = useState('');
-            const formRef = useAutoScrollForm(showForm);
-
-            // Estado de la gestión en línea de Activos por cada tarjeta de Emplazamiento
-            const [expandidoId, setExpandidoId] = useState(null);
-            const [activoFormEmpId, setActivoFormEmpId] = useState(null); // emplazamiento en el que se está CREANDO un activo
-            const [activoEditando, setActivoEditando] = useState(null); // activo que se está EDITANDO (objeto completo)
-            const [activoViendo, setActivoViendo] = useState(null); // activo mostrado en modo solo lectura
-
-            const handleAdd = async () => {
-                if (!formData.nombre.trim() || !formData.zona_id) { alert('Selecciona zona y nombre'); return; }
-                try {
-                    const url = editingId ? `${API_URL}/api/emplazamientos/${editingId}` : `${API_URL}/api/emplazamientos`;
-                    const method = editingId ? 'PUT' : 'POST';
-                    await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(formData) });
-                    setFormData({ zona_id: '', nombre: '', direccion: '' });
-                    setEditingId(null);
-                    setShowForm(false);
-                    onRefresh();
-                } catch (err) { alert('Error al guardar emplazamiento'); }
-            };
-
-            const handleDelete = async (id) => {
-                if (!confirm('¿Eliminar este emplazamiento? Esto puede afectar activos vinculados.')) return;
-                await fetch(`${API_URL}/api/emplazamientos/${id}`, { method: 'DELETE' });
-                onRefresh();
-            };
-
-            const handleEdit = (e) => {
-                setFormData({ zona_id: e.zona_id, nombre: e.nombre, direccion: e.direccion || '' });
-                setEditingId(e.id);
-                setShowForm(true);
-            };
-
-            const handleImportRows = async (rows) => {
-                let ok = 0, fail = 0;
-                for (const row of rows) {
-                    const zonaNombre = row['Zona'] || row['zona'];
-                    const nombre = row['Emplazamiento'] || row['nombre'] || row['Nombre'];
-                    const direccion = row['Dirección'] || row['direccion'] || '';
-                    const zona = zonas.find(z => z.nombre === zonaNombre);
-                    if (!zona || !nombre) { fail++; continue; }
-                    try {
-                        await fetch(`${API_URL}/api/emplazamientos`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ zona_id: zona.id, nombre, direccion }) });
-                        ok++;
-                    } catch { fail++; }
-                }
-                setImportMsg(`✅ Importados: ${ok} | ❌ Fallidos: ${fail}`);
-                onRefresh();
-            };
-
-            const eliminarActivo = async (id) => {
-                if (!confirm('¿Eliminar este activo?')) return;
-                await fetch(`${API_URL}/api/activos/${id}`, { method: 'DELETE' });
-                onRefresh();
-            };
-
-            return (
-                <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '8px' }}>
-                        <h3 className="section-title" style={{ margin: 0 }}>📍 Emplazamientos</h3>
-                        <div className="toolbar">
-                            <button className="btn btn-excel" onClick={() => exportToExcel(emplazamientos, 'emplazamientos', [
-                                { key: 'zona_nombre', label: 'Zona' },
-                                { key: 'nombre', label: 'Emplazamiento' },
-                                { key: 'direccion', label: 'Dirección' }
-                            ])}>📤 Exportar</button>
-                            <ExcelImportButton onRows={handleImportRows} />
-                            <button className="btn btn-crear" onClick={() => { setShowForm(!showForm); setEditingId(null); }}>+ Nuevo</button>
-                        </div>
-                    </div>
-
-                    {importMsg && <div className="import-summary">{importMsg}</div>}
-                    <p className="lock-note">Un emplazamiento (ej: "Estación Avilés") es un lugar físico dentro de una zona. Puede contener activos de cualquier cliente o contrato.</p>
-
-                    {showForm && (
-                        <div className="card" ref={formRef} style={{ marginBottom: '1rem' }}>
-                            <div className="form-group">
-                                <label>Zona</label>
-                                <select value={formData.zona_id} onChange={(e) => setFormData({ ...formData, zona_id: e.target.value })}>
-                                    <option value="">-- Selecciona una zona --</option>
-                                    {zonas.map(z => <option key={z.id} value={z.id}>{z.nombre}</option>)}
-                                </select>
-                            </div>
-                            <div className="form-group">
-                                <label>Nombre del Emplazamiento</label>
-                                <input type="text" placeholder="Ej: Estación Avilés" value={formData.nombre} onChange={(e) => setFormData({ ...formData, nombre: e.target.value })} />
-                            </div>
-                            <div className="form-group">
-                                <label>Dirección (opcional)</label>
-                                <input type="text" placeholder="Dirección" value={formData.direccion} onChange={(e) => setFormData({ ...formData, direccion: e.target.value })} />
-                            </div>
-                            <div className="btn-group">
-                                <button className="btn btn-success" onClick={handleAdd}>{editingId ? 'Guardar' : 'Crear'}</button>
-                                <button className="btn btn-secondary" onClick={() => { setShowForm(false); setEditingId(null); }}>Cancelar</button>
-                            </div>
-                        </div>
-                    )}
-
-                    <div className="list">
-                        {emplazamientos.length === 0 ? <div className="empty-state">No hay emplazamientos</div> : emplazamientos.map(e => {
-                            const activosDeAqui = activos ? activos.filter(a => a.emplazamiento_id === e.id) : [];
-                            const expandido = expandidoId === e.id;
-                            return (
-                                <div key={e.id} className="list-item">
-                                    <p className="card-title">📍 {e.nombre}</p>
-                                    <p className="breadcrumb-path">{e.zona_nombre}</p>
-                                    {e.direccion && <p className="card-text">🏠 {e.direccion}</p>}
-                                    <div style={{ marginTop: '8px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                                        <button className="btn btn-primary" onClick={() => handleEdit(e)}>Editar</button>
-                                        <button className="btn btn-danger" onClick={() => handleDelete(e.id)}>Eliminar</button>
-                                        <button className="btn btn-secondary" onClick={() => { setExpandidoId(expandido ? null : e.id); setActivoFormEmpId(null); setActivoEditando(null); }}>
-                                            {expandido ? 'Ocultar Activos' : `⚙️ Ver Activos (${activosDeAqui.length})`}
-                                        </button>
-                                    </div>
-
-                                    {expandido && (
-                                        <div style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px dashed var(--border)' }}>
-                                            {activosDeAqui.length === 0 && <p className="card-text">Todavía no hay activos en este emplazamiento.</p>}
-                                            {activosDeAqui.map(a => (
-                                                <div key={a.id}>
-                                                    <div className="list-item" style={{ background: 'var(--surface-2)' }}>
-                                                        <p className="card-title">⚙️ {a.nombre}</p>
-                                                        <p className="card-text">{a.tipo || 'Sin tipo'} · {a.cliente_nombre} › {a.contrato_nombre}</p>
-                                                        <div style={{ marginTop: '6px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                                                            <button className="btn btn-secondary" onClick={() => { setActivoViendo(activoViendo && activoViendo.id === a.id ? null : a); setActivoEditando(null); setActivoFormEmpId(null); }}>
-                                                                {activoViendo && activoViendo.id === a.id ? 'Cerrar' : 'Ver'}
-                                                            </button>
-                                                            <button className="btn btn-primary" onClick={() => { setActivoEditando(activoEditando && activoEditando.id === a.id ? null : a); setActivoFormEmpId(null); setActivoViendo(null); }}>
-                                                                {activoEditando && activoEditando.id === a.id ? 'Cerrar' : 'Editar'}
-                                                            </button>
-                                                            <button className="btn btn-danger" onClick={() => eliminarActivo(a.id)}>Eliminar</button>
-                                                        </div>
-                                                    </div>
-                                                    {activoViendo && activoViendo.id === a.id && (() => {
-                                                        let extraView = {}; try { extraView = a.campos_extra ? JSON.parse(a.campos_extra) : {}; } catch { extraView = {}; }
-                                                        let fotosView = []; try { fotosView = a.fotos_json ? JSON.parse(a.fotos_json) : []; } catch { fotosView = []; }
-                                                        return (
-                                                            <div className="quickadd-box" style={{ marginTop: '4px' }}>
-                                                                <DynamicExtraFields entidad="activo" camposConfig={camposConfig} formData={{ ...a, campos_extra: extraView }} setFormData={() => {}} tipoActivo={a.tipo} readOnly={true} />
-                                                                <p className="card-text" style={{ fontWeight: 600, marginTop: '8px' }}>📷 Fotos</p>
-                                                                {fotosView.length > 0 ? (
-                                                                    <div className="photo-grid">
-                                                                        {fotosView.map((f, i) => <div key={i} className="photo-thumb"><img src={f} /></div>)}
-                                                                    </div>
-                                                                ) : <p className="card-text">Sin fotos.</p>}
-                                                            </div>
-                                                        );
-                                                    })()}
-                                                    {activoEditando && activoEditando.id === a.id && (
-                                                        <ActivoInlineForm
-                                                            emplazamientoId={e.id}
-                                                            activoExistente={a}
-                                                            clientes={clientes}
-                                                            contratos={contratos}
-                                                            tiposActivo={tiposActivo}
-                                                            camposConfig={camposConfig}
-                                                            onSaved={() => { setActivoEditando(null); onRefresh(); }}
-                                                            onCancel={() => setActivoEditando(null)}
-                                                        />
-                                                    )}
-                                                </div>
-                                            ))}
-
-                                            {activoFormEmpId === e.id ? (
-                                                <ActivoInlineForm
-                                                    emplazamientoId={e.id}
-                                                    clientes={clientes}
-                                                    contratos={contratos}
-                                                    tiposActivo={tiposActivo}
-                                                    camposConfig={camposConfig}
-                                                    onSaved={() => { setActivoFormEmpId(null); onRefresh(); }}
-                                                    onCancel={() => setActivoFormEmpId(null)}
-                                                />
-                                            ) : (
-                                                <button className="btn btn-crear" style={{ marginTop: '10px' }} onClick={() => { setActivoFormEmpId(e.id); setActivoEditando(null); }}>+ Activo aquí</button>
-                                            )}
-                                        </div>
-                                    )}
-                                </div>
-                            );
-                        })}
-                    </div>
-                </div>
-            );
-        }
-
-        // ===== ACTIVOS =====
-        // ===== INVENTARIO (envoltorio con submenús: Zonas / Emplazamientos / Activos) =====
-        function InventarioView(props) {
-            const [subTab, setSubTab] = useState('clientes');
-            const subTabs = [
-                { id: 'clientes', label: 'Clientes' },
-                { id: 'contratos', label: 'Contratos' },
-                { id: 'zonas', label: 'Zonas' },
-                { id: 'emplazamientos', label: 'Emplazamientos' },
-                { id: 'activos', label: 'Activos' }
-            ];
-            return (
-                <div>
-                    <div className="tipo-filter-bar">
-                        {subTabs.map(t => (
-                            <button key={t.id} className={`tipo-filter-btn ${subTab === t.id ? 'active' : ''}`} onClick={() => setSubTab(t.id)}>
-                                {t.label}
-                            </button>
-                        ))}
-                    </div>
-                    {subTab === 'clientes' && <ClientesView {...props} />}
-                    {subTab === 'contratos' && <ContratosView {...props} />}
-                    {subTab === 'zonas' && <ZonasView {...props} />}
-                    {subTab === 'emplazamientos' && <EmplazamientosView {...props} />}
-                    {subTab === 'activos' && <ActivosView {...props} />}
-                </div>
-            );
-        }
-
-        // ===== CREACIÓN RÁPIDA INLINE (para no salir del formulario) =====
-        function QuickAddInline({ label, fields, onCreate }) {
-            const [open, setOpen] = useState(false);
-            const [values, setValues] = useState({});
-            const [saving, setSaving] = useState(false);
-
-            const handleSave = async () => {
-                const primerCampo = fields[0].key;
-                if (!values[primerCampo] || !values[primerCampo].trim()) { alert('Rellena el campo obligatorio'); return; }
-                setSaving(true);
-                try {
-                    await onCreate(values);
-                    setValues({});
-                    setOpen(false);
-                } catch {
-                    alert('Error al crear');
-                }
-                setSaving(false);
-            };
-
-            if (!open) {
-                return <button type="button" className="btn-quickadd" title={`Crear ${label}`} onClick={() => setOpen(true)}>＋</button>;
-            }
-
-            return (
-                <div className="quickadd-box">
-                    <p className="card-text" style={{ marginBottom: '6px', fontWeight: 600 }}>Nuevo {label}</p>
-                    {fields.map(f => (
-                        <input key={f.key} type={f.type || 'text'} placeholder={f.placeholder} value={values[f.key] || ''} onChange={(e) => setValues({ ...values, [f.key]: e.target.value })} />
-                    ))}
-                    <div className="quickadd-actions">
-                        <button type="button" className="btn btn-success" disabled={saving} onClick={handleSave}>{saving ? 'Creando...' : 'Crear'}</button>
-                        <button type="button" className="btn btn-secondary" onClick={() => { setOpen(false); setValues({}); }}>Cancelar</button>
-                    </div>
-                </div>
-            );
-        }
-
-        // ===== GESTIÓN DE TIPOS DE ACTIVO Y SUS CHECKLISTS =====
-        function FieldsEditor({ fields, onChange }) {
-            const updateField = (i, patch) => { const copy = [...fields]; copy[i] = { ...copy[i], ...patch }; onChange(copy); };
-            const addField = () => onChange([...fields, { key: 'campo_' + Date.now(), label: '', type: 'text', options: [] }]);
-            const removeField = (i) => { const copy = [...fields]; copy.splice(i, 1); onChange(copy); };
-            return (
-                <div>
-                    {fields.map((f, i) => (
-                        <div key={i} className="dyn-row">
-                            <input placeholder="Etiqueta del campo" value={f.label} onChange={(e) => updateField(i, { label: e.target.value })} />
-                            <select value={f.type} onChange={(e) => updateField(i, { type: e.target.value })}>
-                                <option value="text">Texto</option>
-                                <option value="select">Lista desplegable</option>
-                                <option value="date">Fecha</option>
-                            </select>
-                            {f.type === 'select' && (
-                                <input placeholder="Opciones separadas por coma" value={(f.options || []).join(', ')} onChange={(e) => updateField(i, { options: e.target.value.split(',').map(s => s.trim()).filter(Boolean) })} />
-                            )}
-                            <div className="dyn-row-actions"><button className="btn-remove-row" onClick={() => removeField(i)}>Quitar campo</button></div>
-                        </div>
-                    ))}
-                    <button className="btn-add-row" onClick={addField}>+ Añadir campo</button>
-                </div>
-            );
-        }
-
-        function InspectionEditor({ grupos, onChange }) {
-            const updateGrupo = (i, patch) => { const copy = [...grupos]; copy[i] = { ...copy[i], ...patch }; onChange(copy); };
-            const addGrupo = () => onChange([...grupos, { titulo: 'Nuevo grupo', items: [] }]);
-            const removeGrupo = (i) => { const copy = [...grupos]; copy.splice(i, 1); onChange(copy); };
-            return (
-                <div>
-                    {grupos.map((g, i) => (
-                        <div key={i} className="dyn-row">
-                            <input placeholder="Título del grupo" value={g.titulo} onChange={(e) => updateGrupo(i, { titulo: e.target.value })} />
-                            <textarea placeholder="Un ítem de inspección por línea" value={(g.items || []).join('\n')} onChange={(e) => updateGrupo(i, { items: e.target.value.split('\n').map(s => s.trim()).filter(Boolean) })}></textarea>
-                            <div className="dyn-row-actions"><button className="btn-remove-row" onClick={() => removeGrupo(i)}>Quitar grupo</button></div>
-                        </div>
-                    ))}
-                    <button className="btn-add-row" onClick={addGrupo}>+ Añadir grupo de inspección</button>
-                </div>
-            );
-        }
-
-        function GridEditor({ seccion, onChange }) {
-            const rows = seccion.rows || []; const columns = seccion.columns || []; const options = seccion.options || [];
-            return (
-                <div>
-                    <div className="form-group">
-                        <label>Filas / componentes (uno por línea)</label>
-                        <textarea placeholder="Ej: Entrada Ext&#10;Salida Ext" value={rows.join('\n')} onChange={(e) => onChange({ rows: e.target.value.split('\n').map(s => s.trim()).filter(Boolean) })}></textarea>
-                    </div>
-                    <div className="form-group">
-                        <label>Columnas / aspectos a revisar (separadas por coma)</label>
-                        <input placeholder="Ej: E. Físico, Motor, Conexiones" value={columns.join(', ')} onChange={(e) => onChange({ columns: e.target.value.split(',').map(s => s.trim()).filter(Boolean) })} />
-                    </div>
-                    <div className="form-group">
-                        <label>Valores posibles (separados por coma)</label>
-                        <input placeholder="Ej: ok, no ok, N/A" value={options.join(', ')} onChange={(e) => onChange({ options: e.target.value.split(',').map(s => s.trim()).filter(Boolean) })} />
-                    </div>
-                </div>
-            );
-        }
-
-        function SeccionEditor({ seccion, onChange, onRemove }) {
-            const update = (patch) => onChange({ ...seccion, ...patch });
-            const nombresTipo = { fields: 'Campos de datos', inspection: 'Inspección', grid: 'Cuadro', textarea: 'Texto libre' };
-            return (
-                <div className="quickadd-box" style={{ borderStyle: 'solid', marginBottom: '10px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
-                        <input type="text" value={seccion.title} onChange={(e) => update({ title: e.target.value })} placeholder="Título de la sección" style={{ fontWeight: 600 }} />
-                        <button className="btn-remove-row" onClick={onRemove}>Eliminar</button>
-                    </div>
-                    <p className="lock-note">Tipo de sección: {nombresTipo[seccion.type] || seccion.type}</p>
-
-                    {seccion.type === 'fields' && <FieldsEditor fields={seccion.fields || []} onChange={(f) => update({ fields: f })} />}
-                    {seccion.type === 'inspection' && <InspectionEditor grupos={seccion.grupos || []} onChange={(g) => update({ grupos: g })} />}
-                    {seccion.type === 'grid' && <GridEditor seccion={seccion} onChange={update} />}
-                    {seccion.type === 'textarea' && <p className="card-text">Solo muestra un cuadro de texto libre para observaciones, sin más configuración.</p>}
-                </div>
-            );
-        }
-
-        function TiposActivoManager({ tiposActivo, onRefresh, onClose }) {
-            const [nuevoNombre, setNuevoNombre] = useState('');
-            const [editingId, setEditingId] = useState(null);
-            const [secciones, setSecciones] = useState([]);
-            const [nuevoTipoSeccion, setNuevoTipoSeccion] = useState('fields');
-
-            const crearTipo = async () => {
-                if (!nuevoNombre.trim()) return;
-                const res = await fetch(`${API_URL}/api/tipos-activo`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nombre: nuevoNombre.trim(), checklist_json: '[]' }) });
-                const data = await res.json();
-                if (!res.ok) { alert(data.error || 'Error al crear el tipo'); return; }
-                setNuevoNombre('');
-                onRefresh();
-            };
-
-            const eliminarTipo = async (id) => {
-                if (!confirm('¿Eliminar este tipo de activo? Los activos que ya lo usan mantendrán el nombre como texto, pero perderán su checklist configurado.')) return;
-                await fetch(`${API_URL}/api/tipos-activo/${id}`, { method: 'DELETE' });
-                onRefresh();
-            };
-
-            const abrirEditorChecklist = (tipo) => {
-                let secs = [];
-                try { secs = JSON.parse(tipo.checklist_json || '[]'); } catch { secs = []; }
-                setSecciones(secs);
-                setEditingId(tipo.id);
-            };
-
-            const guardarChecklist = async () => {
-                const tipo = tiposActivo.find(t => t.id === editingId);
-                await fetch(`${API_URL}/api/tipos-activo/${editingId}`, {
-                    method: 'PUT', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ nombre: tipo.nombre, checklist_json: JSON.stringify(secciones) })
-                });
-                setEditingId(null);
-                onRefresh();
-            };
-
-            const addSeccion = () => {
-                let nueva;
-                if (nuevoTipoSeccion === 'fields') nueva = { type: 'fields', title: 'Nueva sección de datos', fields: [] };
-                else if (nuevoTipoSeccion === 'inspection') nueva = { type: 'inspection', title: 'Nueva inspección', grupos: [{ titulo: 'Grupo 1', items: [] }] };
-                else if (nuevoTipoSeccion === 'grid') nueva = { type: 'grid', title: 'Nuevo cuadro', rows: [], columns: [], options: ['ok', 'no ok', 'N/A'] };
-                else nueva = { type: 'textarea', title: 'Observaciones', key: 'obs_' + Date.now() };
-                setSecciones([...secciones, nueva]);
-            };
-            const updateSeccion = (idx, nueva) => { const copy = [...secciones]; copy[idx] = nueva; setSecciones(copy); };
-            const removeSeccion = (idx) => { const copy = [...secciones]; copy.splice(idx, 1); setSecciones(copy); };
-
-            if (editingId) {
-                const tipo = tiposActivo.find(t => t.id === editingId);
-                return (
-                    <div className="card" style={{ marginBottom: '1rem' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                            <h4 className="card-title">📝 Checklist: {tipo ? tipo.nombre : ''}</h4>
-                            <button className="btn btn-secondary" onClick={() => setEditingId(null)}>← Volver</button>
-                        </div>
-
-                        {secciones.length === 0 && <p className="card-text" style={{ marginBottom: '10px' }}>Este tipo aún no tiene ninguna sección. Añade la primera abajo.</p>}
-
-                        {secciones.map((s, idx) => (
-                            <SeccionEditor key={idx} seccion={s} onChange={(v) => updateSeccion(idx, v)} onRemove={() => removeSeccion(idx)} />
-                        ))}
-
-                        <div className="quickadd-box">
-                            <p className="card-text" style={{ fontWeight: 600, marginBottom: '6px' }}>+ Añadir nueva sección</p>
-                            <select value={nuevoTipoSeccion} onChange={(e) => setNuevoTipoSeccion(e.target.value)}>
-                                <option value="fields">Campos de datos (ej: fabricante, modelo...)</option>
-                                <option value="inspection">Inspección (grupos de ítems Correcto/Incorrecto/N-A)</option>
-                                <option value="grid">Cuadro (filas × columnas, ej: barreras, racks...)</option>
-                                <option value="textarea">Texto libre / Observaciones</option>
-                            </select>
-                            <button className="btn-add-row" onClick={addSeccion}>+ Añadir sección</button>
-                        </div>
-
-                        <div className="btn-group">
-                            <button className="btn btn-success" onClick={guardarChecklist}>Guardar Checklist</button>
-                            <button className="btn btn-secondary" onClick={() => setEditingId(null)}>Cancelar</button>
-                        </div>
-                    </div>
-                );
-            }
-
-            return (
-                <div className="card" style={{ marginBottom: '1rem' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                        <h4 className="card-title">⚙️ Tipos de Activo</h4>
-                        <button className="btn btn-secondary" onClick={onClose}>Cerrar</button>
-                    </div>
-
-                    <div className="field-with-add" style={{ marginBottom: '10px' }}>
-                        <input type="text" placeholder="Nombre del nuevo tipo (ej: Torniquete)" value={nuevoNombre} onChange={(e) => setNuevoNombre(e.target.value)} />
-                        <button className="btn-quickadd" onClick={crearTipo}>＋</button>
-                    </div>
-
-                    <div className="list">
-                        {tiposActivo.map(t => {
-                            let secs = [];
-                            try { secs = JSON.parse(t.checklist_json || '[]'); } catch { secs = []; }
-                            return (
-                                <div key={t.id} className="list-item">
-                                    <p className="card-title">{t.nombre}</p>
-                                    <p className="card-text">{secs.length} sección(es) de checklist configuradas</p>
-                                    <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
-                                        <button className="btn btn-primary" onClick={() => abrirEditorChecklist(t)}>Editar Checklist</button>
-                                        <button className="btn btn-danger" onClick={() => eliminarTipo(t.id)}>Eliminar</button>
-                                    </div>
-                                </div>
-                            );
-                        })}
-                    </div>
-                </div>
-            );
-        }
-
-        function ActivosView({ user, activos, emplazamientos, zonas, clientes, contratos, tiposActivo, camposConfig, onRefresh }) {
-            const [showForm, setShowForm] = useState(false);
-            const [editingId, setEditingId] = useState(null);
-            const [selectedCliente, setSelectedCliente] = useState('');
-            const [selectedZona, setSelectedZona] = useState('');
-            const [formData, setFormData] = useState({ emplazamiento_id: '', contrato_id: '', tipo: '', nombre: '', fabricante: '', modelo: '', estado: 'Activo', observaciones: '', campos_extra: {}, fotos_json: [] });
-            const [importMsg, setImportMsg] = useState('');
-            const formRef = useAutoScrollForm(showForm);
-
-            const contratosFiltrados = selectedCliente ? contratos.filter(c => c.cliente_id === parseInt(selectedCliente)) : contratos;
-            const emplazamientosFiltrados = selectedZona ? emplazamientos.filter(e => e.zona_id === parseInt(selectedZona)) : emplazamientos;
-
-            const [showTiposManager, setShowTiposManager] = useState(false);
-            const [showCamposManager, setShowCamposManager] = useState(false);
-            const [viendoActivo, setViendoActivo] = useState(null);
-            const viewRef = useAutoScrollForm(!!viendoActivo);
-
-            // ---- Creación rápida de dependencias (sin salir de este formulario) ----
-            const crearClienteRapido = async (values) => {
-                const res = await fetch(`${API_URL}/api/clientes`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nombre: values.nombre, contacto: values.contacto || '', telefono: values.telefono || '' }) });
-                const creado = await res.json();
-                await onRefresh();
-                setSelectedCliente(String(creado.id));
-                setFormData(f => ({ ...f, contrato_id: '' }));
-            };
-
-            const crearContratoRapido = async (values) => {
-                const res = await fetch(`${API_URL}/api/contratos`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cliente_id: parseInt(selectedCliente), nombre: values.nombre, descripcion: values.descripcion || '' }) });
-                const creado = await res.json();
-                await onRefresh();
-                setFormData(f => ({ ...f, contrato_id: String(creado.id) }));
-                setSelectedZona('');
-            };
-
-            const crearZonaRapida = async (values) => {
-                const res = await fetch(`${API_URL}/api/zonas`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nombre: values.nombre }) });
-                const creada = await res.json();
-                await onRefresh();
-                setSelectedZona(String(creada.id));
-            };
-
-            const crearEmplazamientoRapido = async (values) => {
-                const res = await fetch(`${API_URL}/api/emplazamientos`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ zona_id: parseInt(selectedZona), nombre: values.nombre, direccion: values.direccion || '' }) });
-                const creado = await res.json();
-                await onRefresh();
-                setFormData(f => ({ ...f, emplazamiento_id: String(creado.id) }));
-            };
-
-            const handleAdd = async () => {
-                if (!formData.nombre.trim() || !formData.emplazamiento_id || !formData.contrato_id) {
-                    alert('Selecciona emplazamiento, contrato y nombre'); return;
-                }
-                try {
-                    const url = editingId ? `${API_URL}/api/activos/${editingId}` : `${API_URL}/api/activos`;
-                    const method = editingId ? 'PUT' : 'POST';
-                    await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...formData, campos_extra: JSON.stringify(formData.campos_extra || {}), fotos_json: JSON.stringify(formData.fotos_json || []) }) });
-                    setFormData({ emplazamiento_id: '', contrato_id: '', tipo: '', nombre: '', fabricante: '', modelo: '', estado: 'Activo', observaciones: '', campos_extra: {}, fotos_json: [] });
-                    setSelectedCliente(''); setSelectedZona('');
-                    setEditingId(null);
-                    setShowForm(false);
-                    onRefresh();
-                } catch (err) { alert('Error al guardar activo'); }
-            };
-
-            const handleDelete = async (id) => {
-                if (!confirm('¿Eliminar este activo?')) return;
-                await fetch(`${API_URL}/api/activos/${id}`, { method: 'DELETE' });
-                onRefresh();
-            };
-
-            const handleEdit = (a) => {
-                let extra = {};
-                try { extra = a.campos_extra ? JSON.parse(a.campos_extra) : {}; } catch { extra = {}; }
-                let fotos = [];
-                try { fotos = a.fotos_json ? JSON.parse(a.fotos_json) : []; } catch { fotos = []; }
-                setFormData({
-                    emplazamiento_id: a.emplazamiento_id, contrato_id: a.contrato_id, tipo: a.tipo || '',
-                    nombre: a.nombre, fabricante: a.fabricante || '', modelo: a.modelo || '',
-                    estado: a.estado, observaciones: a.observaciones || '', campos_extra: extra, fotos_json: fotos
-                });
-                setSelectedCliente(String(a.cliente_id || ''));
-                setSelectedZona(a.zona_id ? String(a.zona_id) : '');
-                setEditingId(a.id);
-                setShowForm(true);
-                setViendoActivo(null);
-            };
-
-            const [fotosAbiertas, setFotosAbiertas] = useState({});
-            const toggleFotos = (id) => setFotosAbiertas(prev => ({ ...prev, [id]: !prev[id] }));
-
-            const handleImportRows = async (rows) => {
-                let ok = 0, fail = 0;
-                for (const row of rows) {
-                    const emplazamientoNombre = row['Emplazamiento'] || row['emplazamiento'];
-                    const contratoNombre = row['Contrato'] || row['contrato'];
-                    const nombre = row['Activo'] || row['nombre'] || row['Nombre'];
-                    const emplazamiento = emplazamientos.find(e => e.nombre === emplazamientoNombre);
-                    const contrato = contratos.find(c => c.nombre === contratoNombre);
-                    if (!emplazamiento || !contrato || !nombre) { fail++; continue; }
-                    try {
-                        await fetch(`${API_URL}/api/activos`, {
-                            method: 'POST', headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                emplazamiento_id: emplazamiento.id, contrato_id: contrato.id,
-                                tipo: row['Tipo'] || row['tipo'] || '', nombre,
-                                fabricante: row['Fabricante'] || row['fabricante'] || '',
-                                modelo: row['Modelo'] || row['modelo'] || '',
-                                estado: row['Estado'] || row['estado'] || 'Activo',
-                                observaciones: row['Observaciones'] || row['observaciones'] || ''
-                            })
-                        });
-                        ok++;
-                    } catch { fail++; }
-                }
-                setImportMsg(`✅ Importados: ${ok} | ❌ Fallidos: ${fail}`);
-                onRefresh();
-            };
-
-            return (
-                <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '8px' }}>
-                        <h3 className="section-title" style={{ margin: 0 }}>⚙️ Activos</h3>
-                        <div className="toolbar">
-                            <button className="btn btn-excel" onClick={() => {
-                                const columnasFijas = [
-                                    { key: 'cliente_nombre', label: 'Cliente' },
-                                    { key: 'contrato_nombre', label: 'Contrato' },
-                                    { key: 'zona_nombre', label: 'Zona' },
-                                    { key: 'emplazamiento_nombre', label: 'Emplazamiento' },
-                                    { key: 'tipo', label: 'Tipo' },
-                                    { key: 'nombre', label: 'Activo' }
-                                ];
-                                const columnasCampos = camposConfig.filter(c => c.entidad === 'activo').sort((a, b) => a.orden - b.orden).map(c => ({ key: c.clave, label: c.etiqueta }));
-                                const activosAplanados = activos.map(a => {
-                                    let extra = {};
-                                    try { extra = a.campos_extra ? JSON.parse(a.campos_extra) : {}; } catch { extra = {}; }
-                                    return { ...a, ...extra };
-                                });
-                                exportToExcel(activosAplanados, 'activos', [...columnasFijas, ...columnasCampos]);
-                            }}>📤 Exportar</button>
-                            <ExcelImportButton onRows={handleImportRows} />
-                            <button className="btn btn-secondary" onClick={() => setShowTiposManager(!showTiposManager)}>⚙️ Tipos de Activo</button>
-                            <button className="btn btn-secondary" onClick={() => setShowCamposManager(!showCamposManager)}>⚙️ Campos</button>
-                            <button className="btn btn-crear" onClick={() => {
-                                if (!showForm) { setFormData({ emplazamiento_id: '', contrato_id: '', tipo: '', nombre: '', fabricante: '', modelo: '', estado: 'Activo', observaciones: '', campos_extra: {}, fotos_json: [] }); setSelectedCliente(''); setSelectedZona(''); }
-                                setShowForm(!showForm); setEditingId(null); setViendoActivo(null);
-                            }}>+ Nuevo</button>
-                        </div>
-                    </div>
-
-                    {showTiposManager && <TiposActivoManager tiposActivo={tiposActivo} onRefresh={onRefresh} onClose={() => setShowTiposManager(false)} />}
-                    {showCamposManager && <CamposConfigManager entidad="activo" camposConfig={camposConfig} tiposActivo={tiposActivo} onRefresh={onRefresh} onClose={() => setShowCamposManager(false)} />}
-
-                    {importMsg && <div className="import-summary">{importMsg}</div>}
-
-                    {showForm && (
-                        <div className="quickadd-box" ref={formRef} style={{ marginBottom: '1rem' }}>
-                            <p className="card-text" style={{ fontWeight: 600, marginBottom: '6px' }}>{editingId ? 'Editar Activo' : '+ Añadir Activo Nuevo'}</p>
-                            <p className="card-text" style={{ marginBottom: '10px' }}>
-                                💡 Puedes crear el cliente, contrato, zona o emplazamiento aquí mismo con el botón <strong>＋</strong> si aún no existen.
-                            </p>
-
-                            <div className="form-group">
-                                <label>Cliente</label>
-                                <div className="field-with-add">
-                                    <select value={selectedCliente} onChange={(e) => { setSelectedCliente(e.target.value); setFormData({ ...formData, contrato_id: '' }); }}>
-                                        <option value="">-- Selecciona un cliente --</option>
-                                        {clientes.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-                                    </select>
-                                    <QuickAddInline label="Cliente" onCreate={crearClienteRapido} fields={[
-                                        { key: 'nombre', placeholder: 'Nombre del cliente *' },
-                                        { key: 'contacto', placeholder: 'Contacto (email)' },
-                                        { key: 'telefono', placeholder: 'Teléfono' }
-                                    ]} />
-                                </div>
-                            </div>
-
-                            <div className="form-group">
-                                <label>Contrato de este Activo</label>
-                                <div className="field-with-add">
-                                    <select value={formData.contrato_id} disabled={!selectedCliente} className={!selectedCliente ? 'select-disabled' : ''} onChange={(e) => { setFormData({ ...formData, contrato_id: e.target.value }); }}>
-                                        <option value="">-- Selecciona un contrato --</option>
-                                        {contratosFiltrados.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-                                    </select>
-                                    {selectedCliente && (
-                                        <QuickAddInline label="Contrato" onCreate={crearContratoRapido} fields={[
-                                            { key: 'nombre', placeholder: 'Nombre del contrato *' },
-                                            { key: 'descripcion', placeholder: 'Descripción' }
-                                        ]} />
-                                    )}
-                                </div>
-                                {!selectedCliente && <p className="lock-note">Selecciona primero un cliente.</p>}
-                            </div>
-
-                            <p className="lock-note">📍 La zona y el emplazamiento son lugares físicos, independientes del cliente/contrato de arriba (un mismo lugar puede tener activos de varios clientes).</p>
-
-                            <div className="form-group">
-                                <label>Zona</label>
-                                <div className="field-with-add">
-                                    <select value={selectedZona} onChange={(e) => { setSelectedZona(e.target.value); setFormData({ ...formData, emplazamiento_id: '' }); }}>
-                                        <option value="">-- Selecciona una zona --</option>
-                                        {zonas.map(z => <option key={z.id} value={z.id}>{z.nombre}</option>)}
-                                    </select>
-                                    <QuickAddInline label="Zona" onCreate={crearZonaRapida} fields={[
-                                        { key: 'nombre', placeholder: 'Nombre de la zona *' }
-                                    ]} />
-                                </div>
-                            </div>
-
-                            <div className="form-group">
-                                <label>Emplazamiento</label>
-                                <div className="field-with-add">
-                                    <select value={formData.emplazamiento_id} onChange={(e) => setFormData({ ...formData, emplazamiento_id: e.target.value })}>
-                                        <option value="">-- Selecciona un emplazamiento --</option>
-                                        {emplazamientosFiltrados.map(e => (
-                                            <option key={e.id} value={e.id}>{e.nombre} ({e.cliente_nombre} › {e.zona_nombre})</option>
-                                        ))}
-                                    </select>
-                                    {selectedZona && (
-                                        <QuickAddInline label="Emplazamiento" onCreate={crearEmplazamientoRapido} fields={[
-                                            { key: 'nombre', placeholder: 'Nombre del emplazamiento *' },
-                                            { key: 'direccion', placeholder: 'Dirección' }
-                                        ]} />
-                                    )}
-                                </div>
-                            </div>
-
-                            <div className="form-group">
-                                <label>Tipo de Activo</label>
-                                <select value={formData.tipo} onChange={(e) => setFormData({ ...formData, tipo: e.target.value })}>
-                                    <option value="">-- Selecciona tipo --</option>
-                                    {tiposActivo.map(t => <option key={t.id} value={t.nombre}>{t.nombre}</option>)}
-                                </select>
-                                <p className="lock-note">¿No está el tipo que buscas? Gestiónalos con el botón "⚙️ Tipos de Activo" arriba.</p>
-                            </div>
-                            <div className="form-group">
-                                <label>Nombre / Identificador</label>
-                                <input type="text" placeholder="Ej: Puerta Andén 1" value={formData.nombre} onChange={(e) => setFormData({ ...formData, nombre: e.target.value })} />
-                            </div>
-                            <DynamicExtraFields entidad="activo" camposConfig={camposConfig} formData={formData} setFormData={setFormData} tipoActivo={formData.tipo} />
-
-                            <div className="form-group">
-                                <label>Fotos del Activo</label>
-                                <PhotoCapture value={formData.fotos_json} onChange={(v) => setFormData({ ...formData, fotos_json: v })} />
-                            </div>
-
-                            <div className="btn-group">
-                                <button className="btn btn-success" onClick={handleAdd}>{editingId ? 'Guardar' : 'Crear'}</button>
-                                <button className="btn btn-secondary" onClick={() => { setShowForm(false); setEditingId(null); }}>Cancelar</button>
-                            </div>
-                        </div>
-                    )}
-
-                    {viendoActivo && (() => {
-                        let extraView = {}; try { extraView = viendoActivo.campos_extra ? JSON.parse(viendoActivo.campos_extra) : {}; } catch { extraView = {}; }
-                        let fotosView = []; try { fotosView = viendoActivo.fotos_json ? JSON.parse(viendoActivo.fotos_json) : []; } catch { fotosView = []; }
-                        return (
-                            <div className="card" ref={viewRef} style={{ marginBottom: '1rem' }}>
-                                <div className="list-item-header">
-                                    <div>
-                                        <p className="card-title">⚙️ {viendoActivo.nombre}</p>
-                                        <p className="breadcrumb-path">{viendoActivo.cliente_nombre} › {viendoActivo.contrato_nombre} › {viendoActivo.zona_nombre} › {viendoActivo.emplazamiento_nombre}</p>
-                                    </div>
-                                    {viendoActivo.tipo && <span className="badge" style={{ background: 'var(--bg-accent)', color: 'var(--fill-accent)' }}>{viendoActivo.tipo}</span>}
-                                </div>
-
-                                <DynamicExtraFields entidad="activo" camposConfig={camposConfig} formData={{ ...viendoActivo, campos_extra: extraView }} setFormData={() => {}} tipoActivo={viendoActivo.tipo} readOnly={true} />
-
-                                <div className="checklist-section">
-                                    <div className="checklist-section-title">📷 Fotos</div>
-                                    {fotosView.length > 0 ? (
-                                        <div className="photo-grid">
-                                            {fotosView.map((f, i) => <div key={i} className="photo-thumb"><img src={f} /></div>)}
-                                        </div>
-                                    ) : <p className="card-text">Sin fotos.</p>}
-                                </div>
-
-                                <div className="btn-group">
-                                    <button className="btn btn-primary" onClick={() => { handleEdit(viendoActivo); setViendoActivo(null); }}>Editar</button>
-                                    <button className="btn btn-secondary" onClick={() => setViendoActivo(null)}>Cerrar</button>
-                                </div>
-                            </div>
-                        );
-                    })()}
-
-                    <div className="list">
-                        {activos.length === 0 ? <div className="empty-state">No hay activos</div> : activos.map(a => {
-                            let fotos = [];
-                            try { fotos = a.fotos_json ? JSON.parse(a.fotos_json) : []; } catch { fotos = []; }
-                            return (
-                                <div key={a.id} className="list-item" style={{ cursor: 'pointer' }} onClick={() => { setViendoActivo(a); setShowForm(false); }}>
-                                    <div className="list-item-header">
-                                        <div>
-                                            <p className="card-title">⚙️ {a.nombre}</p>
-                                            <p className="breadcrumb-path">{a.cliente_nombre} › {a.contrato_nombre} › {a.zona_nombre} › {a.emplazamiento_nombre}</p>
-                                        </div>
-                                        {a.tipo && <span className="badge" style={{ background: 'var(--bg-accent)', color: 'var(--fill-accent)' }}>{a.tipo}</span>}
-                                    </div>
-                                    <p className="card-text">✓ Estado: {a.estado}{fotos.length > 0 ? ` · 📷 ${fotos.length} foto${fotos.length === 1 ? '' : 's'}` : ''}</p>
-                                    <div style={{ marginTop: '8px', display: 'flex', gap: '8px', flexWrap: 'wrap' }} onClick={(e) => e.stopPropagation()}>
-                                        <button className="btn btn-primary" onClick={() => handleEdit(a)}>Editar</button>
-                                        <button className="btn btn-danger" onClick={() => handleDelete(a.id)}>Eliminar</button>
-                                    </div>
-                                </div>
-                            );
-                        })}
-                    </div>
-                </div>
-            );
-        }
-
-        function ContratosView({ user, contratos, clientes, camposConfig, onRefresh }) {
-            const [showForm, setShowForm] = useState(false);
-            const [editingId, setEditingId] = useState(null);
-            const [showCamposManager, setShowCamposManager] = useState(false);
-            const [formData, setFormData] = useState({
-                cliente_id: clientes.length > 0 ? clientes[0].id : 1,
-                nombre: '',
-                descripcion: '',
-                fecha_inicio: '',
-                fecha_fin: '',
-                estado: 'Activo',
-                campos_extra: {}
-            });
-            const formRef = useAutoScrollForm(showForm);
-
-            const handleAdd = async () => {
-                if (!formData.nombre.trim()) return;
-
-                try {
-                    const url = editingId ? `${API_URL}/api/contratos/${editingId}` : `${API_URL}/api/contratos`;
-                    const method = editingId ? 'PUT' : 'POST';
-
-                    await fetch(url, {
-                        method,
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ ...formData, campos_extra: JSON.stringify(formData.campos_extra || {}) })
-                    });
-
-                    setFormData({
-                        cliente_id: clientes[0]?.id || 1,
-                        nombre: '',
-                        descripcion: '',
-                        fecha_inicio: '',
-                        fecha_fin: '',
-                        estado: 'Activo',
-                        campos_extra: {}
-                    });
-                    setEditingId(null);
-                    setShowForm(false);
-                    onRefresh();
-                } catch (err) {
-                    alert('Error al guardar contrato');
-                }
-            };
-
-            const handleDelete = async (id) => {
-                if (!confirm('¿Eliminar este contrato?')) return;
-
-                try {
-                    await fetch(`${API_URL}/api/contratos/${id}`, { method: 'DELETE' });
-                    onRefresh();
-                } catch (err) {
-                    alert('Error al eliminar contrato');
-                }
-            };
-
-            const handleEdit = (contrato) => {
-                let extra = {};
-                try { extra = contrato.campos_extra ? JSON.parse(contrato.campos_extra) : {}; } catch { extra = {}; }
-                setFormData({ ...contrato, campos_extra: extra });
-                setEditingId(contrato.id);
-                setShowForm(true);
-            };
-
-            const [importMsg, setImportMsg] = useState('');
-            const handleImportRows = async (rows) => {
-                let ok = 0, fail = 0;
-                for (const row of rows) {
-                    const clienteNombre = row['Cliente'] || row['cliente'];
-                    const nombre = row['Contrato'] || row['nombre'] || row['Nombre'];
-                    const cliente = clientes.find(c => c.nombre === clienteNombre);
-                    if (!cliente || !nombre) { fail++; continue; }
-                    try {
-                        await fetch(`${API_URL}/api/contratos`, {
-                            method: 'POST', headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                cliente_id: cliente.id, nombre,
-                                descripcion: row['Descripción'] || row['descripcion'] || '',
-                                fecha_inicio: row['Fecha Inicio'] || row['fecha_inicio'] || '',
-                                fecha_fin: row['Fecha Fin'] || row['fecha_fin'] || '',
-                                estado: row['Estado'] || row['estado'] || 'Activo'
-                            })
-                        });
-                        ok++;
-                    } catch { fail++; }
-                }
-                setImportMsg(`✅ Importados: ${ok} | ❌ Fallidos: ${fail}`);
-                onRefresh();
-            };
-
-            return (
-                <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '8px' }}>
-                        <h3 className="section-title" style={{ margin: 0 }}>📋 Contratos</h3>
-                        <div className="toolbar">
-                            <button className="btn btn-excel" onClick={() => exportToExcel(contratos, 'contratos', [
-                                { key: 'cliente_nombre', label: 'Cliente' },
-                                { key: 'nombre', label: 'Contrato' },
-                                { key: 'descripcion', label: 'Descripción' },
-                                { key: 'fecha_inicio', label: 'Fecha Inicio' },
-                                { key: 'fecha_fin', label: 'Fecha Fin' },
-                                { key: 'estado', label: 'Estado' }
-                            ])}>📤 Exportar</button>
-                            <ExcelImportButton onRows={handleImportRows} />
-                            <button className="btn btn-secondary" onClick={() => setShowCamposManager(!showCamposManager)}>⚙️ Campos</button>
-                            <button className="btn btn-crear" onClick={() => { setShowForm(!showForm); setEditingId(null); }}>
-                                + Nuevo
-                            </button>
-                        </div>
-                    </div>
-
-                    {showCamposManager && <CamposConfigManager entidad="contrato" camposConfig={camposConfig} onRefresh={onRefresh} onClose={() => setShowCamposManager(false)} />}
-
-                    {importMsg && <div className="import-summary">{importMsg}</div>}
-
-                    {showForm && (
-                        <div className="card" ref={formRef} style={{ marginBottom: '1rem' }}>
-                            <div className="form-group">
-                                <label>Cliente</label>
-                                <select value={formData.cliente_id} onChange={(e) => setFormData({ ...formData, cliente_id: parseInt(e.target.value) })}>
-                                    {clientes.map(c => (
-                                        <option key={c.id} value={c.id}>{c.nombre}</option>
-                                    ))}
-                                </select>
-                            </div>
-                            <div className="form-group">
-                                <label>Nombre del Contrato</label>
-                                <input type="text" placeholder="Nombre" value={formData.nombre} onChange={(e) => setFormData({ ...formData, nombre: e.target.value })} />
-                            </div>
-                            <DynamicExtraFields entidad="contrato" camposConfig={camposConfig} formData={formData} setFormData={setFormData} />
-                            <div className="btn-group">
-                                <button className="btn btn-success" onClick={handleAdd}>{editingId ? 'Guardar' : 'Crear'}</button>
-                                <button className="btn btn-secondary" onClick={() => { setShowForm(false); setEditingId(null); }}>Cancelar</button>
-                            </div>
-                        </div>
-                    )}
-
-                    <div className="list">
-                        {contratos.length === 0 ? (
-                            <div className="empty-state">No hay contratos</div>
-                        ) : (
-                            contratos.map(contrato => (
-                                <div key={contrato.id} className="list-item">
-                                    <div className="list-item-header">
-                                        <div>
-                                            <p className="card-title">📄 {contrato.nombre}</p>
-                                            <p className="card-text">🏢 {contrato.cliente_nombre}</p>
-                                        </div>
-                                        <span className="badge" style={{ background: 'var(--bg-accent)', color: 'var(--fill-accent)' }}>{contrato.estado}</span>
-                                    </div>
-                                    <p className="card-text">{contrato.descripcion}</p>
-                                    <p className="card-text">📅 {contrato.fecha_inicio} a {contrato.fecha_fin}</p>
-                                    <div style={{ marginTop: '8px', display: 'flex', gap: '8px' }}>
-                                        <button className="btn btn-primary" onClick={() => handleEdit(contrato)}>Editar</button>
-                                        <button className="btn btn-danger" onClick={() => handleDelete(contrato.id)}>Eliminar</button>
-                                    </div>
-                                </div>
-                            ))
-                        )}
-                    </div>
-                </div>
-            );
-        }
-
-        // ===== CAMPOS PERSONALIZABLES (Cliente / Contrato / Activo) =====
-        function DynamicExtraFields({ entidad, camposConfig, formData, setFormData, readOnly, tipoActivo }) {
-            const estaExcluido = (campo) => {
-                if (!campo.ocultar_en_tipos) return false;
-                try { return JSON.parse(campo.ocultar_en_tipos).includes(tipoActivo); } catch { return false; }
-            };
-            const campos = camposConfig
-                .filter(c => c.entidad === entidad && c.visible)
-                .filter(c => !c.tipo_activo || c.tipo_activo === tipoActivo)
-                .filter(c => !estaExcluido(c))
-                .sort((a, b) => a.orden - b.orden);
-
-            const getValue = (campo) => campo.es_sistema ? (formData[campo.clave] ?? '') : ((formData.campos_extra || {})[campo.clave] ?? '');
-            const setValue = (campo, val) => {
-                if (campo.es_sistema) setFormData({ ...formData, [campo.clave]: val });
-                else setFormData({ ...formData, campos_extra: { ...(formData.campos_extra || {}), [campo.clave]: val } });
-            };
-
-            return (
-                <React.Fragment>
-                    {campos.map(campo => {
-                        let opciones = [];
-                        try { opciones = JSON.parse(campo.opciones || '[]'); } catch { opciones = []; }
-                        const val = getValue(campo);
-                        return (
-                            <div className="form-group" key={campo.id}>
-                                <label>{campo.etiqueta}</label>
-                                {readOnly ? (
-                                    <p className="card-text">{val || '—'}</p>
-                                ) : campo.tipo === 'select' ? (
-                                    <select value={val} onChange={(e) => setValue(campo, e.target.value)}>
-                                        <option value="">-- Selecciona --</option>
-                                        {opciones.map(o => <option key={o} value={o}>{o}</option>)}
-                                    </select>
-                                ) : campo.tipo === 'textarea' ? (
-                                    <textarea value={val} onChange={(e) => setValue(campo, e.target.value)}></textarea>
-                                ) : (
-                                    <input type={campo.tipo === 'date' ? 'date' : campo.tipo === 'number' ? 'number' : 'text'} value={val} onChange={(e) => setValue(campo, e.target.value)} />
-                                )}
-                            </div>
-                        );
-                    })}
-                </React.Fragment>
-            );
-        }
-
-        function CamposConfigManager({ entidad, camposConfig, tiposActivo, onRefresh, onClose }) {
-            const [nuevaEtiqueta, setNuevaEtiqueta] = useState('');
-            const [nuevoTipo, setNuevoTipo] = useState('text');
-            const [nuevasOpciones, setNuevasOpciones] = useState('');
-            const [nuevoTipoActivo, setNuevoTipoActivo] = useState('');
-
-            const campos = camposConfig.filter(c => c.entidad === entidad).sort((a, b) => a.orden - b.orden);
-
-            const toggleVisible = async (campo) => {
-                await fetch(`${API_URL}/api/campos-config/${campo.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ visible: !campo.visible }) });
-                onRefresh();
-            };
-
-            const renombrar = async (campo) => {
-                const nuevo = prompt('Nueva etiqueta:', campo.etiqueta);
-                if (!nuevo) return;
-                await fetch(`${API_URL}/api/campos-config/${campo.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ etiqueta: nuevo }) });
-                onRefresh();
-            };
-
-            const eliminar = async (campo) => {
-                if (!confirm('¿Eliminar este campo personalizado? Se perderán los valores guardados en él.')) return;
-                const res = await fetch(`${API_URL}/api/campos-config/${campo.id}`, { method: 'DELETE' });
-                const data = await res.json();
-                if (!res.ok) { alert(data.error); return; }
-                onRefresh();
-            };
-
-            const crear = async () => {
-                if (!nuevaEtiqueta.trim()) { alert('Escribe una etiqueta'); return; }
-                const opciones = nuevoTipo === 'select' ? nuevasOpciones.split(',').map(s => s.trim()).filter(Boolean) : [];
-                await fetch(`${API_URL}/api/campos-config`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ entidad, etiqueta: nuevaEtiqueta, tipo: nuevoTipo, opciones, tipo_activo: entidad === 'activo' ? (nuevoTipoActivo || null) : null }) });
-                setNuevaEtiqueta(''); setNuevoTipo('text'); setNuevasOpciones(''); setNuevoTipoActivo('');
-                onRefresh();
-            };
-
-            return (
-                <div className="card" style={{ marginBottom: '1rem' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                        <h4 className="card-title">⚙️ Campos</h4>
-                        <button className="btn btn-secondary" onClick={onClose}>Cerrar</button>
-                    </div>
-
-                    <div className="list">
-                        {campos.map(campo => (
-                            <div key={campo.id} className="list-item">
-                                <div className="list-item-header">
-                                    <div>
-                                        <p className="card-title">{campo.etiqueta}</p>
-                                        <p className="card-text">{campo.es_sistema ? 'Campo de sistema' : 'Campo personalizado'} · Tipo: {campo.tipo}{campo.tipo_activo ? ` · Solo para: ${campo.tipo_activo}` : ''}</p>
-                                    </div>
-                                    <span className={`badge ${campo.visible ? 'campo-badge-visible' : 'campo-badge-oculto'}`}>
-                                        {campo.visible ? 'Visible' : 'Oculto'}
-                                    </span>
-                                </div>
-                                <div style={{ display: 'flex', gap: '8px', marginTop: '8px', flexWrap: 'wrap' }}>
-                                    <button className="btn btn-secondary" onClick={() => toggleVisible(campo)}>{campo.visible ? 'Ocultar' : 'Mostrar'}</button>
-                                    <button className="btn btn-primary" onClick={() => renombrar(campo)}>Renombrar</button>
-                                    {!campo.es_sistema && <button className="btn btn-danger" onClick={() => eliminar(campo)}>Eliminar</button>}
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-
-                    <div className="quickadd-box" style={{ marginTop: '12px' }}>
-                        <p className="card-text" style={{ fontWeight: 600, marginBottom: '6px' }}>+ Añadir Campo Nuevo</p>
-                        <input type="text" placeholder="Etiqueta (ej: Nº de Serie)" value={nuevaEtiqueta} onChange={(e) => setNuevaEtiqueta(e.target.value)} />
-                        <select value={nuevoTipo} onChange={(e) => setNuevoTipo(e.target.value)}>
-                            <option value="text">Texto</option>
-                            <option value="number">Número</option>
-                            <option value="date">Fecha</option>
-                            <option value="textarea">Texto largo</option>
-                            <option value="select">Lista desplegable</option>
-                        </select>
-                        {nuevoTipo === 'select' && <input type="text" placeholder="Opciones separadas por coma" value={nuevasOpciones} onChange={(e) => setNuevasOpciones(e.target.value)} />}
-                        {entidad === 'activo' && tiposActivo && tiposActivo.length > 0 && (
-                            <select value={nuevoTipoActivo} onChange={(e) => setNuevoTipoActivo(e.target.value)}>
-                                <option value="">Aplica a: Todos los tipos de activo</option>
-                                {tiposActivo.map(t => <option key={t.id} value={t.nombre}>Aplica solo a: {t.nombre}</option>)}
-                            </select>
-                        )}
-                        <button className="btn-add-row" onClick={crear}>+ Crear campo</button>
-                    </div>
-                </div>
-            );
-        }
-
-        function ClientesView({ user, clientes, camposConfig, onRefresh }) {
-            const [showForm, setShowForm] = useState(false);
-            const [editingId, setEditingId] = useState(null);
-            const [showCamposManager, setShowCamposManager] = useState(false);
-            const [formData, setFormData] = useState({
-                nombre: '',
-                contacto: '',
-                telefono: '',
-                campos_extra: {}
-            });
-            const formRef = useAutoScrollForm(showForm);
-
-            const handleAdd = async () => {
-                if (!formData.nombre.trim()) return;
-
-                try {
-                    const url = editingId ? `${API_URL}/api/clientes/${editingId}` : `${API_URL}/api/clientes`;
-                    const method = editingId ? 'PUT' : 'POST';
-
-                    await fetch(url, {
-                        method,
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ ...formData, campos_extra: JSON.stringify(formData.campos_extra || {}) })
-                    });
-
-                    setFormData({ nombre: '', contacto: '', telefono: '', campos_extra: {} });
-                    setEditingId(null);
-                    setShowForm(false);
-                    onRefresh();
-                } catch (err) {
-                    alert('Error al guardar cliente');
-                }
-            };
-
-            const handleDelete = async (id) => {
-                if (!confirm('¿Eliminar este cliente?')) return;
-
-                try {
-                    await fetch(`${API_URL}/api/clientes/${id}`, { method: 'DELETE' });
-                    onRefresh();
-                } catch (err) {
-                    alert('Error al eliminar cliente');
-                }
-            };
-
-            const handleEdit = (cliente) => {
-                let extra = {};
-                try { extra = cliente.campos_extra ? JSON.parse(cliente.campos_extra) : {}; } catch { extra = {}; }
-                setFormData({ ...cliente, campos_extra: extra });
-                setEditingId(cliente.id);
-                setShowForm(true);
-            };
-
-            const [importMsg, setImportMsg] = useState('');
-            const handleImportRows = async (rows) => {
-                let ok = 0, fail = 0;
-                for (const row of rows) {
-                    const nombre = row['Cliente'] || row['nombre'] || row['Nombre'];
-                    if (!nombre) { fail++; continue; }
-                    try {
-                        await fetch(`${API_URL}/api/clientes`, {
-                            method: 'POST', headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                nombre,
-                                contacto: row['Contacto'] || row['contacto'] || '',
-                                telefono: row['Teléfono'] || row['telefono'] || ''
-                            })
-                        });
-                        ok++;
-                    } catch { fail++; }
-                }
-                setImportMsg(`✅ Importados: ${ok} | ❌ Fallidos: ${fail}`);
-                onRefresh();
-            };
-
-            return (
-                <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '8px' }}>
-                        <h3 className="section-title" style={{ margin: 0 }}>👥 Clientes</h3>
-                        <div className="toolbar">
-                            <button className="btn btn-excel" onClick={() => exportToExcel(clientes, 'clientes', [
-                                { key: 'nombre', label: 'Cliente' },
-                                { key: 'contacto', label: 'Contacto' },
-                                { key: 'telefono', label: 'Teléfono' }
-                            ])}>📤 Exportar</button>
-                            <ExcelImportButton onRows={handleImportRows} />
-                            <button className="btn btn-secondary" onClick={() => setShowCamposManager(!showCamposManager)}>⚙️ Campos</button>
-                            <button className="btn btn-crear" onClick={() => { setShowForm(!showForm); setEditingId(null); }}>
-                                + Nuevo
-                            </button>
-                        </div>
-                    </div>
-
-                    {showCamposManager && <CamposConfigManager entidad="cliente" camposConfig={camposConfig} onRefresh={onRefresh} onClose={() => setShowCamposManager(false)} />}
-
-                    {importMsg && <div className="import-summary">{importMsg}</div>}
-
-                    {showForm && (
-                        <div className="card" ref={formRef} style={{ marginBottom: '1rem' }}>
-                            <div className="form-group">
-                                <label>Nombre</label>
-                                <input type="text" placeholder="Nombre" value={formData.nombre} onChange={(e) => setFormData({ ...formData, nombre: e.target.value })} />
-                            </div>
-                            <DynamicExtraFields entidad="cliente" camposConfig={camposConfig} formData={formData} setFormData={setFormData} />
-                            <div className="btn-group">
-                                <button className="btn btn-success" onClick={handleAdd}>{editingId ? 'Guardar' : 'Agregar'}</button>
-                                <button className="btn btn-secondary" onClick={() => { setShowForm(false); setEditingId(null); }}>Cancelar</button>
-                            </div>
-                        </div>
-                    )}
-
-                    <div className="list">
-                        {clientes.length === 0 ? (
-                            <div className="empty-state">No hay clientes</div>
-                        ) : (
-                            clientes.map(cliente => (
-                                <div key={cliente.id} className="list-item">
-                                    <p className="card-title">🏢 {cliente.nombre}</p>
-                                    <p className="card-text">📧 {cliente.contacto}</p>
-                                    <p className="card-text">📱 {cliente.telefono}</p>
-                                    <div style={{ marginTop: '8px', display: 'flex', gap: '8px' }}>
-                                        <button className="btn btn-primary" onClick={() => handleEdit(cliente)}>Editar</button>
-                                        <button className="btn btn-danger" onClick={() => handleDelete(cliente.id)}>Eliminar</button>
-                                    </div>
-                                </div>
-                            ))
-                        )}
-                    </div>
-                </div>
-            );
-        }
-
-        function UsuariosView({ user, usuarios, onRefresh }) {
-            const [showForm, setShowForm] = useState(false);
-            const [editingId, setEditingId] = useState(null);
-            const [formData, setFormData] = useState({
-                nombre: '',
-                email: '',
-                password: '',
-                rol: 'tecnico',
-                activo: 1
-            });
-            const [error, setError] = useState('');
-            const formRef = useAutoScrollForm(showForm);
-
-            const handleAdd = async () => {
-                setError('');
-                
-                if (!formData.nombre.trim() || !formData.email.trim()) {
-                    setError('Nombre y email requeridos');
-                    return;
-                }
-
-                if (!editingId && !formData.password.trim()) {
-                    setError('Contraseña requerida para nuevo usuario');
-                    return;
-                }
-
-                if (formData.password && formData.password.length < 6) {
-                    setError('La contraseña debe tener al menos 6 caracteres');
-                    return;
-                }
-
-                // Supervisor no puede crear admin
-                if (user.rol === 'supervisor' && formData.rol === 'admin') {
-                    setError('Supervisor no puede crear administradores');
-                    return;
-                }
-
-                try {
-                    const url = editingId ? `${API_URL}/api/usuarios/${editingId}` : `${API_URL}/api/usuarios`;
-                    const method = editingId ? 'PUT' : 'POST';
-
-                    const response = await fetch(url, {
-                        method,
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(formData)
-                    });
-
-                    if (response.ok) {
-                        setFormData({ nombre: '', email: '', password: '', rol: 'tecnico', activo: 1 });
-                        setEditingId(null);
-                        setShowForm(false);
-                        onRefresh();
-                    } else {
-                        const data = await response.json();
-                        setError(data.error || 'Error al guardar usuario');
-                    }
-                } catch (err) {
-                    setError('Error al guardar usuario');
-                }
-            };
-
-            const handleDelete = async (id) => {
-                if (!confirm('¿Eliminar este usuario?')) return;
-
-                try {
-                    await fetch(`${API_URL}/api/usuarios/${id}`, { method: 'DELETE' });
-                    onRefresh();
-                } catch (err) {
-                    alert('Error al eliminar usuario');
-                }
-            };
-
-            const handleEdit = (u) => {
-                setFormData({ ...u, password: '' });
-                setEditingId(u.id);
-                setShowForm(true);
-            };
-
-            const handleDisable = async (id) => {
-                try {
-                    await fetch(`${API_URL}/api/usuarios/${id}`, {
-                        method: 'PUT',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ ...usuarios.find(u => u.id === id), activo: 0 })
-                    });
-                    onRefresh();
-                } catch (err) {
-                    alert('Error al inhabilitar usuario');
-                }
-            };
-
-            const handleEnable = async (id) => {
-                try {
-                    await fetch(`${API_URL}/api/usuarios/${id}`, {
-                        method: 'PUT',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ ...usuarios.find(u => u.id === id), activo: 1 })
-                    });
-                    onRefresh();
-                } catch (err) {
-                    alert('Error al habilitar usuario');
-                }
-            };
-
-            return (
-                <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-                        <h3 className="section-title" style={{ margin: 0 }}>👥 Usuarios</h3>
-                        <button className="btn btn-crear" onClick={() => { setShowForm(!showForm); setEditingId(null); setError(''); }}>
-                            + Nuevo
-                        </button>
-                    </div>
-
-                    {showForm && (
-                        <div className="card" ref={formRef} style={{ marginBottom: '1rem' }}>
-                            <div className="form-group">
-                                <label>Nombre</label>
-                                <input type="text" placeholder="Nombre completo" value={formData.nombre} onChange={(e) => setFormData({ ...formData, nombre: e.target.value })} />
-                            </div>
-
-                            <div className="form-group">
-                                <label>Email</label>
-                                <input type="email" placeholder="usuario@ejemplo.com" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} />
-                            </div>
-
-                            {!editingId && (
-                                <div className="form-group">
-                                    <label>Contraseña</label>
-                                    <input type="password" placeholder="Mínimo 6 caracteres" value={formData.password} onChange={(e) => setFormData({ ...formData, password: e.target.value })} />
-                                </div>
-                            )}
-
-                            {editingId && (
-                                <div className="form-group">
-                                    <label>Nueva Contraseña (dejar vacío para no cambiar)</label>
-                                    <input type="password" placeholder="Dejar vacío para no cambiar" value={formData.password} onChange={(e) => setFormData({ ...formData, password: e.target.value })} />
-                                </div>
-                            )}
-
-                            <div className="form-group">
-                                <label>Rol</label>
-                                <select value={formData.rol} onChange={(e) => setFormData({ ...formData, rol: e.target.value })}>
-                                    {user.rol === 'admin' && <option value="admin">Administrador</option>}
-                                    <option value="supervisor">Supervisor</option>
-                                    <option value="tecnico">Técnico</option>
-                                </select>
-                            </div>
-
-                            {error && <p style={{ color: 'var(--fill-danger)', fontSize: '12px', marginBottom: '12px' }}>❌ {error}</p>}
-
-                            <div className="btn-group">
-                                <button className="btn btn-success" onClick={handleAdd}>{editingId ? 'Guardar' : 'Crear'}</button>
-                                <button className="btn btn-secondary" onClick={() => { setShowForm(false); setEditingId(null); setError(''); }}>Cancelar</button>
-                            </div>
-                        </div>
-                    )}
-
-                    <div className="list">
-                        {usuarios.length === 0 ? (
-                            <div className="empty-state">No hay usuarios</div>
-                        ) : (
-                            usuarios.map(u => (
-                                <div key={u.id} className="list-item" style={{ opacity: u.activo ? 1 : 0.5 }}>
-                                    <div className="list-item-header">
-                                        <div>
-                                            <p className="card-title">👤 {u.nombre}</p>
-                                            <p className="card-text">📧 {u.email}</p>
-                                        </div>
-                                        <span className={`badge ${u.rol}`}>{u.rol}</span>
-                                    </div>
-                                    <p className="card-text">✓ Estado: {u.activo ? 'Activo' : 'Inactivo'}</p>
-                                    <div style={{ marginTop: '8px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                                        <button className="btn btn-primary" onClick={() => handleEdit(u)}>Editar</button>
-                                        {u.activo && <button className="btn btn-secondary" onClick={() => handleDisable(u.id)}>Inhabilitar</button>}
-                                        {!u.activo && <button className="btn btn-crear" onClick={() => handleEnable(u.id)}>Habilitar</button>}
-                                        <button className="btn btn-danger" onClick={() => handleDelete(u.id)}>Eliminar</button>
-                                    </div>
-                                </div>
-                            ))
-                        )}
-                    </div>
-                </div>
-            );
-        }
-
-        // ===== CALENDARIO DE PLANIFICACIÓN =====
-        const WEEKDAY_LABELS = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
-        const MONTH_LABELS = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
-
-        function CalendarView({ user, ordenes, usuarios, activos, onRefresh }) {
-            const [year, setYear] = useState(new Date().getFullYear());
-            const [month, setMonth] = useState(new Date().getMonth());
-            const [filtroTecnico, setFiltroTecnico] = useState('todos');
-            const [diaSeleccionado, setDiaSeleccionado] = useState(null);
-            const [importMsg, setImportMsg] = useState('');
-
-            const tecnicos = usuarios.filter(u => u.activo);
-            const firstOfMonth = new Date(year, month, 1);
-            const startWeekday = (firstOfMonth.getDay() + 6) % 7;
-            const daysInMonth = new Date(year, month + 1, 0).getDate();
-            const cells = [];
-            for (let i = 0; i < startWeekday; i++) cells.push(null);
-            for (let d = 1; d <= daysInMonth; d++) cells.push(d);
-
-            let planificables = ordenes.filter(o => o.tipo !== 'guardia' && o.fecha_programada);
-            if (filtroTecnico !== 'todos') {
-                planificables = planificables.filter(o => o.asignado_a === parseInt(filtroTecnico) || (() => {
-                    try { return JSON.parse(o.tecnicos_apoyo || '[]').includes(parseInt(filtroTecnico)); } catch { return false; }
-                })());
-            }
-            const byDay = {};
-            planificables.forEach(o => { (byDay[o.fecha_programada] = byDay[o.fecha_programada] || []).push(o); });
-
-            const hoy = new Date().toISOString().slice(0, 10);
-            const prevMonth = () => { if (month === 0) { setMonth(11); setYear(year - 1); } else setMonth(month - 1); };
-            const nextMonth = () => { if (month === 11) { setMonth(0); setYear(year + 1); } else setMonth(month + 1); };
-
-            const exportarPlantilla = () => {
-                const rows = activos.map(a => ({
-                    id_activo: a.id, activo: a.nombre, cliente: a.cliente_nombre, contrato: a.contrato_nombre,
-                    emplazamiento: a.emplazamiento_nombre, fecha_planificada: '', tecnico: '', tecnicos_apoyo: '', prioridad: 'media',
-                    titulo: `Preventivo ${a.nombre}`, descripcion: ''
-                }));
-                exportToExcel(rows, 'plantilla_preventivos', [
-                    { key: 'id_activo', label: 'id_activo' }, { key: 'activo', label: 'activo' }, { key: 'cliente', label: 'cliente' },
-                    { key: 'contrato', label: 'contrato' }, { key: 'emplazamiento', label: 'emplazamiento' },
-                    { key: 'fecha_planificada', label: 'fecha_planificada' }, { key: 'tecnico', label: 'tecnico' },
-                    { key: 'tecnicos_apoyo', label: 'tecnicos_apoyo' }, { key: 'prioridad', label: 'prioridad' },
-                    { key: 'titulo', label: 'titulo' }, { key: 'descripcion', label: 'descripcion' }
-                ]);
-            };
-
-            const importarPlan = async (rows) => {
-                let creados = 0, saltados = 0;
-                for (const row of rows) {
-                    const fecha = row['fecha_planificada'];
-                    if (!fecha) { saltados++; continue; }
-                    let activo = null;
-                    if (row['id_activo']) activo = activos.find(a => a.id === parseInt(row['id_activo']));
-                    if (!activo && row['activo']) activo = activos.find(a => a.nombre.trim().toLowerCase() === String(row['activo']).trim().toLowerCase());
-                    if (!activo) { saltados++; continue; }
-
-                    let tecnico = null;
-                    if (row['tecnico']) tecnico = tecnicos.find(u => u.nombre.trim().toLowerCase() === String(row['tecnico']).trim().toLowerCase());
-                    const apoyoIds = String(row['tecnicos_apoyo'] || '').split(',').map(s => s.trim()).filter(Boolean).map(n => {
-                        const u = tecnicos.find(u => u.nombre.trim().toLowerCase() === n.toLowerCase());
-                        return u ? u.id : null;
-                    }).filter(Boolean);
-
-                    let fechaISO = fecha;
-                    if (fecha instanceof Date) fechaISO = fecha.toISOString().slice(0, 10);
-
-                    try {
-                        await fetch(`${API_URL}/api/ordenes`, {
-                            method: 'POST', headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                titulo: row['titulo'] || `Preventivo ${activo.nombre}`,
-                                tipo: 'preventivo', cliente_id: activo.cliente_id, activo_id: activo.id,
-                                estado: tecnico ? 'abierta' : 'pendiente', prioridad: row['prioridad'] || 'media',
-                                asignado_a: tecnico ? tecnico.id : null, tecnicos_apoyo: JSON.stringify(apoyoIds),
-                                fecha_programada: fechaISO, notas: row['descripcion'] || ''
-                            })
-                        });
-                        creados++;
-                    } catch { saltados++; }
-                }
-                setImportMsg(`✅ OTs preventivas creadas: ${creados}${saltados ? ` | ⚠️ Filas omitidas: ${saltados}` : ''}`);
-                onRefresh();
-            };
-
-            return (
-                <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '8px' }}>
-                        <h3 className="section-title" style={{ margin: 0 }}>📅 Calendario de Planificación</h3>
-                        <div className="toolbar">
-                            <button className="btn btn-excel" onClick={exportarPlantilla}>📤 Plantilla anual</button>
-                            <ExcelImportButton onRows={importarPlan} label="Importar plan" />
-                        </div>
-                    </div>
-
-                    {importMsg && <div className="import-summary">{importMsg}</div>}
-
-                    <div className="form-group">
-                        <select value={filtroTecnico} onChange={(e) => setFiltroTecnico(e.target.value)}>
-                            <option value="todos">Todos los trabajadores</option>
-                            {tecnicos.map(u => <option key={u.id} value={u.id}>{u.nombre}</option>)}
-                        </select>
-                    </div>
-
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                        <button className="btn btn-secondary" onClick={prevMonth}>‹</button>
-                        <span style={{ fontWeight: 700 }}>{MONTH_LABELS[month]} {year}</span>
-                        <button className="btn btn-secondary" onClick={nextMonth}>›</button>
-                    </div>
-
-                    <div className="cal-legend">
-                        <span><i style={{ background: 'var(--fill-success)' }}></i>Preventivo</span>
-                        <span><i style={{ background: 'var(--fill-danger)' }}></i>Correctivo</span>
-                        <span><i style={{ background: 'var(--fill-accent)' }}></i>Obra</span>
-                    </div>
-
-                    <div className="cal-grid">
-                        {WEEKDAY_LABELS.map(w => <div key={w} className="cal-weekday">{w}</div>)}
-                        {cells.map((d, i) => {
-                            if (d === null) return <div key={i} className="cal-cell empty"></div>;
-                            const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-                            const dayOts = byDay[dateStr] || [];
-                            const isToday = dateStr === hoy;
-                            return (
-                                <button key={i} className={`cal-cell ${isToday ? 'today' : ''}`} onClick={() => setDiaSeleccionado(dateStr)}>
-                                    <span className="cal-daynum">{d}</span>
-                                    <span className="cal-dots">
-                                        {dayOts.slice(0, 4).map((o, j) => (
-                                            <i key={j} style={{ background: o.tipo === 'preventivo' ? 'var(--fill-success)' : o.tipo === 'correctivo' ? 'var(--fill-danger)' : 'var(--fill-accent)' }}></i>
-                                        ))}
-                                    </span>
-                                </button>
-                            );
-                        })}
-                    </div>
-
-                    {diaSeleccionado && (
-                        <div className="card" style={{ marginTop: '1rem' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                                <h4 className="card-title">📅 {diaSeleccionado}</h4>
-                                <button className="btn btn-secondary" onClick={() => setDiaSeleccionado(null)}>Cerrar</button>
-                            </div>
-                            <div className="list">
-                                {(byDay[diaSeleccionado] || []).length === 0 ? (
-                                    <div className="empty-state">No hay ninguna OT planificada este día.</div>
-                                ) : (
-                                    (byDay[diaSeleccionado] || []).map(o => (
-                                        <div key={o.id} className="list-item">
-                                            <div className="list-item-header">
-                                                <p className="card-title">{o.titulo}</p>
-                                                <span className={`badge ${o.tipo}`}>{o.tipo}</span>
-                                            </div>
-                                            <p className="card-text">👤 {o.tecnico_nombre || 'Sin asignar'}</p>
-                                        </div>
-                                    ))
-                                )}
-                            </div>
-                        </div>
-                    )}
-                </div>
-            );
-        }
-
-        // ===== PRECIARIO (con historial de precios) =====
-        function PreciarioView({ user, materiales, clientes, onRefresh }) {
-            const [showForm, setShowForm] = useState(false);
-            const [search, setSearch] = useState('');
-            const [filtroCliente, setFiltroCliente] = useState('todos');
-            const [verHistorialId, setVerHistorialId] = useState(null);
-            const [precioNuevo, setPrecioNuevo] = useState({});
-            const [formData, setFormData] = useState({ cliente_id: '', tipo: '', descripcion: '', unidad: 'ud', precio: '' });
-            const [importMsg, setImportMsg] = useState('');
-            const formRef = useAutoScrollForm(showForm);
-
-            const getHistorial = (m) => { try { return JSON.parse(m.historial_json || '[]'); } catch { return []; } };
-            const getPrecioActual = (m) => { const h = getHistorial(m); return h.length ? h[h.length - 1].precio : null; };
-
-            let filtrados = materiales;
-            if (filtroCliente !== 'todos') filtrados = filtrados.filter(m => m.cliente_id === parseInt(filtroCliente));
-            if (search) filtrados = filtrados.filter(m => m.descripcion.toLowerCase().includes(search.toLowerCase()) || (m.tipo || '').toLowerCase().includes(search.toLowerCase()));
-
-            const handleAdd = async () => {
-                if (!formData.descripcion.trim()) { alert('La descripción es obligatoria'); return; }
-                try {
-                    await fetch(`${API_URL}/api/materiales`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(formData) });
-                    setFormData({ cliente_id: '', tipo: '', descripcion: '', unidad: 'ud', precio: '' });
-                    setShowForm(false);
-                    onRefresh();
-                } catch { alert('Error al guardar material'); }
-            };
-
-            const handleDelete = async (id) => {
-                if (!confirm('¿Eliminar este material del preciario?')) return;
-                await fetch(`${API_URL}/api/materiales/${id}`, { method: 'DELETE' });
-                onRefresh();
-            };
-
-            const handleAddPrecio = async (id) => {
-                const precio = precioNuevo[id];
-                if (!precio) { alert('Introduce un precio'); return; }
-                await fetch(`${API_URL}/api/materiales/${id}/precio`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ precio }) });
-                setPrecioNuevo({ ...precioNuevo, [id]: '' });
-                onRefresh();
-            };
-
-            const handleImportRows = async (rows) => {
-                let ok = 0, fail = 0;
-                for (const row of rows) {
-                    const descripcion = row['Descripción'] || row['descripcion'];
-                    const clienteNombre = row['Cliente'] || row['cliente'];
-                    const cliente = clientes.find(c => c.nombre === clienteNombre);
-                    if (!descripcion) { fail++; continue; }
-                    try {
-                        await fetch(`${API_URL}/api/materiales`, {
-                            method: 'POST', headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                cliente_id: cliente ? cliente.id : null, tipo: row['Tipo'] || row['tipo'] || '',
-                                descripcion, unidad: row['Unidad'] || row['unidad'] || 'ud',
-                                precio: row['Precio'] || row['precio'] || row['Precio Actual'] || ''
-                            })
-                        });
-                        ok++;
-                    } catch { fail++; }
-                }
-                setImportMsg(`✅ Importados: ${ok} | ❌ Fallidos: ${fail}`);
-                onRefresh();
-            };
-
-            return (
-                <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '8px' }}>
-                        <h3 className="section-title" style={{ margin: 0 }}>💰 Preciario</h3>
-                        <div className="toolbar">
-                            <button className="btn btn-excel" onClick={() => exportToExcel(materiales.map(m => ({ ...m, cliente_nombre: (clientes.find(c => c.id === m.cliente_id) || {}).nombre || '', precio_actual: getPrecioActual(m) })), 'preciario', [
-                                { key: 'cliente_nombre', label: 'Cliente' }, { key: 'tipo', label: 'Tipo' }, { key: 'descripcion', label: 'Descripción' },
-                                { key: 'unidad', label: 'Unidad' }, { key: 'precio_actual', label: 'Precio Actual' }
-                            ])}>📤 Exportar</button>
-                            <ExcelImportButton onRows={handleImportRows} />
-                            <button className="btn btn-crear" onClick={() => setShowForm(!showForm)}>+ Nuevo</button>
-                        </div>
-                    </div>
-
-                    {importMsg && <div className="import-summary">{importMsg}</div>}
-
-                    <div className="form-group">
-                        <input type="text" placeholder="🔍 Buscar material..." value={search} onChange={(e) => setSearch(e.target.value)} />
-                    </div>
-                    <div className="form-group">
-                        <select value={filtroCliente} onChange={(e) => setFiltroCliente(e.target.value)}>
-                            <option value="todos">Todos los clientes</option>
-                            {clientes.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-                        </select>
-                    </div>
-
-                    {showForm && (
-                        <div className="card" ref={formRef} style={{ marginBottom: '1rem' }}>
-                            <div className="form-group">
-                                <label>Cliente</label>
-                                <select value={formData.cliente_id} onChange={(e) => setFormData({ ...formData, cliente_id: e.target.value })}>
-                                    <option value="">-- Sin cliente específico --</option>
-                                    {clientes.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-                                </select>
-                            </div>
-                            <div className="form-group"><label>Tipo / Categoría</label><input type="text" placeholder="Ej: Accesorios Puertas" value={formData.tipo} onChange={(e) => setFormData({ ...formData, tipo: e.target.value })} /></div>
-                            <div className="form-group"><label>Descripción</label><input type="text" placeholder="Descripción del material" value={formData.descripcion} onChange={(e) => setFormData({ ...formData, descripcion: e.target.value })} /></div>
-                            <div className="form-group"><label>Unidad</label><input type="text" placeholder="ud, m, kg..." value={formData.unidad} onChange={(e) => setFormData({ ...formData, unidad: e.target.value })} /></div>
-                            <div className="form-group"><label>Precio inicial (€)</label><input type="number" step="0.01" placeholder="0.00" value={formData.precio} onChange={(e) => setFormData({ ...formData, precio: e.target.value })} /></div>
-                            <div className="btn-group">
-                                <button className="btn btn-success" onClick={handleAdd}>Crear</button>
-                                <button className="btn btn-secondary" onClick={() => setShowForm(false)}>Cancelar</button>
-                            </div>
-                        </div>
-                    )}
-
-                    <div className="list">
-                        {filtrados.length === 0 ? <div className="empty-state">No hay materiales</div> : filtrados.map(m => {
-                            const historial = getHistorial(m);
-                            const precioActual = getPrecioActual(m);
-                            return (
-                                <div key={m.id} className="list-item">
-                                    <div className="list-item-header">
-                                        <div>
-                                            <p className="card-title">{m.descripcion}</p>
-                                            <p className="card-text">{m.tipo} {m.cliente_nombre ? `· ${m.cliente_nombre}` : ''}</p>
-                                        </div>
-                                        <span className="badge" style={{ background: 'var(--bg-accent)', color: 'var(--fill-accent)' }}>
-                                            {precioActual !== null ? `${precioActual.toFixed(2)} €` : 'Sin precio'} / {m.unidad}
-                                        </span>
-                                    </div>
-
-                                    <div style={{ marginTop: '8px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                                        <button className="btn btn-secondary" onClick={() => setVerHistorialId(verHistorialId === m.id ? null : m.id)}>
-                                            {verHistorialId === m.id ? 'Ocultar historial' : `Ver historial (${historial.length})`}
-                                        </button>
-                                        <button className="btn btn-danger" onClick={() => handleDelete(m.id)}>Eliminar</button>
-                                    </div>
-
-                                    {verHistorialId === m.id && (
-                                        <div style={{ marginTop: '10px' }}>
-                                            {historial.length === 0 ? <p className="card-text">Sin historial de precios.</p> : (
-                                                [...historial].reverse().map((h, i) => (
-                                                    <div key={i} className="price-history-row"><span>{h.fecha}</span><span>{parseFloat(h.precio).toFixed(2)} €</span></div>
-                                                ))
-                                            )}
-                                            <div style={{ display: 'flex', gap: '6px', marginTop: '8px' }}>
-                                                <input type="number" step="0.01" placeholder="Nuevo precio" value={precioNuevo[m.id] || ''} onChange={(e) => setPrecioNuevo({ ...precioNuevo, [m.id]: e.target.value })} />
-                                                <button className="btn btn-success" onClick={() => handleAddPrecio(m.id)}>Añadir</button>
-                                            </div>
-                                        </div>
-                                    )}
-                                </div>
-                            );
-                        })}
-                    </div>
-                </div>
-            );
-        }
-
-        function App() {
-            const [user, setUser] = useState(null);
-
-            useEffect(() => {
-                const savedTheme = localStorage.getItem('gmao-theme') || 'light';
-                document.body.classList.add(savedTheme + '-theme');
-            }, []);
-
-            return user ? (
-                <Dashboard user={user} onLogout={() => setUser(null)} />
-            ) : (
-                <LoginScreen onLogin={setUser} />
-            );
-        }
-
-        const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<App />);
-    </script>
-</body>
-</html>
+      }
+      res.json({ id: req.params.id, ...req.body });
+    });
+});
+
+app.delete('/api/visitas/:id', (req, res) => {
+  db.run('DELETE FROM visitas WHERE id = ?', [req.params.id], (err) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ success: true });
+  });
+});
+
+// MATERIALES (PRECIARIO)
+app.get('/api/materiales', (req, res) => {
+  db.all(`SELECT m.*, c.nombre as cliente_nombre FROM materiales m 
+          LEFT JOIN clientes c ON m.cliente_id = c.id ORDER BY m.descripcion`, (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows);
+  });
+});
+
+app.post('/api/materiales', (req, res) => {
+  const { cliente_id, tipo, descripcion, unidad, precio } = req.body;
+  if (!descripcion) return res.status(400).json({ error: 'Descripción requerida' });
+  const historial = precio !== undefined && precio !== '' ? [{ fecha: new Date().toISOString().slice(0, 10), precio: parseFloat(precio) }] : [];
+  db.run(`INSERT INTO materiales (cliente_id, tipo, descripcion, unidad, historial_json) VALUES (?, ?, ?, ?, ?)`,
+    [cliente_id || null, tipo, descripcion, unidad || 'ud', JSON.stringify(historial)], function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ id: this.lastID, cliente_id, tipo, descripcion, unidad, historial_json: JSON.stringify(historial) });
+    });
+});
+
+app.put('/api/materiales/:id', (req, res) => {
+  const { cliente_id, tipo, descripcion, unidad } = req.body;
+  db.run(`UPDATE materiales SET cliente_id = ?, tipo = ?, descripcion = ?, unidad = ? WHERE id = ?`,
+    [cliente_id || null, tipo, descripcion, unidad, req.params.id], (err) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ id: req.params.id, cliente_id, tipo, descripcion, unidad });
+    });
+});
+
+app.post('/api/materiales/:id/precio', (req, res) => {
+  const { precio, fecha } = req.body;
+  if (precio === undefined || precio === '') return res.status(400).json({ error: 'Precio requerido' });
+  db.get('SELECT historial_json FROM materiales WHERE id = ?', [req.params.id], (err, row) => {
+    if (err || !row) return res.status(404).json({ error: 'Material no encontrado' });
+    let historial = [];
+    try { historial = JSON.parse(row.historial_json || '[]'); } catch { historial = []; }
+    historial.push({ fecha: fecha || new Date().toISOString().slice(0, 10), precio: parseFloat(precio) });
+    db.run('UPDATE materiales SET historial_json = ? WHERE id = ?', [JSON.stringify(historial), req.params.id], (err2) => {
+      if (err2) return res.status(500).json({ error: err2.message });
+      res.json({ id: req.params.id, historial_json: JSON.stringify(historial) });
+    });
+  });
+});
+
+app.delete('/api/materiales/:id', (req, res) => {
+  db.run('DELETE FROM materiales WHERE id = ?', [req.params.id], (err) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ success: true });
+  });
+});
+
+// ÓRDENES DE GUARDIA
+app.get('/api/guardia', (req, res) => {
+  db.all(`SELECT og.*, u.nombre as tecnico_nombre 
+          FROM ordenes_guardia og
+          LEFT JOIN usuarios u ON og.tecnico_id = u.id
+          ORDER BY og.creado_en DESC`, (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows);
+  });
+});
+
+app.post('/api/guardia', (req, res) => {
+  const { tecnico_id, titulo, descripcion } = req.body;
+  const id = `GD-${Date.now()}`;
+  db.run('INSERT INTO ordenes_guardia (id, tecnico_id, titulo, descripcion) VALUES (?, ?, ?, ?)',
+    [id, tecnico_id, titulo, descripcion], function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ id, tecnico_id, titulo, descripcion, creado_en: new Date(), estado: 'pendiente' });
+    });
+});
+
+app.put('/api/guardia/:id', (req, res) => {
+  const { estado } = req.body;
+  db.run('UPDATE ordenes_guardia SET estado = ? WHERE id = ?',
+    [estado, req.params.id], (err) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ id: req.params.id, estado });
+    });
+});
+
+// Servir archivos estáticos
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+app.listen(PORT, () => {
+  console.log(`✓ Servidor GMAO ejecutándose en http://localhost:${PORT}`);
+});
