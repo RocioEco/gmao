@@ -578,15 +578,17 @@
 
         function DashboardView({ user, usuarios, ordenes, clientes, activos, contratos }) {
             const esGestor = user.rol === 'admin' || user.rol === 'supervisor';
+            const [vistaPersonal, setVistaPersonal] = useState(false);
             const contarPorTipo = (lista) => TIPOS_OT_DASHBOARD.map(t => ({ label: t.label, color: t.color, value: lista.filter(o => o.tipo === t.key).length }));
 
-            if (!esGestor) {
+            if (!esGestor || vistaPersonal) {
                 const misOrdenes = ordenes.filter(o => o.asignado_a === user.id);
                 const pendientes = misOrdenes.filter(o => ESTADOS_ABIERTOS_DASHBOARD.includes(o.estado));
                 const datosTipo = contarPorTipo(misOrdenes);
 
                 return (
                     <div>
+                        {esGestor && <button className="btn btn-secondary" style={{ marginBottom: '10px' }} onClick={() => setVistaPersonal(false)}>← Volver al Dashboard general</button>}
                         <h3 className="section-title">Mi Dashboard</h3>
                         <div className="metrics-grid">
                             <div className="metric-card"><div className="metric-label">Total Asignadas</div><div className="metric-value">{misOrdenes.length}</div></div>
@@ -629,7 +631,10 @@
 
             return (
                 <div>
-                    <h3 className="section-title">Dashboard</h3>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                        <h3 className="section-title" style={{ margin: 0 }}>Dashboard</h3>
+                        <button className="btn btn-secondary" onClick={() => setVistaPersonal(true)}>👤 Mi Dashboard</button>
+                    </div>
                     <div className="metrics-grid">
                         {stats.map((stat, i) => (
                             <div key={i} className="metric-card">
@@ -1960,12 +1965,94 @@
         }
 
         // ===== EMPLAZAMIENTOS =====
-        function EmplazamientosView({ user, emplazamientos, zonas, activos, onCrearActivoAqui, onRefresh }) {
+        // Formulario compacto (estilo "quickadd-box") para crear o editar un Activo sin salir
+        // de la tarjeta del Emplazamiento donde se está trabajando.
+        function ActivoInlineForm({ emplazamientoId, activoExistente, clientes, contratos, tiposActivo, camposConfig, onSaved, onCancel }) {
+            const contratoInicial = activoExistente ? contratos.find(c => c.id === activoExistente.contrato_id) : null;
+            const [selectedCliente, setSelectedCliente] = useState(contratoInicial ? String(contratoInicial.cliente_id) : '');
+            const [formData, setFormData] = useState(() => {
+                if (!activoExistente) return { contrato_id: '', tipo: '', nombre: '', fabricante: '', modelo: '', estado: 'Activo', observaciones: '', campos_extra: {}, fotos_json: [] };
+                let extra = {}; try { extra = activoExistente.campos_extra ? JSON.parse(activoExistente.campos_extra) : {}; } catch { extra = {}; }
+                let fotos = []; try { fotos = activoExistente.fotos_json ? JSON.parse(activoExistente.fotos_json) : []; } catch { fotos = []; }
+                return {
+                    contrato_id: activoExistente.contrato_id, tipo: activoExistente.tipo || '', nombre: activoExistente.nombre,
+                    fabricante: activoExistente.fabricante || '', modelo: activoExistente.modelo || '', estado: activoExistente.estado || 'Activo',
+                    observaciones: activoExistente.observaciones || '', campos_extra: extra, fotos_json: fotos
+                };
+            });
+
+            const contratosFiltrados = selectedCliente ? contratos.filter(c => c.cliente_id === parseInt(selectedCliente)) : contratos;
+
+            const guardar = async () => {
+                if (!formData.nombre.trim() || !formData.contrato_id) { alert('Selecciona contrato y nombre'); return; }
+                const payload = {
+                    ...formData, emplazamiento_id: emplazamientoId,
+                    campos_extra: JSON.stringify(formData.campos_extra || {}),
+                    fotos_json: JSON.stringify(formData.fotos_json || [])
+                };
+                const url = activoExistente ? `${API_URL}/api/activos/${activoExistente.id}` : `${API_URL}/api/activos`;
+                const method = activoExistente ? 'PUT' : 'POST';
+                await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+                onSaved();
+            };
+
+            return (
+                <div className="quickadd-box" style={{ marginTop: '10px' }}>
+                    <p className="card-text" style={{ fontWeight: 600, marginBottom: '6px' }}>{activoExistente ? 'Editar Activo' : '+ Añadir Activo Nuevo'}</p>
+
+                    <div className="form-group">
+                        <label>Cliente</label>
+                        <select value={selectedCliente} onChange={(e) => { setSelectedCliente(e.target.value); setFormData({ ...formData, contrato_id: '' }); }}>
+                            <option value="">-- Selecciona un cliente --</option>
+                            {clientes.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                        </select>
+                    </div>
+                    <div className="form-group">
+                        <label>Contrato</label>
+                        <select value={formData.contrato_id} disabled={!selectedCliente} className={!selectedCliente ? 'select-disabled' : ''} onChange={(e) => setFormData({ ...formData, contrato_id: e.target.value })}>
+                            <option value="">-- Selecciona un contrato --</option>
+                            {contratosFiltrados.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                        </select>
+                    </div>
+                    <div className="form-group">
+                        <label>Tipo de Activo</label>
+                        <select value={formData.tipo} onChange={(e) => setFormData({ ...formData, tipo: e.target.value })}>
+                            <option value="">-- Selecciona tipo --</option>
+                            {tiposActivo.map(t => <option key={t.id} value={t.nombre}>{t.nombre}</option>)}
+                        </select>
+                    </div>
+                    <div className="form-group">
+                        <label>Nombre / Identificador</label>
+                        <input type="text" placeholder="Ej: Puerta Andén 1" value={formData.nombre} onChange={(e) => setFormData({ ...formData, nombre: e.target.value })} />
+                    </div>
+
+                    <DynamicExtraFields entidad="activo" camposConfig={camposConfig} formData={formData} setFormData={setFormData} tipoActivo={formData.tipo} />
+
+                    <div className="form-group">
+                        <label>Fotos</label>
+                        <PhotoCapture value={formData.fotos_json} onChange={(v) => setFormData({ ...formData, fotos_json: v })} />
+                    </div>
+
+                    <div className="btn-group">
+                        <button className="btn btn-success" onClick={guardar}>{activoExistente ? 'Guardar' : 'Crear'}</button>
+                        <button className="btn btn-secondary" onClick={onCancel}>Cancelar</button>
+                    </div>
+                </div>
+            );
+        }
+
+        // ===== EMPLAZAMIENTOS =====
+        function EmplazamientosView({ user, emplazamientos, zonas, activos, clientes, contratos, tiposActivo, camposConfig, onRefresh }) {
             const [showForm, setShowForm] = useState(false);
             const [editingId, setEditingId] = useState(null);
             const [formData, setFormData] = useState({ zona_id: '', nombre: '', direccion: '' });
             const [importMsg, setImportMsg] = useState('');
             const formRef = useAutoScrollForm(showForm);
+
+            // Estado de la gestión en línea de Activos por cada tarjeta de Emplazamiento
+            const [expandidoId, setExpandidoId] = useState(null);
+            const [activoFormEmpId, setActivoFormEmpId] = useState(null); // emplazamiento en el que se está CREANDO un activo
+            const [activoEditando, setActivoEditando] = useState(null); // activo que se está EDITANDO (objeto completo)
 
             const handleAdd = async () => {
                 if (!formData.nombre.trim() || !formData.zona_id) { alert('Selecciona zona y nombre'); return; }
@@ -2006,6 +2093,12 @@
                     } catch { fail++; }
                 }
                 setImportMsg(`✅ Importados: ${ok} | ❌ Fallidos: ${fail}`);
+                onRefresh();
+            };
+
+            const eliminarActivo = async (id) => {
+                if (!confirm('¿Eliminar este activo?')) return;
+                await fetch(`${API_URL}/api/activos/${id}`, { method: 'DELETE' });
                 onRefresh();
             };
 
@@ -2053,18 +2146,66 @@
 
                     <div className="list">
                         {emplazamientos.length === 0 ? <div className="empty-state">No hay emplazamientos</div> : emplazamientos.map(e => {
-                            const numActivos = activos ? activos.filter(a => a.emplazamiento_id === e.id).length : 0;
+                            const activosDeAqui = activos ? activos.filter(a => a.emplazamiento_id === e.id) : [];
+                            const expandido = expandidoId === e.id;
                             return (
                                 <div key={e.id} className="list-item">
                                     <p className="card-title">📍 {e.nombre}</p>
                                     <p className="breadcrumb-path">{e.zona_nombre}</p>
                                     {e.direccion && <p className="card-text">🏠 {e.direccion}</p>}
-                                    <p className="card-text">⚙️ {numActivos} activo{numActivos === 1 ? '' : 's'} en este emplazamiento</p>
                                     <div style={{ marginTop: '8px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                                         <button className="btn btn-primary" onClick={() => handleEdit(e)}>Editar</button>
                                         <button className="btn btn-danger" onClick={() => handleDelete(e.id)}>Eliminar</button>
-                                        {onCrearActivoAqui && <button className="btn btn-crear" onClick={() => onCrearActivoAqui(e.id)}>+ Activo aquí</button>}
+                                        <button className="btn btn-secondary" onClick={() => { setExpandidoId(expandido ? null : e.id); setActivoFormEmpId(null); setActivoEditando(null); }}>
+                                            {expandido ? 'Ocultar Activos' : `⚙️ Ver Activos (${activosDeAqui.length})`}
+                                        </button>
                                     </div>
+
+                                    {expandido && (
+                                        <div style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px dashed var(--border)' }}>
+                                            {activosDeAqui.length === 0 && <p className="card-text">Todavía no hay activos en este emplazamiento.</p>}
+                                            {activosDeAqui.map(a => (
+                                                <div key={a.id}>
+                                                    <div className="list-item" style={{ background: 'var(--surface-2)' }}>
+                                                        <p className="card-title">⚙️ {a.nombre}</p>
+                                                        <p className="card-text">{a.tipo || 'Sin tipo'} · {a.cliente_nombre} › {a.contrato_nombre}</p>
+                                                        <div style={{ marginTop: '6px', display: 'flex', gap: '8px' }}>
+                                                            <button className="btn btn-primary" onClick={() => { setActivoEditando(activoEditando && activoEditando.id === a.id ? null : a); setActivoFormEmpId(null); }}>
+                                                                {activoEditando && activoEditando.id === a.id ? 'Cerrar' : 'Editar'}
+                                                            </button>
+                                                            <button className="btn btn-danger" onClick={() => eliminarActivo(a.id)}>Eliminar</button>
+                                                        </div>
+                                                    </div>
+                                                    {activoEditando && activoEditando.id === a.id && (
+                                                        <ActivoInlineForm
+                                                            emplazamientoId={e.id}
+                                                            activoExistente={a}
+                                                            clientes={clientes}
+                                                            contratos={contratos}
+                                                            tiposActivo={tiposActivo}
+                                                            camposConfig={camposConfig}
+                                                            onSaved={() => { setActivoEditando(null); onRefresh(); }}
+                                                            onCancel={() => setActivoEditando(null)}
+                                                        />
+                                                    )}
+                                                </div>
+                                            ))}
+
+                                            {activoFormEmpId === e.id ? (
+                                                <ActivoInlineForm
+                                                    emplazamientoId={e.id}
+                                                    clientes={clientes}
+                                                    contratos={contratos}
+                                                    tiposActivo={tiposActivo}
+                                                    camposConfig={camposConfig}
+                                                    onSaved={() => { setActivoFormEmpId(null); onRefresh(); }}
+                                                    onCancel={() => setActivoFormEmpId(null)}
+                                                />
+                                            ) : (
+                                                <button className="btn btn-crear" style={{ marginTop: '10px' }} onClick={() => { setActivoFormEmpId(e.id); setActivoEditando(null); }}>+ Activo aquí</button>
+                                            )}
+                                        </div>
+                                    )}
                                 </div>
                             );
                         })}
@@ -2077,7 +2218,6 @@
         // ===== INVENTARIO (envoltorio con submenús: Zonas / Emplazamientos / Activos) =====
         function InventarioView(props) {
             const [subTab, setSubTab] = useState('clientes');
-            const [prefilEmplazamientoId, setPrefilEmplazamientoId] = useState(null);
             const subTabs = [
                 { id: 'clientes', label: 'Clientes' },
                 { id: 'contratos', label: 'Contratos' },
@@ -2085,10 +2225,6 @@
                 { id: 'emplazamientos', label: 'Emplazamientos' },
                 { id: 'activos', label: 'Activos' }
             ];
-            const irACrearActivoEnEmplazamiento = (emplazamientoId) => {
-                setPrefilEmplazamientoId(emplazamientoId);
-                setSubTab('activos');
-            };
             return (
                 <div>
                     <div className="tipo-filter-bar">
@@ -2101,8 +2237,8 @@
                     {subTab === 'clientes' && <ClientesView {...props} />}
                     {subTab === 'contratos' && <ContratosView {...props} />}
                     {subTab === 'zonas' && <ZonasView {...props} />}
-                    {subTab === 'emplazamientos' && <EmplazamientosView {...props} onCrearActivoAqui={irACrearActivoEnEmplazamiento} />}
-                    {subTab === 'activos' && <ActivosView {...props} prefilEmplazamientoId={prefilEmplazamientoId} onConsumedPrefil={() => setPrefilEmplazamientoId(null)} />}
+                    {subTab === 'emplazamientos' && <EmplazamientosView {...props} />}
+                    {subTab === 'activos' && <ActivosView {...props} />}
                 </div>
             );
         }
@@ -2343,7 +2479,7 @@
             );
         }
 
-        function ActivosView({ user, activos, emplazamientos, zonas, clientes, contratos, tiposActivo, camposConfig, onRefresh, prefilEmplazamientoId, onConsumedPrefil }) {
+        function ActivosView({ user, activos, emplazamientos, zonas, clientes, contratos, tiposActivo, camposConfig, onRefresh }) {
             const [showForm, setShowForm] = useState(false);
             const [editingId, setEditingId] = useState(null);
             const [selectedCliente, setSelectedCliente] = useState('');
@@ -2357,22 +2493,6 @@
 
             const [showTiposManager, setShowTiposManager] = useState(false);
             const [showCamposManager, setShowCamposManager] = useState(false);
-
-            // Si venimos desde "+ Activo aquí" en un Emplazamiento concreto, abrimos el formulario
-            // ya con ese Emplazamiento (y su Zona) preseleccionados.
-            useEffect(() => {
-                if (!prefilEmplazamientoId) return;
-                const emp = emplazamientos.find(e => e.id === prefilEmplazamientoId);
-                if (emp) {
-                    setFormData({ emplazamiento_id: String(emp.id), contrato_id: '', tipo: '', nombre: '', fabricante: '', modelo: '', estado: 'Activo', observaciones: '', campos_extra: {}, fotos_json: [] });
-                    setSelectedCliente('');
-                    setSelectedZona(String(emp.zona_id));
-                    setEditingId(null);
-                    setShowForm(true);
-                }
-                if (onConsumedPrefil) onConsumedPrefil();
-                // eslint-disable-next-line
-            }, [prefilEmplazamientoId]);
 
             // ---- Creación rápida de dependencias (sin salir de este formulario) ----
             const crearClienteRapido = async (values) => {
@@ -2479,18 +2599,23 @@
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '8px' }}>
                         <h3 className="section-title" style={{ margin: 0 }}>⚙️ Activos</h3>
                         <div className="toolbar">
-                            <button className="btn btn-excel" onClick={() => exportToExcel(activos, 'activos', [
-                                { key: 'cliente_nombre', label: 'Cliente' },
-                                { key: 'contrato_nombre', label: 'Contrato' },
-                                { key: 'zona_nombre', label: 'Zona' },
-                                { key: 'emplazamiento_nombre', label: 'Emplazamiento' },
-                                { key: 'tipo', label: 'Tipo' },
-                                { key: 'nombre', label: 'Activo' },
-                                { key: 'fabricante', label: 'Fabricante' },
-                                { key: 'modelo', label: 'Modelo' },
-                                { key: 'estado', label: 'Estado' },
-                                { key: 'observaciones', label: 'Observaciones' }
-                            ])}>📤 Exportar</button>
+                            <button className="btn btn-excel" onClick={() => {
+                                const columnasFijas = [
+                                    { key: 'cliente_nombre', label: 'Cliente' },
+                                    { key: 'contrato_nombre', label: 'Contrato' },
+                                    { key: 'zona_nombre', label: 'Zona' },
+                                    { key: 'emplazamiento_nombre', label: 'Emplazamiento' },
+                                    { key: 'tipo', label: 'Tipo' },
+                                    { key: 'nombre', label: 'Activo' }
+                                ];
+                                const columnasCampos = camposConfig.filter(c => c.entidad === 'activo').sort((a, b) => a.orden - b.orden).map(c => ({ key: c.clave, label: c.etiqueta }));
+                                const activosAplanados = activos.map(a => {
+                                    let extra = {};
+                                    try { extra = a.campos_extra ? JSON.parse(a.campos_extra) : {}; } catch { extra = {}; }
+                                    return { ...a, ...extra };
+                                });
+                                exportToExcel(activosAplanados, 'activos', [...columnasFijas, ...columnasCampos]);
+                            }}>📤 Exportar</button>
                             <ExcelImportButton onRows={handleImportRows} />
                             <button className="btn btn-secondary" onClick={() => setShowTiposManager(!showTiposManager)}>⚙️ Tipos de Activo</button>
                             <button className="btn btn-secondary" onClick={() => setShowCamposManager(!showCamposManager)}>⚙️ Campos</button>
@@ -2515,7 +2640,7 @@
                             <div className="form-group">
                                 <label>Cliente</label>
                                 <div className="field-with-add">
-                                    <select value={selectedCliente} onChange={(e) => { setSelectedCliente(e.target.value); setFormData({ ...formData, contrato_id: '' }); setSelectedZona(''); }}>
+                                    <select value={selectedCliente} onChange={(e) => { setSelectedCliente(e.target.value); setFormData({ ...formData, contrato_id: '' }); }}>
                                         <option value="">-- Selecciona un cliente --</option>
                                         {clientes.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
                                     </select>
@@ -2530,7 +2655,7 @@
                             <div className="form-group">
                                 <label>Contrato de este Activo</label>
                                 <div className="field-with-add">
-                                    <select value={formData.contrato_id} disabled={!selectedCliente} className={!selectedCliente ? 'select-disabled' : ''} onChange={(e) => { setFormData({ ...formData, contrato_id: e.target.value }); setSelectedZona(''); }}>
+                                    <select value={formData.contrato_id} disabled={!selectedCliente} className={!selectedCliente ? 'select-disabled' : ''} onChange={(e) => { setFormData({ ...formData, contrato_id: e.target.value }); }}>
                                         <option value="">-- Selecciona un contrato --</option>
                                         {contratosFiltrados.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
                                     </select>
@@ -2803,9 +2928,14 @@
 
         // ===== CAMPOS PERSONALIZABLES (Cliente / Contrato / Activo) =====
         function DynamicExtraFields({ entidad, camposConfig, formData, setFormData, readOnly, tipoActivo }) {
+            const estaExcluido = (campo) => {
+                if (!campo.ocultar_en_tipos) return false;
+                try { return JSON.parse(campo.ocultar_en_tipos).includes(tipoActivo); } catch { return false; }
+            };
             const campos = camposConfig
                 .filter(c => c.entidad === entidad && c.visible)
                 .filter(c => !c.tipo_activo || c.tipo_activo === tipoActivo)
+                .filter(c => !estaExcluido(c))
                 .sort((a, b) => a.orden - b.orden);
 
             const getValue = (campo) => campo.es_sistema ? (formData[campo.clave] ?? '') : ((formData.campos_extra || {})[campo.clave] ?? '');
@@ -3152,6 +3282,19 @@
                 }
             };
 
+            const handleEnable = async (id) => {
+                try {
+                    await fetch(`${API_URL}/api/usuarios/${id}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ ...usuarios.find(u => u.id === id), activo: 1 })
+                    });
+                    onRefresh();
+                } catch (err) {
+                    alert('Error al habilitar usuario');
+                }
+            };
+
             return (
                 <div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
@@ -3222,6 +3365,7 @@
                                     <div style={{ marginTop: '8px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                                         <button className="btn btn-primary" onClick={() => handleEdit(u)}>Editar</button>
                                         {u.activo && <button className="btn btn-secondary" onClick={() => handleDisable(u.id)}>Inhabilitar</button>}
+                                        {!u.activo && <button className="btn btn-crear" onClick={() => handleEnable(u.id)}>Habilitar</button>}
                                         <button className="btn btn-danger" onClick={() => handleDelete(u.id)}>Eliminar</button>
                                     </div>
                                 </div>
