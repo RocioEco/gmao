@@ -42,12 +42,12 @@ function dbRun(sql, params = []) { return new Promise((resolve, reject) => db.ru
 // Se ejecuta siempre al arrancar (INSERT OR IGNORE), independientemente de si la migración
 // de switches ya se hizo en un despliegue anterior.
 // Registra los campos técnicos comunes a equipos de red/electrónica: Switch, CCTV, PLC,
-// Monitor y Teleindicador. Se aplican a los 5 tipos a la vez (tipo_activo se guarda como
-// un array JSON, no un único valor). Se ejecuta siempre al arrancar (segura de repetir).
+// Monitor, Teleindicador, Canceladora e Interfono. Se aplican a todos estos tipos a la vez
+// (tipo_activo se guarda como un array JSON). Se ejecuta siempre al arrancar (segura de repetir).
 async function registrarCamposSwitch() {
-  const TIPOS_TECNICOS = ['Switch', 'CCTV', 'PLC', 'Monitor', 'Teleindicador'];
+  const TIPOS_TECNICOS = ['Switch', 'CCTV', 'PLC', 'Monitor', 'Teleindicador', 'Canceladora', 'Interfono'];
   try {
-    // Asegurar que existen los 5 tipos de activo (los que falten se crean con checklist vacío)
+    // Asegurar que existen los tipos de activo (los que falten se crean con checklist vacío)
     for (const nombreTipo of TIPOS_TECNICOS) {
       await dbRun(`INSERT OR IGNORE INTO tipos_activo (nombre, checklist_json) VALUES (?, '[]')`, [nombreTipo]);
     }
@@ -68,6 +68,32 @@ async function registrarCamposSwitch() {
       );
       // Si el campo ya existía de una versión anterior (ámbito distinto o etiqueta distinta), lo actualizamos
       await dbRun(`UPDATE campos_config SET etiqueta = ?, tipo_activo = ? WHERE entidad = 'activo' AND clave = ?`, [etiqueta, tiposJson, clave]);
+    }
+
+    // Campos exclusivos de Canceladora: el equipo PC que lleva asociado
+    const camposCanceladora = [
+      ['custom_ip_pc', 'IP PC', 'text', 90],
+      ['custom_mascara_red_pc', 'Máscara de red PC', 'text', 91],
+      ['custom_puerta_enlace_pc', 'Puerta de Enlace PC', 'text', 92]
+    ];
+    for (const [clave, etiqueta, tipo, orden] of camposCanceladora) {
+      await dbRun(
+        `INSERT OR IGNORE INTO campos_config (entidad, clave, etiqueta, tipo, es_sistema, visible, orden, tipo_activo) VALUES ('activo', ?, ?, ?, 0, 1, ?, ?)`,
+        [clave, etiqueta, tipo, orden, JSON.stringify(['Canceladora'])]
+      );
+    }
+
+    // Campos exclusivos de Interfono: el bucle asociado
+    const camposInterfono = [
+      ['custom_ip_bucle', 'IP Bucle', 'text', 90],
+      ['custom_mascara_red_bucle', 'Máscara de red Bucle', 'text', 91],
+      ['custom_puerta_enlace_bucle', 'Puerta de Enlace Bucle', 'text', 92]
+    ];
+    for (const [clave, etiqueta, tipo, orden] of camposInterfono) {
+      await dbRun(
+        `INSERT OR IGNORE INTO campos_config (entidad, clave, etiqueta, tipo, es_sistema, visible, orden, tipo_activo) VALUES ('activo', ?, ?, ?, 0, 1, ?, ?)`,
+        [clave, etiqueta, tipo, orden, JSON.stringify(['Interfono'])]
+      );
     }
 
     // El campo "Marca" quedó sustituido por el "Fabricante" genérico: se oculta si existe (no se borra, por si tiene datos)
