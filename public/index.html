@@ -2866,6 +2866,7 @@
                 campos_extra: {}
             });
             const formRef = useAutoScrollForm(showForm);
+            const [search, setSearch] = useState('');
 
             const handleAdd = async () => {
                 if (!formData.nombre.trim()) return;
@@ -2989,11 +2990,17 @@
                         </div>
                     )}
 
+                    <div className="form-group">
+                        <input type="text" placeholder="🔍 Buscar por nombre..." value={search} onChange={(e) => setSearch(e.target.value)} />
+                    </div>
+
                     <div className="list">
-                        {contratos.length === 0 ? (
-                            <div className="empty-state">No hay contratos</div>
-                        ) : (
-                            contratos.map(contrato => (
+                        {(() => {
+                            const contratosFiltradosBusqueda = search
+                                ? contratos.filter(c => (c.nombre || '').toLowerCase().includes(search.toLowerCase()))
+                                : contratos;
+                            if (contratosFiltradosBusqueda.length === 0) return <div className="empty-state">No hay contratos</div>;
+                            return contratosFiltradosBusqueda.map(contrato => (
                                 <div key={contrato.id} className="list-item">
                                     <div className="list-item-header">
                                         <div>
@@ -3009,8 +3016,8 @@
                                         <button className="btn btn-danger" onClick={() => handleDelete(contrato.id)}>Eliminar</button>
                                     </div>
                                 </div>
-                            ))
-                        )}
+                            ));
+                        })()}
                     </div>
                 </div>
             );
@@ -3160,6 +3167,7 @@
                 campos_extra: {}
             });
             const formRef = useAutoScrollForm(showForm);
+            const [search, setSearch] = useState('');
 
             const handleAdd = async () => {
                 if (!formData.nombre.trim()) return;
@@ -3260,11 +3268,17 @@
                         </div>
                     )}
 
+                    <div className="form-group">
+                        <input type="text" placeholder="🔍 Buscar por nombre..." value={search} onChange={(e) => setSearch(e.target.value)} />
+                    </div>
+
                     <div className="list">
-                        {clientes.length === 0 ? (
-                            <div className="empty-state">No hay clientes</div>
-                        ) : (
-                            clientes.map(cliente => (
+                        {(() => {
+                            const clientesFiltradosBusqueda = search
+                                ? clientes.filter(c => (c.nombre || '').toLowerCase().includes(search.toLowerCase()))
+                                : clientes;
+                            if (clientesFiltradosBusqueda.length === 0) return <div className="empty-state">No hay clientes</div>;
+                            return clientesFiltradosBusqueda.map(cliente => (
                                 <div key={cliente.id} className="list-item">
                                     <p className="card-title">🏢 {cliente.nombre}</p>
                                     <p className="card-text">📧 {cliente.contacto}</p>
@@ -3274,8 +3288,8 @@
                                         <button className="btn btn-danger" onClick={() => handleDelete(cliente.id)}>Eliminar</button>
                                     </div>
                                 </div>
-                            ))
-                        )}
+                            ));
+                        })()}
                     </div>
                 </div>
             );
