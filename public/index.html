@@ -475,6 +475,7 @@
                         { id: 'calendario', label: 'Calendario' },
                         { id: 'inventario', label: 'Inventario' },
                         { id: 'preciario', label: 'Preciario' },
+                        { id: 'switches', label: 'Switches' },
                         { id: 'usuarios', label: 'Usuarios' }
                     ];
                 } else {
@@ -539,6 +540,7 @@
                         {activeTab === 'calendario' && (user.rol === 'admin' || user.rol === 'supervisor') && <CalendarView user={user} ordenes={ordenes} usuarios={usuarios} activos={activos} onRefresh={cargarDatos} />}
                         {activeTab === 'inventario' && (user.rol === 'admin' || user.rol === 'supervisor') && <InventarioView user={user} activos={activos} emplazamientos={emplazamientos} zonas={zonas} clientes={clientes} contratos={contratos} tiposActivo={tiposActivo} camposConfig={camposConfig} onRefresh={cargarDatos} />}
                         {activeTab === 'preciario' && (user.rol === 'admin' || user.rol === 'supervisor') && <PreciarioView user={user} materiales={materiales} clientes={clientes} onRefresh={cargarDatos} />}
+                        {activeTab === 'switches' && (user.rol === 'admin' || user.rol === 'supervisor') && <SwitchesView user={user} />}
                         {activeTab === 'usuarios' && (user.rol === 'admin' || user.rol === 'supervisor') && <UsuariosView user={user} usuarios={usuarios} onRefresh={cargarDatos} />}
                     </div>
                 </div>
@@ -3470,6 +3472,273 @@
                                 </div>
                             );
                         })}
+                    </div>
+                </div>
+            );
+        }
+
+        // ===== SELECTOR DE UNA SOLA FOTO (para foto interior/exterior de Switches) =====
+        function SinglePhotoPicker({ label, value, onChange, readOnly }) {
+            const handleFile = async (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                const dataUrl = await compressImageFile(file);
+                onChange(dataUrl);
+                e.target.value = '';
+            };
+            return (
+                <div className="form-group">
+                    <label>{label}</label>
+                    {value ? (
+                        <div className="photo-thumb" style={{ maxWidth: '160px', aspectRatio: 'auto', height: '110px' }}>
+                            <img src={value} />
+                            {!readOnly && <button className="photo-remove" onClick={() => onChange(null)}>✕</button>}
+                        </div>
+                    ) : readOnly ? (
+                        <p className="card-text">Sin foto.</p>
+                    ) : (
+                        <label className="photo-add-btn" style={{ maxWidth: '160px', aspectRatio: 'auto', height: '90px' }}>
+                            📷
+                            <input type="file" accept="image/*" capture="environment" className="file-input-hidden" onChange={handleFile} />
+                        </label>
+                    )}
+                </div>
+            );
+        }
+
+        // ===== INVENTARIO DE SWITCHES (SPA) =====
+        function SwitchesView({ user }) {
+            const [switches, setSwitches] = useState([]);
+            const [mode, setMode] = useState('list'); // list | detail | form
+            const [selected, setSelected] = useState(null);
+            const [editingId, setEditingId] = useState(null);
+            const [search, setSearch] = useState('');
+            const [importMsg, setImportMsg] = useState('');
+            const [cargando, setCargando] = useState(true);
+
+            const blankForm = () => ({
+                codigo: '', nombre: '', tipo: 'Switch', lat: '', lon: '',
+                reportado_por: user.nombre, fecha: new Date().toISOString().slice(0, 10), hora: '',
+                nota: '', foto_interior: null, foto_exterior: null, fotos_extra: [], etiqueta_fotos_extra: ''
+            });
+            const [formData, setFormData] = useState(blankForm());
+
+            const cargarLista = async () => {
+                try {
+                    const res = await fetch(`${API_URL}/api/switches`);
+                    setSwitches(await res.json());
+                } catch { setSwitches([]); }
+                setCargando(false);
+            };
+            useEffect(() => { cargarLista(); }, []);
+
+            const abrirDetalle = async (id) => {
+                const res = await fetch(`${API_URL}/api/switches/${id}`);
+                setSelected(await res.json());
+                setMode('detail');
+            };
+
+            const abrirNuevo = () => {
+                setFormData(blankForm());
+                setEditingId(null);
+                setMode('form');
+            };
+
+            const abrirEditar = async (id) => {
+                const res = await fetch(`${API_URL}/api/switches/${id}`);
+                const s = await res.json();
+                let fotosExtra = [];
+                try { fotosExtra = JSON.parse(s.fotos_extra_json || '[]'); } catch { fotosExtra = []; }
+                setFormData({
+                    codigo: s.codigo || '', nombre: s.nombre || '', tipo: s.tipo || 'Switch',
+                    lat: s.lat ?? '', lon: s.lon ?? '', reportado_por: s.reportado_por || '',
+                    fecha: s.fecha || '', hora: s.hora || '', nota: s.nota || '',
+                    foto_interior: s.foto_interior, foto_exterior: s.foto_exterior,
+                    fotos_extra: fotosExtra, etiqueta_fotos_extra: s.etiqueta_fotos_extra || ''
+                });
+                setEditingId(id);
+                setMode('form');
+            };
+
+            const guardar = async () => {
+                if (!formData.nombre.trim()) { alert('El nombre es obligatorio'); return; }
+                const payload = {
+                    ...formData,
+                    lat: formData.lat === '' ? null : parseFloat(formData.lat),
+                    lon: formData.lon === '' ? null : parseFloat(formData.lon),
+                    fotos_extra_json: JSON.stringify(formData.fotos_extra || [])
+                };
+                const url = editingId ? `${API_URL}/api/switches/${editingId}` : `${API_URL}/api/switches`;
+                const method = editingId ? 'PUT' : 'POST';
+                await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+                setMode('list');
+                cargarLista();
+            };
+
+            const eliminar = async (id) => {
+                if (!confirm('¿Eliminar este switch del inventario?')) return;
+                await fetch(`${API_URL}/api/switches/${id}`, { method: 'DELETE' });
+                setMode('list');
+                cargarLista();
+            };
+
+            const handleImportRows = async (rows) => {
+                let ok = 0, fail = 0;
+                for (const row of rows) {
+                    const nombre = row['Nombre'] || row['nombre'];
+                    if (!nombre) { fail++; continue; }
+                    try {
+                        await fetch(`${API_URL}/api/switches`, {
+                            method: 'POST', headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                codigo: row['Código'] || row['codigo'] || '', nombre, tipo: row['Tipo'] || row['tipo'] || 'Switch',
+                                lat: row['Lat'] || row['lat'] || null, lon: row['Lon'] || row['lon'] || null,
+                                reportado_por: row['Reportado por'] || row['reportado_por'] || '',
+                                fecha: row['Fecha'] || row['fecha'] || '', hora: row['Hora'] || row['hora'] || '',
+                                nota: row['Nota'] || row['nota'] || ''
+                            })
+                        });
+                        ok++;
+                    } catch { fail++; }
+                }
+                setImportMsg(`✅ Importados: ${ok} | ❌ Fallidos: ${fail}`);
+                cargarLista();
+            };
+
+            const filtrados = search ? switches.filter(s => ((s.nombre || '') + (s.codigo || '')).toLowerCase().includes(search.toLowerCase())) : switches;
+
+            // ============ LISTA ============
+            if (mode === 'list') {
+                return (
+                    <div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '8px' }}>
+                            <h3 className="section-title" style={{ margin: 0 }}>🔌 Inventario de Switches</h3>
+                            <div className="toolbar">
+                                <button className="btn btn-excel" onClick={() => exportToExcel(switches, 'switches', [
+                                    { key: 'codigo', label: 'Código' }, { key: 'nombre', label: 'Nombre' }, { key: 'tipo', label: 'Tipo' },
+                                    { key: 'lat', label: 'Lat' }, { key: 'lon', label: 'Lon' }, { key: 'reportado_por', label: 'Reportado por' },
+                                    { key: 'fecha', label: 'Fecha' }, { key: 'hora', label: 'Hora' }, { key: 'nota', label: 'Nota' }
+                                ])}>📤 Exportar</button>
+                                <ExcelImportButton onRows={handleImportRows} />
+                                <button className="btn btn-crear" onClick={abrirNuevo}>+ Nuevo</button>
+                            </div>
+                        </div>
+
+                        {importMsg && <div className="import-summary">{importMsg}</div>}
+
+                        <div className="form-group">
+                            <input type="text" placeholder="🔍 Buscar por nombre o código..." value={search} onChange={(e) => setSearch(e.target.value)} />
+                        </div>
+
+                        <div className="list">
+                            {cargando ? <div className="empty-state">Cargando...</div> : filtrados.length === 0 ? (
+                                <div className="empty-state">No hay switches en el inventario</div>
+                            ) : filtrados.map(s => (
+                                <div key={s.id} className="list-item" style={{ cursor: 'pointer' }} onClick={() => abrirDetalle(s.id)}>
+                                    <div className="list-item-header">
+                                        <div>
+                                            <p className="card-title">🔌 {s.nombre}</p>
+                                            {s.codigo && <p className="card-text">Código: {s.codigo}</p>}
+                                        </div>
+                                        {(s.tiene_foto_interior || s.tiene_foto_exterior) && <span className="badge" style={{ background: 'var(--bg-accent)', color: 'var(--fill-accent)' }}>📷</span>}
+                                    </div>
+                                    <p className="card-text">👤 {s.reportado_por || '—'} · 📅 {s.fecha || '—'} {s.hora}</p>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                );
+            }
+
+            // ============ DETALLE ============
+            if (mode === 'detail' && selected) {
+                let fotosExtra = [];
+                try { fotosExtra = JSON.parse(selected.fotos_extra_json || '[]'); } catch { fotosExtra = []; }
+                return (
+                    <div>
+                        <button className="btn btn-secondary" onClick={() => setMode('list')}>← Volver</button>
+                        <div className="card" style={{ marginTop: '10px' }}>
+                            <div className="list-item-header">
+                                <div>
+                                    <p className="card-title">🔌 {selected.nombre}</p>
+                                    {selected.codigo && <p className="card-text">Código: {selected.codigo}</p>}
+                                </div>
+                                <span className="badge" style={{ background: 'var(--bg-accent)', color: 'var(--fill-accent)' }}>{selected.tipo}</span>
+                            </div>
+
+                            {selected.nota && <div className="import-summary" style={{ marginTop: '8px' }}>📝 {selected.nota}</div>}
+
+                            <div className="readonly-view" style={{ marginTop: '10px' }}>
+                                <div className="rv-row"><span className="rv-label">Reportado por</span><span className="rv-value">{selected.reportado_por || '—'}</span></div>
+                                <div className="rv-row"><span className="rv-label">Fecha / hora</span><span className="rv-value">{selected.fecha || '—'} {selected.hora}</span></div>
+                                <div className="rv-row"><span className="rv-label">Coordenadas</span><span className="rv-value">{selected.lat != null ? `${Number(selected.lat).toFixed(6)}, ${Number(selected.lon).toFixed(6)}` : 'Sin ubicación'}</span></div>
+                            </div>
+
+                            {selected.lat != null && (
+                                <a className="btn btn-primary" style={{ display: 'inline-block', marginTop: '10px', textDecoration: 'none' }} href={`https://maps.google.com/?q=${selected.lat},${selected.lon}`} target="_blank" rel="noopener noreferrer">📍 Abrir en Google Maps</a>
+                            )}
+
+                            <div className="checklist-section" style={{ marginTop: '14px' }}>
+                                <div className="checklist-section-title">📷 Fotografías</div>
+                                {(selected.foto_interior || selected.foto_exterior) ? (
+                                    <div className="photo-grid">
+                                        {selected.foto_interior && <div className="photo-thumb"><img src={selected.foto_interior} /></div>}
+                                        {selected.foto_exterior && <div className="photo-thumb"><img src={selected.foto_exterior} /></div>}
+                                    </div>
+                                ) : <p className="card-text">Sin fotos.</p>}
+                            </div>
+
+                            {fotosExtra.length > 0 && (
+                                <div className="checklist-section">
+                                    <div className="checklist-section-title">{selected.etiqueta_fotos_extra || 'Fotos adicionales'}</div>
+                                    <div className="photo-grid">
+                                        {fotosExtra.map((f, i) => <div key={i} className="photo-thumb"><img src={f} /></div>)}
+                                    </div>
+                                </div>
+                            )}
+
+                            <div className="btn-group">
+                                <button className="btn btn-primary" onClick={() => abrirEditar(selected.id)}>Editar</button>
+                                <button className="btn btn-danger" onClick={() => eliminar(selected.id)}>Eliminar</button>
+                            </div>
+                        </div>
+                    </div>
+                );
+            }
+
+            // ============ FORMULARIO ============
+            return (
+                <div>
+                    <button className="btn btn-secondary" onClick={() => setMode(editingId ? 'detail' : 'list')}>← Volver</button>
+                    <div className="card" style={{ marginTop: '10px' }}>
+                        <h4 className="card-title">{editingId ? 'Editar Switch' : 'Nuevo Switch'}</h4>
+
+                        <div className="form-group"><label>Nombre</label><input type="text" placeholder="Ej: Rack peatonal Prácticos" value={formData.nombre} onChange={(e) => setFormData({ ...formData, nombre: e.target.value })} /></div>
+                        <div className="form-group"><label>Código</label><input type="text" placeholder="Ej: SWTCDS01" value={formData.codigo} onChange={(e) => setFormData({ ...formData, codigo: e.target.value })} /></div>
+                        <div className="form-group"><label>Tipo</label><input type="text" value={formData.tipo} onChange={(e) => setFormData({ ...formData, tipo: e.target.value })} /></div>
+                        <div className="form-group"><label>Latitud</label><input type="text" placeholder="Ej: 43.591497" value={formData.lat} onChange={(e) => setFormData({ ...formData, lat: e.target.value })} /></div>
+                        <div className="form-group"><label>Longitud</label><input type="text" placeholder="Ej: -5.930617" value={formData.lon} onChange={(e) => setFormData({ ...formData, lon: e.target.value })} /></div>
+                        <div className="form-group"><label>Reportado por</label><input type="text" value={formData.reportado_por} onChange={(e) => setFormData({ ...formData, reportado_por: e.target.value })} /></div>
+                        <div className="form-group"><label>Fecha</label><input type="date" value={formData.fecha} onChange={(e) => setFormData({ ...formData, fecha: e.target.value })} /></div>
+                        <div className="form-group"><label>Hora</label><input type="time" value={formData.hora} onChange={(e) => setFormData({ ...formData, hora: e.target.value })} /></div>
+                        <div className="form-group"><label>Nota</label><textarea value={formData.nota} onChange={(e) => setFormData({ ...formData, nota: e.target.value })}></textarea></div>
+
+                        <SinglePhotoPicker label="Foto Interior" value={formData.foto_interior} onChange={(v) => setFormData({ ...formData, foto_interior: v })} />
+                        <SinglePhotoPicker label="Foto Exterior" value={formData.foto_exterior} onChange={(v) => setFormData({ ...formData, foto_exterior: v })} />
+
+                        <div className="form-group">
+                            <label>Etiqueta fotos adicionales (opcional)</label>
+                            <input type="text" placeholder="Ej: Documentación de puertos" value={formData.etiqueta_fotos_extra} onChange={(e) => setFormData({ ...formData, etiqueta_fotos_extra: e.target.value })} />
+                        </div>
+                        <div className="form-group">
+                            <label>Fotos adicionales</label>
+                            <PhotoCapture value={formData.fotos_extra} onChange={(v) => setFormData({ ...formData, fotos_extra: v })} />
+                        </div>
+
+                        <div className="btn-group">
+                            <button className="btn btn-success" onClick={guardar}>{editingId ? 'Guardar' : 'Crear'}</button>
+                            <button className="btn btn-secondary" onClick={() => setMode(editingId ? 'detail' : 'list')}>Cancelar</button>
+                        </div>
                     </div>
                 </div>
             );
