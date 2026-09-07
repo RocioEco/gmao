@@ -87,6 +87,72 @@ async function registrarCamposPersiana() {
   }
 }
 
+// Fusiona activos tipo "Switch" duplicados (mismo nombre/código) en uno solo, quedándose siempre
+// con los datos más completos entre los duplicados: más fotos, más campos rellenos, y el
+// emplazamiento que sí tenga coordenadas GPS si alguno de los duplicados las tiene y el "ganador" no.
+// Se ejecuta siempre al arrancar; si no hay duplicados, no hace nada (segura de repetir).
+async function fusionarActivosSwitchDuplicados() {
+  try {
+    const switches = await dbAll(`
+      SELECT a.*, e.lat as emp_lat, e.lon as emp_lon
+      FROM activos a LEFT JOIN emplazamientos e ON a.emplazamiento_id = e.id
+      WHERE a.tipo = 'Switch'
+    `);
+    const grupos = {};
+    for (const s of switches) {
+      const key = (s.nombre || '').trim().toLowerCase();
+      if (!key) continue;
+      if (!grupos[key]) grupos[key] = [];
+      grupos[key].push(s);
+    }
+
+    for (const key in grupos) {
+      const grupo = grupos[key];
+      if (grupo.length <= 1) continue;
+
+      const puntuar = (a) => {
+        let fotos = []; try { fotos = JSON.parse(a.fotos_json || '[]'); } catch { fotos = []; }
+        let extra = {}; try { extra = JSON.parse(a.campos_extra || '{}'); } catch { extra = {}; }
+        const extraLlenas = Object.values(extra).filter(v => v && String(v).trim() !== '').length;
+        const tieneCoords = a.emp_lat != null ? 50 : 0;
+        return fotos.length * 100 + extraLlenas * 10 + tieneCoords + (a.observaciones ? 1 : 0);
+      };
+      grupo.sort((x, y) => puntuar(y) - puntuar(x));
+      const ganador = grupo[0];
+      const perdedores = grupo.slice(1);
+
+      // Si el ganador no tiene coordenadas pero algún duplicado sí, adoptamos ese emplazamiento
+      if (ganador.emp_lat == null) {
+        const conCoords = perdedores.find(p => p.emp_lat != null);
+        if (conCoords) {
+          await dbRun(`UPDATE activos SET emplazamiento_id = ? WHERE id = ?`, [conCoords.emplazamiento_id, ganador.id]);
+        }
+      }
+
+      // Si el ganador no tiene observaciones pero algún duplicado sí, las copiamos
+      let observacionesFinal = ganador.observaciones;
+      if (!observacionesFinal) {
+        const conObs = perdedores.find(p => p.observaciones);
+        if (conObs) observacionesFinal = conObs.observaciones;
+      }
+      if (observacionesFinal !== ganador.observaciones) {
+        await dbRun(`UPDATE activos SET observaciones = ? WHERE id = ?`, [observacionesFinal, ganador.id]);
+      }
+
+      for (const p of perdedores) {
+        await dbRun(`DELETE FROM activos WHERE id = ?`, [p.id]);
+        const otros = await dbGet(`SELECT COUNT(*) as n FROM activos WHERE emplazamiento_id = ?`, [p.emplazamiento_id]);
+        if (otros.n === 0) {
+          await dbRun(`DELETE FROM emplazamientos WHERE id = ?`, [p.emplazamiento_id]);
+        }
+      }
+      console.log(`✓ Fusionados ${grupo.length} duplicados de "${key}" (conservado id ${ganador.id})`);
+    }
+  } catch (e) {
+    console.error('Error fusionando switches duplicados:', e.message);
+  }
+}
+
 async function migrarSwitchesAActivos() {
   try {
     const yaExiste = await dbGet(`SELECT id FROM clientes WHERE nombre = ?`, ['APA']);
@@ -319,7 +385,7 @@ db.serialize(() => {
             console.log(`✓ Cargado inventario inicial de switches (${seed.length} registros)`);
             registrarCamposSwitch();
             registrarCamposPersiana();
-            migrarSwitchesAActivos();
+            migrarSwitchesAActivos().then(() => fusionarActivosSwitchDuplicados());
           });
           return;
         } catch (e) {
@@ -331,7 +397,7 @@ db.serialize(() => {
     // igualmente comprobamos si falta migrarlos a Activos.
     registrarCamposSwitch();
     registrarCamposPersiana();
-    migrarSwitchesAActivos();
+    migrarSwitchesAActivos().then(() => fusionarActivosSwitchDuplicados());
   });
 
   db.run(`CREATE TABLE IF NOT EXISTS ordenes_guardia (
