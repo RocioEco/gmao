@@ -103,59 +103,82 @@ async function registrarCamposSwitch() {
   }
 }
 
-// Registra un "ítem técnico" compuesto de 3 campos: Sí/No (radio), Tipo (texto) y Unidades (número).
+// Registra un "ítem técnico" compuesto de 2 o 3 campos: Sí/No (radio), Tipo (texto) y, opcionalmente, Unidades (número).
 // Se usa para elementos como "FC Adicionales", "Telemando", etc. en Persianas y Puertas.
-async function registrarItemTecnico(claveBase, etiqueta, orden, tiposActivoScope) {
+async function registrarItemTecnico(claveBase, etiqueta, orden, tiposActivoScope, conUnidades = true) {
   const tiposJson = JSON.stringify(tiposActivoScope);
   const campos = [
     [`${claveBase}_sn`, `${etiqueta} (Sí/No)`, 'radio', orden],
-    [`${claveBase}_tipo`, `${etiqueta} - Tipo`, 'text', orden + 0.1],
-    [`${claveBase}_uds`, `${etiqueta} - Unidades`, 'number', orden + 0.2]
+    [`${claveBase}_tipo`, `${etiqueta} - Tipo`, 'text', orden + 0.1]
   ];
+  if (conUnidades) campos.push([`${claveBase}_uds`, `${etiqueta} - Unidades`, 'number', orden + 0.2]);
   for (const [clave, etiquetaCampo, tipo, ordenCampo] of campos) {
     await dbRun(
       `INSERT OR IGNORE INTO campos_config (entidad, clave, etiqueta, tipo, es_sistema, visible, orden, tipo_activo) VALUES ('activo', ?, ?, ?, 0, 1, ?, ?)`,
       [clave, etiquetaCampo, tipo, ordenCampo, tiposJson]
     );
+    // Si ya existía (de una versión anterior), actualizamos su ámbito por si se han añadido tipos telemandados
+    await dbRun(`UPDATE campos_config SET tipo_activo = ? WHERE entidad = 'activo' AND clave = ?`, [tiposJson, clave]);
+  }
+  // Si NO debe llevar Unidades, pero se creó por error en una versión anterior, la ocultamos (no la borramos, por si tiene datos)
+  if (!conUnidades) {
+    await dbRun(`UPDATE campos_config SET visible = 0 WHERE entidad = 'activo' AND clave = ?`, [`${claveBase}_uds`]);
   }
 }
 
-// Registra los campos técnicos específicos de activos tipo "Persiana Motorizada" (Tipo de lama, Motor),
-// y oculta para ese tipo concreto los campos genéricos Fabricante/Modelo (que para persianas no aportan).
+// Registra los campos técnicos específicos de Persianas: Persiana Motorizada y Persiana Motorizada Telemandada.
+// Oculta para esos tipos los campos genéricos Fabricante/Modelo (que para persianas no aportan).
 async function registrarCamposPersiana() {
   try {
+    const TIPOS_PERSIANA = ['Persiana Motorizada', 'Persiana Motorizada Telemandada'];
+    for (const nombreTipo of TIPOS_PERSIANA) {
+      await dbRun(`INSERT OR IGNORE INTO tipos_activo (nombre, checklist_json) VALUES (?, '[]')`, [nombreTipo]);
+    }
+    const tiposJson = JSON.stringify(TIPOS_PERSIANA);
     await dbRun(
-      `INSERT OR IGNORE INTO campos_config (entidad, clave, etiqueta, tipo, es_sistema, visible, orden, tipo_activo) VALUES ('activo', 'custom_tipo_lama', 'Tipo de lama', 'text', 0, 1, 70, 'Persiana Motorizada')`
+      `INSERT OR IGNORE INTO campos_config (entidad, clave, etiqueta, tipo, es_sistema, visible, orden, tipo_activo) VALUES ('activo', 'custom_tipo_lama', 'Tipo de lama', 'text', 0, 1, 70, ?)`, [tiposJson]
     );
+    await dbRun(`UPDATE campos_config SET tipo_activo = ? WHERE entidad = 'activo' AND clave = 'custom_tipo_lama'`, [tiposJson]);
     await dbRun(
-      `INSERT OR IGNORE INTO campos_config (entidad, clave, etiqueta, tipo, es_sistema, visible, orden, tipo_activo) VALUES ('activo', 'custom_motor', 'Motor', 'text', 0, 1, 71, 'Persiana Motorizada')`
+      `INSERT OR IGNORE INTO campos_config (entidad, clave, etiqueta, tipo, es_sistema, visible, orden, tipo_activo) VALUES ('activo', 'custom_motor', 'Motor', 'text', 0, 1, 71, ?)`, [tiposJson]
     );
-    await registrarItemTecnico('custom_fc_adicionales', 'FC Adicionales', 72, ['Persiana Motorizada']);
-    await registrarItemTecnico('custom_telemando_pers', 'Telemando', 73, ['Persiana Motorizada']);
-    await registrarItemTecnico('custom_detector_presencia', 'Detector presencia', 74, ['Persiana Motorizada']);
-    await registrarItemTecnico('custom_desbloqueo_emergencia', 'Desbloqueo emergencia', 75, ['Persiana Motorizada']);
+    await dbRun(`UPDATE campos_config SET tipo_activo = ? WHERE entidad = 'activo' AND clave = 'custom_motor'`, [tiposJson]);
+
+    // Solo "FC Adicionales" lleva Unidades; el resto solo Sí/No + Tipo
+    await registrarItemTecnico('custom_fc_adicionales', 'FC Adicionales', 72, TIPOS_PERSIANA, true);
+    await registrarItemTecnico('custom_telemando_pers', 'Telemando', 73, TIPOS_PERSIANA, false);
+    await registrarItemTecnico('custom_detector_presencia', 'Detector presencia', 74, TIPOS_PERSIANA, false);
+    await registrarItemTecnico('custom_desbloqueo_emergencia', 'Desbloqueo emergencia', 75, TIPOS_PERSIANA, false);
+
     for (const clave of ['fabricante', 'modelo']) {
       const campo = await dbGet(`SELECT * FROM campos_config WHERE entidad = 'activo' AND clave = ?`, [clave]);
       if (!campo) continue;
       let excluidos = [];
       try { excluidos = JSON.parse(campo.ocultar_en_tipos || '[]'); } catch { excluidos = []; }
-      if (!excluidos.includes('Persiana Motorizada')) {
-        excluidos.push('Persiana Motorizada');
-        await dbRun(`UPDATE campos_config SET ocultar_en_tipos = ? WHERE id = ?`, [JSON.stringify(excluidos), campo.id]);
+      let cambiado = false;
+      for (const t of TIPOS_PERSIANA) {
+        if (!excluidos.includes(t)) { excluidos.push(t); cambiado = true; }
       }
+      if (cambiado) await dbRun(`UPDATE campos_config SET ocultar_en_tipos = ? WHERE id = ?`, [JSON.stringify(excluidos), campo.id]);
     }
   } catch (e) {
     console.error('Error registrando campos de Persiana:', e.message);
   }
 }
 
-// Registra los campos técnicos específicos de activos tipo "Puerta Automática".
+// Registra los campos técnicos específicos de Puertas: Puerta Automática, Puerta Automática Telemandada
+// y Puerta con Cerradura Telemandada. Cuadro de control y Telemando NO llevan Unidades;
+// Dispositivos de seguridad y Finales de carrera SÍ.
 async function registrarCamposPuerta() {
   try {
-    await registrarItemTecnico('custom_cuadro_control', 'Cuadro de control', 70, ['Puerta Automática']);
-    await registrarItemTecnico('custom_dispositivos_seguridad', 'Dispositivos de seguridad', 71, ['Puerta Automática']);
-    await registrarItemTecnico('custom_telemando_puerta', 'Telemando', 72, ['Puerta Automática']);
-    await registrarItemTecnico('custom_finales_carrera', 'Finales de carrera', 73, ['Puerta Automática']);
+    const TIPOS_PUERTA = ['Puerta Automática', 'Puerta Automática Telemandada', 'Puerta con Cerradura Telemandada'];
+    for (const nombreTipo of TIPOS_PUERTA) {
+      await dbRun(`INSERT OR IGNORE INTO tipos_activo (nombre, checklist_json) VALUES (?, '[]')`, [nombreTipo]);
+    }
+    await registrarItemTecnico('custom_cuadro_control', 'Cuadro de control', 70, TIPOS_PUERTA, false);
+    await registrarItemTecnico('custom_dispositivos_seguridad', 'Dispositivos de seguridad', 71, TIPOS_PUERTA, true);
+    await registrarItemTecnico('custom_telemando_puerta', 'Telemando', 72, TIPOS_PUERTA, false);
+    await registrarItemTecnico('custom_finales_carrera', 'Finales de carrera', 73, TIPOS_PUERTA, true);
   } catch (e) {
     console.error('Error registrando campos de Puerta:', e.message);
   }
