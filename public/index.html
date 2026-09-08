@@ -1575,18 +1575,18 @@
                                     </select>
                                 </div>
                                 <div className={`ficha-field ${!puedeEditarTodo ? 'field-locked' : ''}`}>
-                                    <span className="ficha-field-label">Emplazamiento</span>
-                                    <select value={otForm.emplazamiento_id} disabled={!puedeEditarTodo} onChange={(e) => setOtForm({ ...otForm, emplazamiento_id: e.target.value, activo_id: '' })}>
-                                        <option value="">-- Selecciona --</option>
-                                        {emplazamientosFiltradosOt.map(e => <option key={e.id} value={e.id}>{e.nombre}</option>)}
-                                    </select>
-                                </div>
-
-                                <div className={`ficha-field ${!puedeEditarTodo ? 'field-locked' : ''}`}>
                                     <span className="ficha-field-label">Zona</span>
                                     <select value={selectedZonaOt} disabled={!puedeEditarTodo} onChange={(e) => { setSelectedZonaOt(e.target.value); setOtForm({ ...otForm, emplazamiento_id: '', activo_id: '' }); }}>
                                         <option value="">-- Selecciona --</option>
                                         {(zonas || []).map(z => <option key={z.id} value={z.id}>{z.nombre}</option>)}
+                                    </select>
+                                </div>
+
+                                <div className={`ficha-field ${!puedeEditarTodo ? 'field-locked' : ''}`}>
+                                    <span className="ficha-field-label">Emplazamiento</span>
+                                    <select value={otForm.emplazamiento_id} disabled={!puedeEditarTodo} onChange={(e) => setOtForm({ ...otForm, emplazamiento_id: e.target.value, activo_id: '' })}>
+                                        <option value="">-- Selecciona --</option>
+                                        {emplazamientosFiltradosOt.map(e => <option key={e.id} value={e.id}>{e.nombre}</option>)}
                                     </select>
                                 </div>
                                 <div className={`ficha-field ${!puedeEditarTodo ? 'field-locked' : ''}`}>
@@ -1726,9 +1726,9 @@
 
                                 <div className="ficha-field"><span className="ficha-field-label">Cliente</span><span className="ficha-field-value">{otSeleccionada.cliente_nombre || '—'}</span></div>
                                 <div className="ficha-field"><span className="ficha-field-label">Contrato</span><span className="ficha-field-value">{otSeleccionada.contrato_nombre || '—'}</span></div>
-                                <div className="ficha-field"><span className="ficha-field-label">Emplazamiento</span><span className="ficha-field-value">{otSeleccionada.emplazamiento_nombre || '—'}</span></div>
-
                                 <div className="ficha-field"><span className="ficha-field-label">Zona</span><span className="ficha-field-value">{otSeleccionada.zona_nombre || '—'}</span></div>
+
+                                <div className="ficha-field"><span className="ficha-field-label">Emplazamiento</span><span className="ficha-field-value">{otSeleccionada.emplazamiento_nombre || '—'}</span></div>
                                 <div className="ficha-field"><span className="ficha-field-label">Activo</span><span className="ficha-field-value">{otSeleccionada.activo_nombre || '—'}</span></div>
                                 <div className="ficha-field"><span className="ficha-field-label">Estado</span><span className="ficha-field-value">{otSeleccionada.estado}</span></div>
 
@@ -2618,7 +2618,7 @@
                     {importMsg && <div className="import-summary">{importMsg}</div>}
                     <p className="lock-note">Un emplazamiento (ej: "Estación Avilés") es un lugar físico dentro de una zona. Puede contener activos de cualquier cliente o contrato.</p>
 
-                    {showForm && (
+                    {showForm && !editingId && (
                         <div className="card" ref={formRef} style={{ marginBottom: '1rem' }}>
                             <div className="form-group">
                                 <label>Zona</label>
@@ -2644,7 +2644,7 @@
                                 <input type="text" placeholder="Ej: -5.930617" value={formData.lon} onChange={(e) => setFormData({ ...formData, lon: e.target.value })} />
                             </div>
                             <div className="btn-group">
-                                <button className="btn btn-success" onClick={handleAdd}>{editingId ? 'Guardar' : 'Crear'}</button>
+                                <button className="btn btn-success" onClick={handleAdd}>Crear</button>
                                 <button className="btn btn-secondary" onClick={() => { setShowForm(false); setEditingId(null); }}>Cancelar</button>
                             </div>
                         </div>
@@ -2675,6 +2675,38 @@
                                             {expandido ? 'Ocultar Activos' : `⚙️ Ver Activos (${activosDeAqui.length})`}
                                         </button>
                                     </div>
+
+                                    {esGestor && showForm && editingId === e.id && (
+                                        <div className="quickadd-box" ref={formRef} style={{ marginTop: '10px' }}>
+                                            <div className="form-group">
+                                                <label>Zona</label>
+                                                <select value={formData.zona_id} onChange={(ev) => setFormData({ ...formData, zona_id: ev.target.value })}>
+                                                    <option value="">-- Selecciona una zona --</option>
+                                                    {zonas.map(z => <option key={z.id} value={z.id}>{z.nombre}</option>)}
+                                                </select>
+                                            </div>
+                                            <div className="form-group">
+                                                <label>Nombre del Emplazamiento</label>
+                                                <input type="text" placeholder="Ej: Estación Avilés" value={formData.nombre} onChange={(ev) => setFormData({ ...formData, nombre: ev.target.value })} />
+                                            </div>
+                                            <div className="form-group">
+                                                <label>Dirección (opcional)</label>
+                                                <input type="text" placeholder="Dirección" value={formData.direccion} onChange={(ev) => setFormData({ ...formData, direccion: ev.target.value })} />
+                                            </div>
+                                            <div className="form-group">
+                                                <label>Latitud (opcional)</label>
+                                                <input type="text" placeholder="Ej: 43.591497" value={formData.lat} onChange={(ev) => setFormData({ ...formData, lat: ev.target.value })} />
+                                            </div>
+                                            <div className="form-group">
+                                                <label>Longitud (opcional)</label>
+                                                <input type="text" placeholder="Ej: -5.930617" value={formData.lon} onChange={(ev) => setFormData({ ...formData, lon: ev.target.value })} />
+                                            </div>
+                                            <div className="btn-group">
+                                                <button className="btn btn-success" onClick={handleAdd}>Guardar</button>
+                                                <button className="btn btn-secondary" onClick={() => { setShowForm(false); setEditingId(null); }}>Cancelar</button>
+                                            </div>
+                                        </div>
+                                    )}
 
                                     {expandido && (
                                         <div style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px dashed var(--border)' }}>
