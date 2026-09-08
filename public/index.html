@@ -1280,7 +1280,7 @@
 
             const initialOtForm = {
                 titulo: '', tipo: esGestor ? 'correctivo' : 'guardia', ticket: '', id_cliente: '',
-                cliente_id: '', contrato_id: '', emplazamiento_id: '', id_mantis: '', proyecto: '',
+                cliente_id: '', contrato_id: '', emplazamiento_id: '', id_mantis: '', proyecto: '', procedencia_aviso: '',
                 activo_id: '', prioridad: 'media', fecha_programada: '',
                 responsable_id: user.id, asignado_a: user.id, tecnicos_apoyo: [], notas: '', estado: esGestor ? 'pendiente' : 'pendiente'
             };
@@ -1337,7 +1337,7 @@
                 setOtForm({
                     titulo: o.titulo, tipo: o.tipo, ticket: o.ticket || '', id_cliente: o.id_cliente || '',
                     cliente_id: o.cliente_id || '', contrato_id: o.contrato_id || '', emplazamiento_id: o.emplazamiento_id || '',
-                    id_mantis: o.id_mantis || '', proyecto: o.proyecto || '',
+                    id_mantis: o.id_mantis || '', proyecto: o.proyecto || '', procedencia_aviso: o.procedencia_aviso || '',
                     activo_id: o.activo_id || '', prioridad: o.prioridad || 'media',
                     fecha_programada: o.fecha_programada || '', responsable_id: o.responsable_id || user.id, asignado_a: o.asignado_a || user.id,
                     tecnicos_apoyo: tecApoyo, notas: o.notas || '', estado: o.estado
@@ -1357,6 +1357,10 @@
             const guardarOt = async () => {
                 if (!otForm.titulo.trim()) { alert('El título es obligatorio'); return; }
                 if (otForm.tipo === 'preventivo' && !otForm.activo_id) { alert('Selecciona el activo a revisar'); return; }
+                if ((otForm.tipo === 'correctivo' || otForm.tipo === 'guardia') && !otForm.procedencia_aviso.trim()) {
+                    alert('Indica la Procedencia del aviso (por qué medio o de parte de quién llegó)');
+                    return;
+                }
                 const payload = {
                     ...otForm,
                     cliente_id: otForm.cliente_id || null,
@@ -1640,9 +1644,13 @@
                                     <span className="ficha-field-label">ID Mantis</span>
                                     <input type="text" value={otForm.id_mantis} disabled={!puedeEditarTodo} onChange={(e) => setOtForm({ ...otForm, id_mantis: e.target.value })} />
                                 </div>
-                                <div className={`ficha-field ficha-field-span2 ${!puedeEditarTodo ? 'field-locked' : ''}`}>
+                                <div className={`ficha-field ${!puedeEditarTodo ? 'field-locked' : ''}`}>
                                     <span className="ficha-field-label">Proyecto</span>
                                     <input type="text" value={otForm.proyecto} disabled={!puedeEditarTodo} onChange={(e) => setOtForm({ ...otForm, proyecto: e.target.value })} />
+                                </div>
+                                <div className={`ficha-field ${!puedeEditarTodo ? 'field-locked' : ''}`}>
+                                    <span className="ficha-field-label">Procedencia del aviso{(otForm.tipo === 'correctivo' || otForm.tipo === 'guardia') ? ' *' : ''}</span>
+                                    <input type="text" placeholder="Ej: Llamada del cliente, email, Mantis..." value={otForm.procedencia_aviso} disabled={!puedeEditarTodo} onChange={(e) => setOtForm({ ...otForm, procedencia_aviso: e.target.value })} />
                                 </div>
                             </div>
 
@@ -1744,7 +1752,8 @@
                                 </div>
 
                                 <div className="ficha-field"><span className="ficha-field-label">ID Mantis</span><span className="ficha-field-value">{otSeleccionada.id_mantis || '—'}</span></div>
-                                <div className="ficha-field ficha-field-span2"><span className="ficha-field-label">Proyecto</span><span className="ficha-field-value">{otSeleccionada.proyecto || '—'}</span></div>
+                                <div className="ficha-field"><span className="ficha-field-label">Proyecto</span><span className="ficha-field-value">{otSeleccionada.proyecto || '—'}</span></div>
+                                <div className="ficha-field"><span className="ficha-field-label">Procedencia del aviso</span><span className="ficha-field-value">{otSeleccionada.procedencia_aviso || '—'}</span></div>
                             </div>
 
                             <div style={{ borderTop: '2px solid var(--border)', margin: '10px 0' }}></div>
@@ -1839,6 +1848,7 @@
                             {otSeleccionada.id_cliente && <div className="print-row"><span className="print-label">ID Cliente</span><span className="print-value">{otSeleccionada.id_cliente}</span></div>}
                             {otSeleccionada.id_mantis && <div className="print-row"><span className="print-label">ID Mantis</span><span className="print-value">{otSeleccionada.id_mantis}</span></div>}
                             {otSeleccionada.proyecto && <div className="print-row"><span className="print-label">Proyecto</span><span className="print-value">{otSeleccionada.proyecto}</span></div>}
+                            {otSeleccionada.procedencia_aviso && <div className="print-row"><span className="print-label">Procedencia del aviso</span><span className="print-value">{otSeleccionada.procedencia_aviso}</span></div>}
                             {otSeleccionada.fecha_programada && <div className="print-row"><span className="print-label">Programada</span><span className="print-value">{otSeleccionada.fecha_programada}</span></div>}
                             <div className="print-row"><span className="print-label">Técnico</span><span className="print-value">{otSeleccionada.tecnico_nombre || '—'}</span></div>
                             <div className="print-row"><span className="print-label">Responsable</span><span className="print-value">{otSeleccionada.responsable_nombre || '—'}</span></div>
