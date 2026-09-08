@@ -465,6 +465,8 @@ db.serialize(() => {
     id_mantis TEXT,
     proyecto TEXT,
     procedencia_aviso TEXT,
+    facturada INTEGER DEFAULT 0,
+    fecha_facturacion TEXT,
     tipo TEXT NOT NULL,
     estado TEXT NOT NULL,
     prioridad TEXT DEFAULT 'media',
@@ -500,6 +502,8 @@ db.serialize(() => {
   db.run(`ALTER TABLE ordenes_trabajo ADD COLUMN id_mantis TEXT`, () => {});
   db.run(`ALTER TABLE ordenes_trabajo ADD COLUMN proyecto TEXT`, () => {});
   db.run(`ALTER TABLE ordenes_trabajo ADD COLUMN procedencia_aviso TEXT`, () => {});
+  db.run(`ALTER TABLE ordenes_trabajo ADD COLUMN facturada INTEGER DEFAULT 0`, () => {});
+  db.run(`ALTER TABLE ordenes_trabajo ADD COLUMN fecha_facturacion TEXT`, () => {});
 
   db.run(`CREATE TABLE IF NOT EXISTS visitas (
     id TEXT PRIMARY KEY,
@@ -684,6 +688,30 @@ db.serialize(() => {
   )`);
   db.run(`ALTER TABLE activos ADD COLUMN campos_extra TEXT DEFAULT '{}'`, () => {});
   db.run(`ALTER TABLE activos ADD COLUMN fotos_json TEXT DEFAULT '[]'`, () => {});
+
+  // Propuestas de alta de Activos recogidas en campo por los técnicos. Un admin/supervisor
+  // las revisa, puede editarlas, y las aprueba (se crea el Activo real) o las rechaza.
+  db.run(`CREATE TABLE IF NOT EXISTS activos_pendientes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    emplazamiento_id INTEGER,
+    contrato_id INTEGER,
+    tipo TEXT,
+    nombre TEXT NOT NULL,
+    fabricante TEXT,
+    modelo TEXT,
+    estado TEXT DEFAULT 'Activo',
+    observaciones TEXT,
+    campos_extra TEXT DEFAULT '{}',
+    fotos_json TEXT DEFAULT '[]',
+    lat REAL,
+    lon REAL,
+    creado_por INTEGER,
+    estado_revision TEXT DEFAULT 'pendiente',
+    notas_revision TEXT,
+    creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  )`);
+  db.run(`ALTER TABLE activos_pendientes ADD COLUMN lat REAL`, () => {});
+  db.run(`ALTER TABLE activos_pendientes ADD COLUMN lon REAL`, () => {});
 
   db.run(`CREATE TABLE IF NOT EXISTS tipos_activo (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1139,6 +1167,101 @@ app.delete('/api/activos/:id', (req, res) => {
   });
 });
 
+// ===== ALTAS DE ACTIVOS RECOGIDAS EN CAMPO (pendientes de revisión) =====
+app.get('/api/activos-pendientes', (req, res) => {
+  db.all(`SELECT ap.*,
+                 e.nombre as emplazamiento_nombre, e.lat as emplazamiento_lat, e.lon as emplazamiento_lon,
+                 z.nombre as zona_nombre,
+                 c.nombre as contrato_nombre,
+                 cl.id as cliente_id, cl.nombre as cliente_nombre,
+                 u.nombre as creado_por_nombre
+          FROM activos_pendientes ap
+          LEFT JOIN emplazamientos e ON ap.emplazamiento_id = e.id
+          LEFT JOIN zonas z ON e.zona_id = z.id
+          LEFT JOIN contratos c ON ap.contrato_id = c.id
+          LEFT JOIN clientes cl ON c.cliente_id = cl.id
+          LEFT JOIN usuarios u ON ap.creado_por = u.id
+          ORDER BY ap.creado_en DESC`, (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows);
+  });
+});
+
+app.post('/api/activos-pendientes', (req, res) => {
+  const { emplazamiento_id, contrato_id, tipo, nombre, fabricante, modelo, estado, observaciones, campos_extra, fotos_json, lat, lon, creado_por } = req.body;
+  if (!nombre) return res.status(400).json({ error: 'El nombre es obligatorio' });
+  db.run(`INSERT INTO activos_pendientes (emplazamiento_id, contrato_id, tipo, nombre, fabricante, modelo, estado, observaciones, campos_extra, fotos_json, lat, lon, creado_por, estado_revision)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pendiente')`,
+    [emplazamiento_id || null, contrato_id || null, tipo || '', nombre, fabricante || '', modelo || '', estado || 'Activo', observaciones || '',
+     campos_extra || '{}', fotos_json || '[]', lat ?? null, lon ?? null, creado_por || null],
+    function (err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ id: this.lastID });
+    });
+});
+
+app.put('/api/activos-pendientes/:id', (req, res) => {
+  const { emplazamiento_id, contrato_id, tipo, nombre, fabricante, modelo, estado, observaciones, campos_extra, fotos_json, lat, lon, notas_revision } = req.body;
+  db.run(`UPDATE activos_pendientes SET emplazamiento_id = ?, contrato_id = ?, tipo = ?, nombre = ?, fabricante = ?, modelo = ?,
+          estado = ?, observaciones = ?, campos_extra = ?, fotos_json = ?, lat = ?, lon = ?, notas_revision = ? WHERE id = ?`,
+    [emplazamiento_id || null, contrato_id || null, tipo || '', nombre, fabricante || '', modelo || '', estado || 'Activo', observaciones || '',
+     campos_extra || '{}', fotos_json || '[]', lat ?? null, lon ?? null, notas_revision || '', req.params.id],
+    (err) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ success: true });
+    });
+});
+
+app.delete('/api/activos-pendientes/:id', (req, res) => {
+  db.run('DELETE FROM activos_pendientes WHERE id = ?', [req.params.id], (err) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ success: true });
+  });
+});
+
+// Aprobar: crea el Activo real con los datos de la propuesta, y borra la propuesta pendiente.
+app.post('/api/activos-pendientes/:id/aprobar', (req, res) => {
+  db.get('SELECT * FROM activos_pendientes WHERE id = ?', [req.params.id], (err, ap) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!ap) return res.status(404).json({ error: 'No encontrado' });
+    if (!ap.emplazamiento_id || !ap.contrato_id) return res.status(400).json({ error: 'Faltan Emplazamiento y/o Contrato antes de aprobar' });
+
+    const finalizarAprobacion = () => {
+      db.run(`INSERT INTO activos (emplazamiento_id, contrato_id, tipo, nombre, fabricante, modelo, estado, observaciones, campos_extra, fotos_json)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [ap.emplazamiento_id, ap.contrato_id, ap.tipo, ap.nombre, ap.fabricante, ap.modelo, ap.estado, ap.observaciones, ap.campos_extra, ap.fotos_json],
+        function (err2) {
+          if (err2) return res.status(500).json({ error: err2.message });
+          const nuevoId = this.lastID;
+          db.run('DELETE FROM activos_pendientes WHERE id = ?', [req.params.id], () => {
+            res.json({ success: true, activo_id: nuevoId });
+          });
+        });
+    };
+
+    // Si la propuesta trae coordenadas GPS y el emplazamiento elegido aún no tiene, se las asignamos de regalo
+    if (ap.lat != null && ap.lon != null) {
+      db.get('SELECT lat, lon FROM emplazamientos WHERE id = ?', [ap.emplazamiento_id], (err3, emp) => {
+        if (!err3 && emp && emp.lat == null) {
+          db.run('UPDATE emplazamientos SET lat = ?, lon = ? WHERE id = ?', [ap.lat, ap.lon, ap.emplazamiento_id], () => finalizarAprobacion());
+        } else {
+          finalizarAprobacion();
+        }
+      });
+    } else {
+      finalizarAprobacion();
+    }
+  });
+});
+
+app.post('/api/activos-pendientes/:id/rechazar', (req, res) => {
+  const { notas_revision } = req.body;
+  db.run(`UPDATE activos_pendientes SET estado_revision = 'rechazado', notas_revision = ? WHERE id = ?`, [notas_revision || '', req.params.id], (err) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ success: true });
+  });
+});
+
 // CAMPOS PERSONALIZABLES (Cliente / Contrato / Activo)
 app.get('/api/campos-config', (req, res) => {
   const { entidad } = req.query;
@@ -1344,6 +1467,17 @@ app.delete('/api/ordenes/:id', (req, res) => {
       if (err) return res.status(500).json({ error: err.message });
       res.json({ success: true });
     });
+  });
+});
+
+// Marca/desmarca una OT como facturada. La fecha de facturación se fija aquí, en el
+// servidor, en el momento exacto en que se marca (no se puede manipular desde el cliente).
+app.put('/api/ordenes/:id/facturar', (req, res) => {
+  const { facturada } = req.body;
+  const fecha = facturada ? new Date().toISOString().slice(0, 10) : null;
+  db.run(`UPDATE ordenes_trabajo SET facturada = ?, fecha_facturacion = ? WHERE id = ?`, [facturada ? 1 : 0, fecha, req.params.id], (err) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ success: true, facturada: !!facturada, fecha_facturacion: fecha });
   });
 });
 
