@@ -2292,11 +2292,11 @@
                             </span>
                         </div>
                         <div className="ficha-field"><span className="ficha-field-label">Tipo Activo</span><span className="ficha-field-value">{activo.tipo || '—'}</span></div>
-                        <div className="ficha-field"><span className="ficha-field-label">Emplazamiento</span><span className="ficha-field-value">{activo.emplazamiento_nombre || '—'}</span></div>
+                        <div className="ficha-field"><span className="ficha-field-label">Zona</span><span className="ficha-field-value">{activo.zona_nombre || '—'}</span></div>
 
                         <div className="ficha-field"><span className="ficha-field-label">Cliente</span><span className="ficha-field-value">{activo.cliente_nombre || '—'}</span></div>
                         <div className="ficha-field"><span className="ficha-field-label">Contrato</span><span className="ficha-field-value">{activo.contrato_nombre || '—'}</span></div>
-                        <div className="ficha-field"><span className="ficha-field-label">Zona</span><span className="ficha-field-value">{activo.zona_nombre || '—'}</span></div>
+                        <div className="ficha-field"><span className="ficha-field-label">Emplazamiento</span><span className="ficha-field-value">{activo.emplazamiento_nombre || '—'}</span></div>
 
                         <div className="ficha-field"><span className="ficha-field-label">Coordenadas</span><span className="ficha-field-value">{tieneCoords ? `${activo.emplazamiento_lat}, ${activo.emplazamiento_lon}` : '—'}</span></div>
                         <div className="ficha-field"><span className="ficha-field-label">Fecha de creación</span><span className="ficha-field-value">{fechaCreacion}</span></div>
@@ -2545,18 +2545,13 @@
                             </div>
                         </div>
                         <div className="ficha-field">
-                            <span className="ficha-field-label">Emplazamiento</span>
+                            <span className="ficha-field-label">Zona</span>
                             <div className="field-with-add">
-                                <select value={formData.emplazamiento_id} onChange={(e) => setFormData({ ...formData, emplazamiento_id: e.target.value })}>
+                                <select value={selectedZona} onChange={(e) => { setSelectedZona(e.target.value); setFormData({ ...formData, emplazamiento_id: '' }); }}>
                                     <option value="">-- Selecciona --</option>
-                                    {emplazamientosFiltrados.map(e => <option key={e.id} value={e.id}>{e.nombre}</option>)}
+                                    {(zonas || []).map(z => <option key={z.id} value={z.id}>{z.nombre}</option>)}
                                 </select>
-                                {selectedZona && (
-                                    <QuickAddInline label="Emplazamiento" onCreate={crearEmplazamientoRapido} fields={[
-                                        { key: 'nombre', placeholder: 'Nombre del emplazamiento *' },
-                                        { key: 'direccion', placeholder: 'Dirección' }
-                                    ]} />
-                                )}
+                                <QuickAddInline label="Zona" onCreate={crearZonaRapida} fields={[{ key: 'nombre', placeholder: 'Nombre de la zona *' }]} />
                             </div>
                         </div>
 
@@ -2590,13 +2585,18 @@
                             </div>
                         </div>
                         <div className="ficha-field">
-                            <span className="ficha-field-label">Zona</span>
+                            <span className="ficha-field-label">Emplazamiento</span>
                             <div className="field-with-add">
-                                <select value={selectedZona} onChange={(e) => { setSelectedZona(e.target.value); setFormData({ ...formData, emplazamiento_id: '' }); }}>
+                                <select value={formData.emplazamiento_id} onChange={(e) => setFormData({ ...formData, emplazamiento_id: e.target.value })}>
                                     <option value="">-- Selecciona --</option>
-                                    {(zonas || []).map(z => <option key={z.id} value={z.id}>{z.nombre}</option>)}
+                                    {emplazamientosFiltrados.map(e => <option key={e.id} value={e.id}>{e.nombre}</option>)}
                                 </select>
-                                <QuickAddInline label="Zona" onCreate={crearZonaRapida} fields={[{ key: 'nombre', placeholder: 'Nombre de la zona *' }]} />
+                                {selectedZona && (
+                                    <QuickAddInline label="Emplazamiento" onCreate={crearEmplazamientoRapido} fields={[
+                                        { key: 'nombre', placeholder: 'Nombre del emplazamiento *' },
+                                        { key: 'direccion', placeholder: 'Dirección' }
+                                    ]} />
+                                )}
                             </div>
                         </div>
 
@@ -3554,6 +3554,15 @@
                                                 <option value="">-- Selecciona --</option>
                                                 {opciones.map(o => <option key={o} value={o}>{o}</option>)}
                                             </select>
+                                        ) : campo.tipo === 'radio' ? (
+                                            <div style={{ display: 'flex', gap: '10px', marginTop: '4px' }}>
+                                                <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px' }}>
+                                                    <input type="radio" name={`radio-${campo.id}-${campo.clave}`} checked={val === 'Sí'} onChange={() => setValue(campo, 'Sí')} /> Sí
+                                                </label>
+                                                <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px' }}>
+                                                    <input type="radio" name={`radio-${campo.id}-${campo.clave}`} checked={val === 'No'} onChange={() => setValue(campo, 'No')} /> No
+                                                </label>
+                                            </div>
                                         ) : (
                                             <input type={campo.tipo === 'date' ? 'date' : campo.tipo === 'number' ? 'number' : 'text'} value={val} onChange={(e) => setValue(campo, e.target.value)} />
                                         )}
@@ -3664,6 +3673,7 @@
                             <option value="date">Fecha</option>
                             <option value="textarea">Texto largo</option>
                             <option value="select">Lista desplegable</option>
+                            <option value="radio">Radio (Sí/No)</option>
                         </select>
                         {nuevoTipo === 'select' && <input type="text" placeholder="Opciones separadas por coma" value={nuevasOpciones} onChange={(e) => setNuevasOpciones(e.target.value)} />}
                         {entidad === 'activo' && tiposActivo && tiposActivo.length > 0 && (
