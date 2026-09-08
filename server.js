@@ -319,6 +319,11 @@ db.serialize(() => {
     ticket TEXT,
     id_cliente TEXT,
     cliente_id INTEGER,
+    contrato_id INTEGER,
+    emplazamiento_id INTEGER,
+    id_mantis TEXT,
+    proyecto TEXT,
+    procedencia_aviso TEXT,
     tipo TEXT NOT NULL,
     estado TEXT NOT NULL,
     prioridad TEXT DEFAULT 'media',
@@ -333,6 +338,8 @@ db.serialize(() => {
     fecha_cierre TIMESTAMP,
     creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(cliente_id) REFERENCES clientes(id),
+    FOREIGN KEY(contrato_id) REFERENCES contratos(id),
+    FOREIGN KEY(emplazamiento_id) REFERENCES emplazamientos(id),
     FOREIGN KEY(asignado_a) REFERENCES usuarios(id),
     FOREIGN KEY(responsable_id) REFERENCES usuarios(id),
     FOREIGN KEY(activo_id) REFERENCES activos(id)
@@ -347,6 +354,11 @@ db.serialize(() => {
   db.run(`ALTER TABLE ordenes_trabajo ADD COLUMN fecha_programada DATE`, () => {});
   db.run(`ALTER TABLE ordenes_trabajo ADD COLUMN fecha_cierre TIMESTAMP`, () => {});
   db.run(`ALTER TABLE ordenes_trabajo ADD COLUMN responsable_id INTEGER`, () => {});
+  db.run(`ALTER TABLE ordenes_trabajo ADD COLUMN contrato_id INTEGER`, () => {});
+  db.run(`ALTER TABLE ordenes_trabajo ADD COLUMN emplazamiento_id INTEGER`, () => {});
+  db.run(`ALTER TABLE ordenes_trabajo ADD COLUMN id_mantis TEXT`, () => {});
+  db.run(`ALTER TABLE ordenes_trabajo ADD COLUMN proyecto TEXT`, () => {});
+  db.run(`ALTER TABLE ordenes_trabajo ADD COLUMN procedencia_aviso TEXT`, () => {});
 
   db.run(`CREATE TABLE IF NOT EXISTS visitas (
     id TEXT PRIMARY KEY,
@@ -375,6 +387,7 @@ db.serialize(() => {
   )`);
 
   db.run(`ALTER TABLE visitas ADD COLUMN videos_json TEXT`, () => {});
+  db.run(`ALTER TABLE visitas ADD COLUMN trabajos_pendientes TEXT`, () => {});
 
   db.run(`CREATE TABLE IF NOT EXISTS materiales (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1123,20 +1136,24 @@ app.delete('/api/inventario/:id', (req, res) => {
 app.get('/api/ordenes', (req, res) => {
   db.all(`SELECT o.*, 
                  c.nombre as cliente_nombre, 
+                 ct.nombre as contrato_nombre,
                  u.nombre as tecnico_nombre,
                  r.nombre as responsable_nombre,
                  a.nombre as activo_nombre,
                  a.tipo as activo_tipo,
                  e.nombre as emplazamiento_nombre,
+                 e.lat as emplazamiento_lat,
+                 e.lon as emplazamiento_lon,
                  z.nombre as zona_nombre,
                  (SELECT COUNT(*) FROM visitas v WHERE v.orden_id = o.id) as num_visitas,
                  (SELECT MAX(fecha) FROM visitas v WHERE v.orden_id = o.id) as ultima_visita
           FROM ordenes_trabajo o 
           LEFT JOIN clientes c ON o.cliente_id = c.id
+          LEFT JOIN contratos ct ON o.contrato_id = ct.id
           LEFT JOIN usuarios u ON o.asignado_a = u.id
           LEFT JOIN usuarios r ON o.responsable_id = r.id
           LEFT JOIN activos a ON o.activo_id = a.id
-          LEFT JOIN emplazamientos e ON a.emplazamiento_id = e.id
+          LEFT JOIN emplazamientos e ON e.id = COALESCE(o.emplazamiento_id, a.emplazamiento_id)
           LEFT JOIN zonas z ON e.zona_id = z.id
           ORDER BY o.creado_en DESC`, (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
@@ -1145,31 +1162,34 @@ app.get('/api/ordenes', (req, res) => {
 });
 
 app.post('/api/ordenes', (req, res) => {
-  const { ticket, id_cliente, cliente_id, tipo, estado, prioridad, responsable_id, asignado_a, tecnicos_apoyo,
-          titulo, notas, activo_id, datos_json, fecha_programada, fecha_cierre } = req.body;
+  const { ticket, id_cliente, cliente_id, contrato_id, emplazamiento_id, id_mantis, proyecto, procedencia_aviso, tipo, estado, prioridad,
+          responsable_id, asignado_a, tecnicos_apoyo, titulo, notas, activo_id, datos_json, fecha_programada, fecha_cierre } = req.body;
   const id = `OT-${Date.now()}`;
-  db.run(`INSERT INTO ordenes_trabajo (id, ticket, id_cliente, cliente_id, tipo, estado, prioridad, responsable_id, asignado_a, 
-          tecnicos_apoyo, titulo, notas, activo_id, datos_json, fecha_programada, fecha_cierre) 
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [id, ticket, id_cliente, cliente_id || null, tipo, estado, prioridad || 'media', responsable_id || null, asignado_a,
+  db.run(`INSERT INTO ordenes_trabajo (id, ticket, id_cliente, cliente_id, contrato_id, emplazamiento_id, id_mantis, proyecto, procedencia_aviso,
+          tipo, estado, prioridad, responsable_id, asignado_a, tecnicos_apoyo, titulo, notas, activo_id, datos_json, fecha_programada, fecha_cierre) 
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [id, ticket, id_cliente, cliente_id || null, contrato_id || null, emplazamiento_id || null, id_mantis || null, proyecto || null, procedencia_aviso || null,
+     tipo, estado, prioridad || 'media', responsable_id || null, asignado_a,
      tecnicos_apoyo || null, titulo, notas, activo_id || null, datos_json || null, fecha_programada || null, fecha_cierre || null],
     function(err) {
       if (err) return res.status(500).json({ error: err.message });
-      res.json({ id, ticket, id_cliente, cliente_id, tipo, estado, prioridad, responsable_id, asignado_a, tecnicos_apoyo, titulo, notas, activo_id, datos_json, fecha_programada, fecha_cierre });
+      res.json({ id, ticket, id_cliente, cliente_id, contrato_id, emplazamiento_id, id_mantis, proyecto, procedencia_aviso, tipo, estado, prioridad, responsable_id, asignado_a, tecnicos_apoyo, titulo, notas, activo_id, datos_json, fecha_programada, fecha_cierre });
     });
 });
 
 app.put('/api/ordenes/:id', (req, res) => {
-  const { ticket, id_cliente, cliente_id, tipo, estado, prioridad, responsable_id, asignado_a, tecnicos_apoyo,
-          titulo, notas, activo_id, datos_json, fecha_programada, fecha_cierre } = req.body;
-  db.run(`UPDATE ordenes_trabajo SET ticket = ?, id_cliente = ?, cliente_id = ?, tipo = ?, estado = ?, prioridad = ?, 
+  const { ticket, id_cliente, cliente_id, contrato_id, emplazamiento_id, id_mantis, proyecto, procedencia_aviso, tipo, estado, prioridad,
+          responsable_id, asignado_a, tecnicos_apoyo, titulo, notas, activo_id, datos_json, fecha_programada, fecha_cierre } = req.body;
+  db.run(`UPDATE ordenes_trabajo SET ticket = ?, id_cliente = ?, cliente_id = ?, contrato_id = ?, emplazamiento_id = ?, 
+          id_mantis = ?, proyecto = ?, procedencia_aviso = ?, tipo = ?, estado = ?, prioridad = ?, 
           responsable_id = ?, asignado_a = ?, tecnicos_apoyo = ?, titulo = ?, notas = ?, activo_id = ?, datos_json = ?, 
           fecha_programada = ?, fecha_cierre = ? WHERE id = ?`,
-    [ticket, id_cliente, cliente_id || null, tipo, estado, prioridad || 'media', responsable_id || null, asignado_a, tecnicos_apoyo || null,
+    [ticket, id_cliente, cliente_id || null, contrato_id || null, emplazamiento_id || null, id_mantis || null, proyecto || null, procedencia_aviso || null,
+     tipo, estado, prioridad || 'media', responsable_id || null, asignado_a, tecnicos_apoyo || null,
      titulo, notas, activo_id || null, datos_json || null, fecha_programada || null, fecha_cierre || null, req.params.id],
     (err) => {
       if (err) return res.status(500).json({ error: err.message });
-      res.json({ id: req.params.id, ticket, id_cliente, cliente_id, tipo, estado, prioridad, responsable_id, asignado_a, tecnicos_apoyo, titulo, notas, activo_id, datos_json, fecha_programada, fecha_cierre });
+      res.json({ id: req.params.id, ticket, id_cliente, cliente_id, contrato_id, emplazamiento_id, id_mantis, proyecto, procedencia_aviso, tipo, estado, prioridad, responsable_id, asignado_a, tecnicos_apoyo, titulo, notas, activo_id, datos_json, fecha_programada, fecha_cierre });
     });
 });
 
@@ -1196,16 +1216,16 @@ app.get('/api/visitas', (req, res) => {
 });
 
 app.post('/api/visitas', (req, res) => {
-  const { orden_id, fecha, tecnico_id, hora_inicio, hora_fin, id_mantis, proyecto, descripcion,
+  const { orden_id, fecha, tecnico_id, hora_inicio, hora_fin, id_mantis, proyecto, descripcion, trabajos_pendientes,
           checklist_tipo, checklist_json, materiales_json, fotos_json, videos_json, medio_ambiente_json,
           seguridad_json, desplazamientos_json, firma, firma_nombre, finalizado } = req.body;
   if (!orden_id) return res.status(400).json({ error: 'orden_id requerido' });
   const id = `VIS-${Date.now()}`;
   db.run(`INSERT INTO visitas (id, orden_id, fecha, tecnico_id, hora_inicio, hora_fin, id_mantis, proyecto, 
-          descripcion, checklist_tipo, checklist_json, materiales_json, fotos_json, videos_json, medio_ambiente_json, 
+          descripcion, trabajos_pendientes, checklist_tipo, checklist_json, materiales_json, fotos_json, videos_json, medio_ambiente_json, 
           seguridad_json, desplazamientos_json, firma, firma_nombre, finalizado) 
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [id, orden_id, fecha, tecnico_id, hora_inicio, hora_fin, id_mantis, proyecto, descripcion,
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [id, orden_id, fecha, tecnico_id, hora_inicio, hora_fin, id_mantis, proyecto, descripcion, trabajos_pendientes,
      checklist_tipo, checklist_json, materiales_json, fotos_json, videos_json, medio_ambiente_json,
      seguridad_json, desplazamientos_json, firma, firma_nombre, finalizado ? 1 : 0],
     function(err) {
@@ -1216,21 +1236,21 @@ app.post('/api/visitas', (req, res) => {
       } else {
         db.run(`UPDATE ordenes_trabajo SET estado = 'en_curso' WHERE id = ? AND estado = 'abierta'`, [orden_id]);
       }
-      res.json({ id, orden_id, fecha, tecnico_id, hora_inicio, hora_fin, id_mantis, proyecto, descripcion,
+      res.json({ id, orden_id, fecha, tecnico_id, hora_inicio, hora_fin, id_mantis, proyecto, descripcion, trabajos_pendientes,
         checklist_tipo, checklist_json, materiales_json, fotos_json, videos_json, medio_ambiente_json,
         seguridad_json, desplazamientos_json, firma, firma_nombre, finalizado: finalizado ? 1 : 0 });
     });
 });
 
 app.put('/api/visitas/:id', (req, res) => {
-  const { fecha, tecnico_id, hora_inicio, hora_fin, id_mantis, proyecto, descripcion,
+  const { fecha, tecnico_id, hora_inicio, hora_fin, id_mantis, proyecto, descripcion, trabajos_pendientes,
           checklist_tipo, checklist_json, materiales_json, fotos_json, videos_json, medio_ambiente_json,
           seguridad_json, desplazamientos_json, firma, firma_nombre, finalizado, orden_id } = req.body;
   db.run(`UPDATE visitas SET fecha = ?, tecnico_id = ?, hora_inicio = ?, hora_fin = ?, id_mantis = ?, 
-          proyecto = ?, descripcion = ?, checklist_tipo = ?, checklist_json = ?, materiales_json = ?, 
+          proyecto = ?, descripcion = ?, trabajos_pendientes = ?, checklist_tipo = ?, checklist_json = ?, materiales_json = ?, 
           fotos_json = ?, videos_json = ?, medio_ambiente_json = ?, seguridad_json = ?, desplazamientos_json = ?, 
           firma = ?, firma_nombre = ?, finalizado = ? WHERE id = ?`,
-    [fecha, tecnico_id, hora_inicio, hora_fin, id_mantis, proyecto, descripcion, checklist_tipo,
+    [fecha, tecnico_id, hora_inicio, hora_fin, id_mantis, proyecto, descripcion, trabajos_pendientes, checklist_tipo,
      checklist_json, materiales_json, fotos_json, videos_json, medio_ambiente_json, seguridad_json,
      desplazamientos_json, firma, firma_nombre, finalizado ? 1 : 0, req.params.id],
     (err) => {
