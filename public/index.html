@@ -505,7 +505,7 @@
                         { id: 'usuarios', label: 'Usuarios' }
                     ];
                 } else {
-                    return [{ id: 'ordenes', label: 'Mis Órdenes' }];
+                    return [{ id: 'ordenes', label: 'Mis Órdenes' }, { id: 'inventario', label: 'Inventario' }];
                 }
             };
 
@@ -561,10 +561,10 @@
 
                     <div className="content">
                         {activeTab === 'dashboard' && <DashboardView user={user} usuarios={usuarios} ordenes={ordenes} clientes={clientes} activos={activos} contratos={contratos} />}
-                        {activeTab === 'ordenes' && <OrdenesView user={user} ordenes={ordenes} clientes={clientes} contratos={contratos} activos={activos} tiposActivo={tiposActivo} usuarios={usuarios} materiales={materiales} onRefresh={cargarDatos} />}
-                        {activeTab === 'guardias' && (user.rol === 'admin' || user.rol === 'supervisor') && <OrdenesView user={user} ordenes={ordenes} clientes={clientes} contratos={contratos} activos={activos} tiposActivo={tiposActivo} usuarios={usuarios} materiales={materiales} onRefresh={cargarDatos} filtroInicialTipo="guardia" />}
+                        {activeTab === 'ordenes' && <OrdenesView user={user} ordenes={ordenes} clientes={clientes} contratos={contratos} activos={activos} zonas={zonas} emplazamientos={emplazamientos} tiposActivo={tiposActivo} usuarios={usuarios} materiales={materiales} onRefresh={cargarDatos} />}
+                        {activeTab === 'guardias' && (user.rol === 'admin' || user.rol === 'supervisor') && <OrdenesView user={user} ordenes={ordenes} clientes={clientes} contratos={contratos} activos={activos} zonas={zonas} emplazamientos={emplazamientos} tiposActivo={tiposActivo} usuarios={usuarios} materiales={materiales} onRefresh={cargarDatos} filtroInicialTipo="guardia" />}
                         {activeTab === 'calendario' && (user.rol === 'admin' || user.rol === 'supervisor') && <CalendarView user={user} ordenes={ordenes} usuarios={usuarios} activos={activos} onRefresh={cargarDatos} />}
-                        {activeTab === 'inventario' && (user.rol === 'admin' || user.rol === 'supervisor') && <InventarioView user={user} activos={activos} emplazamientos={emplazamientos} zonas={zonas} clientes={clientes} contratos={contratos} tiposActivo={tiposActivo} camposConfig={camposConfig} onRefresh={cargarDatos} />}
+                        {activeTab === 'inventario' && <InventarioView user={user} activos={activos} emplazamientos={emplazamientos} zonas={zonas} clientes={clientes} contratos={contratos} tiposActivo={tiposActivo} camposConfig={camposConfig} onRefresh={cargarDatos} />}
                         {activeTab === 'preciario' && (user.rol === 'admin' || user.rol === 'supervisor') && <PreciarioView user={user} materiales={materiales} clientes={clientes} onRefresh={cargarDatos} />}
                         {activeTab === 'usuarios' && (user.rol === 'admin' || user.rol === 'supervisor') && <UsuariosView user={user} usuarios={usuarios} onRefresh={cargarDatos} />}
                     </div>
@@ -1256,7 +1256,7 @@
             return <p className="print-json-item">{String(data)}</p>;
         }
 
-        function OrdenesView({ user, ordenes, clientes, contratos, activos, tiposActivo, usuarios, materiales, onRefresh, filtroInicialTipo }) {
+        function OrdenesView({ user, ordenes, clientes, contratos, activos, zonas, emplazamientos, tiposActivo, usuarios, materiales, onRefresh, filtroInicialTipo }) {
             const esGestor = user.rol === 'admin' || user.rol === 'supervisor';
             const [mode, setMode] = useState('list'); // list | form-ot | detail | form-visita | view-visita
             const [filtroTipo, setFiltroTipo] = useState(filtroInicialTipo || 'todas');
@@ -1280,17 +1280,19 @@
 
             const initialOtForm = {
                 titulo: '', tipo: esGestor ? 'correctivo' : 'guardia', ticket: '', id_cliente: '',
-                cliente_id: '', activo_id: '', prioridad: 'media', fecha_programada: '',
+                cliente_id: '', contrato_id: '', emplazamiento_id: '', id_mantis: '', proyecto: '',
+                activo_id: '', prioridad: 'media', fecha_programada: '',
                 responsable_id: user.id, asignado_a: user.id, tecnicos_apoyo: [], notas: '', estado: esGestor ? 'pendiente' : 'pendiente'
             };
             const [otForm, setOtForm] = useState(initialOtForm);
+            const [selectedZonaOt, setSelectedZonaOt] = useState('');
 
             // Un técnico solo edita libremente sus Guardias; en el resto de tipos, solo Estado y Notas
             const puedeEditarTodo = esGestor || otForm.tipo === 'guardia';
 
             const blankVisita = () => ({
                 fecha: new Date().toISOString().slice(0, 10), tecnico_id: user.id, hora_inicio: '', hora_fin: '',
-                id_mantis: '', proyecto: '', descripcion: '', checklist_json: {}, materiales_json: [], fotos_json: [], videos_json: [],
+                id_mantis: '', proyecto: '', descripcion: '', trabajos_pendientes: '', checklist_json: {}, materiales_json: [], fotos_json: [], videos_json: [],
                 medio_ambiente_json: {}, seguridad_json: {}, desplazamientos_json: [], firma: '', firma_nombre: '', finalizado: false
             });
             const [visitaForm, setVisitaForm] = useState(blankVisita());
@@ -1312,11 +1314,18 @@
             };
 
             const contratosFiltrados = selectedCliente ? contratos.filter(c => c.cliente_id === parseInt(selectedCliente)) : contratos;
-            const activosFiltrados = activoSearch ? activos.filter(a => a.nombre.toLowerCase().includes(activoSearch.toLowerCase())) : activos;
+            const emplazamientosFiltradosOt = selectedZonaOt ? (emplazamientos || []).filter(e => e.zona_id === parseInt(selectedZonaOt)) : (emplazamientos || []);
+            const activosFiltrados = (() => {
+                let lista = activos;
+                if (otForm.emplazamiento_id) lista = lista.filter(a => a.emplazamiento_id === parseInt(otForm.emplazamiento_id));
+                if (activoSearch) lista = lista.filter(a => a.nombre.toLowerCase().includes(activoSearch.toLowerCase()));
+                return lista;
+            })();
 
             const abrirNuevaOt = () => {
                 setOtForm(initialOtForm);
                 setSelectedCliente('');
+                setSelectedZonaOt('');
                 setActivoSearch('');
                 setEditingOtId(null);
                 setMode('form-ot');
@@ -1327,11 +1336,15 @@
                 try { tecApoyo = o.tecnicos_apoyo ? JSON.parse(o.tecnicos_apoyo) : []; } catch { tecApoyo = []; }
                 setOtForm({
                     titulo: o.titulo, tipo: o.tipo, ticket: o.ticket || '', id_cliente: o.id_cliente || '',
-                    cliente_id: o.cliente_id || '', activo_id: o.activo_id || '', prioridad: o.prioridad || 'media',
+                    cliente_id: o.cliente_id || '', contrato_id: o.contrato_id || '', emplazamiento_id: o.emplazamiento_id || '',
+                    id_mantis: o.id_mantis || '', proyecto: o.proyecto || '',
+                    activo_id: o.activo_id || '', prioridad: o.prioridad || 'media',
                     fecha_programada: o.fecha_programada || '', responsable_id: o.responsable_id || user.id, asignado_a: o.asignado_a || user.id,
                     tecnicos_apoyo: tecApoyo, notas: o.notas || '', estado: o.estado
                 });
                 if (o.cliente_id) setSelectedCliente(String(o.cliente_id));
+                const emp = o.emplazamiento_id ? (emplazamientos || []).find(e => e.id === o.emplazamiento_id) : null;
+                setSelectedZonaOt(emp ? String(emp.zona_id) : '');
                 setEditingOtId(o.id);
                 setMode('form-ot');
             };
@@ -1347,6 +1360,8 @@
                 const payload = {
                     ...otForm,
                     cliente_id: otForm.cliente_id || null,
+                    contrato_id: otForm.contrato_id || null,
+                    emplazamiento_id: otForm.emplazamiento_id || null,
                     activo_id: otForm.activo_id || null,
                     tecnicos_apoyo: JSON.stringify(otForm.tecnicos_apoyo || [])
                 };
@@ -1391,7 +1406,7 @@
                 try { desp = v.desplazamientos_json ? JSON.parse(v.desplazamientos_json) : []; } catch {}
                 setVisitaForm({
                     fecha: v.fecha || '', tecnico_id: v.tecnico_id || user.id, hora_inicio: v.hora_inicio || '', hora_fin: v.hora_fin || '',
-                    id_mantis: v.id_mantis || '', proyecto: v.proyecto || '', descripcion: v.descripcion || '',
+                    id_mantis: v.id_mantis || '', proyecto: v.proyecto || '', descripcion: v.descripcion || '', trabajos_pendientes: v.trabajos_pendientes || '',
                     checklist_json: checklist, materiales_json: mats, fotos_json: fotos, videos_json: videos,
                     medio_ambiente_json: medio, seguridad_json: seg, desplazamientos_json: desp,
                     firma: v.firma || '', firma_nombre: v.firma_nombre || '', finalizado: !!v.finalizado
@@ -1405,7 +1420,7 @@
                 const payload = {
                     orden_id: selectedOtId,
                     fecha: visitaForm.fecha, tecnico_id: visitaForm.tecnico_id, hora_inicio: visitaForm.hora_inicio, hora_fin: visitaForm.hora_fin,
-                    id_mantis: visitaForm.id_mantis, proyecto: visitaForm.proyecto, descripcion: visitaForm.descripcion,
+                    id_mantis: visitaForm.id_mantis, proyecto: visitaForm.proyecto, descripcion: visitaForm.descripcion, trabajos_pendientes: visitaForm.trabajos_pendientes,
                     checklist_tipo: otSeleccionada && otSeleccionada.activo_tipo ? otSeleccionada.activo_tipo : null,
                     checklist_json: JSON.stringify(visitaForm.checklist_json || {}),
                     materiales_json: JSON.stringify(visitaForm.materiales_json || []),
@@ -1500,9 +1515,19 @@
                                 <p className="lock-note">🔒 Solo puedes modificar el Estado y las Notas de esta orden. El resto de campos los gestiona tu responsable.</p>
                             )}
 
-                            <div className={`form-group ${!puedeEditarTodo ? 'field-locked' : ''}`}>
-                                <label>Título</label>
-                                <input type="text" placeholder="Título de la orden" value={otForm.titulo} disabled={!puedeEditarTodo} onChange={(e) => setOtForm({ ...otForm, titulo: e.target.value })} />
+                            <div className="ficha-grid">
+                                <div className={`ficha-field ${!puedeEditarTodo ? 'field-locked' : ''}`}>
+                                    <span className="ficha-field-label">Nombre</span>
+                                    <input type="text" placeholder="Título de la orden" value={otForm.titulo} disabled={!puedeEditarTodo} onChange={(e) => setOtForm({ ...otForm, titulo: e.target.value })} />
+                                </div>
+                                <div className="ficha-field">
+                                    <span className="ficha-field-label">Fecha de Creación</span>
+                                    <span className="ficha-field-value">{editingOtId && otSeleccionada ? String(otSeleccionada.creado_en || '').slice(0, 10) : new Date().toISOString().slice(0, 10)}</span>
+                                </div>
+                                <div className="ficha-field">
+                                    <span className="ficha-field-label">Nº OT</span>
+                                    <span className="ficha-field-value">{editingOtId || '— (se asigna al crear)'}</span>
+                                </div>
                             </div>
 
                             {esGestor ? (
@@ -1534,33 +1559,97 @@
                                 </>
                             )}
 
-                            <div className={`form-group ${!puedeEditarTodo ? 'field-locked' : ''}`}>
-                                <label>Cliente{otForm.tipo === 'guardia' ? ' (opcional)' : ''}</label>
-                                <select value={otForm.cliente_id} disabled={!puedeEditarTodo} onChange={(e) => { setOtForm({ ...otForm, cliente_id: e.target.value }); setSelectedCliente(e.target.value); }}>
-                                    <option value="">-- Selecciona un cliente --</option>
-                                    {clientes.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-                                </select>
+                            <div className="ficha-grid">
+                                <div className={`ficha-field ${!puedeEditarTodo ? 'field-locked' : ''}`}>
+                                    <span className="ficha-field-label">Cliente{otForm.tipo === 'guardia' ? ' (opcional)' : ''}</span>
+                                    <select value={otForm.cliente_id} disabled={!puedeEditarTodo} onChange={(e) => { setOtForm({ ...otForm, cliente_id: e.target.value, contrato_id: '' }); setSelectedCliente(e.target.value); }}>
+                                        <option value="">-- Selecciona --</option>
+                                        {clientes.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                                    </select>
+                                </div>
+                                <div className={`ficha-field ${!puedeEditarTodo ? 'field-locked' : ''}`}>
+                                    <span className="ficha-field-label">Contrato</span>
+                                    <select value={otForm.contrato_id} disabled={!puedeEditarTodo || !otForm.cliente_id} onChange={(e) => setOtForm({ ...otForm, contrato_id: e.target.value })}>
+                                        <option value="">-- Selecciona --</option>
+                                        {contratosFiltrados.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                                    </select>
+                                </div>
+                                <div className={`ficha-field ${!puedeEditarTodo ? 'field-locked' : ''}`}>
+                                    <span className="ficha-field-label">Emplazamiento</span>
+                                    <select value={otForm.emplazamiento_id} disabled={!puedeEditarTodo} onChange={(e) => setOtForm({ ...otForm, emplazamiento_id: e.target.value, activo_id: '' })}>
+                                        <option value="">-- Selecciona --</option>
+                                        {emplazamientosFiltradosOt.map(e => <option key={e.id} value={e.id}>{e.nombre}</option>)}
+                                    </select>
+                                </div>
+
+                                <div className={`ficha-field ${!puedeEditarTodo ? 'field-locked' : ''}`}>
+                                    <span className="ficha-field-label">Zona</span>
+                                    <select value={selectedZonaOt} disabled={!puedeEditarTodo} onChange={(e) => { setSelectedZonaOt(e.target.value); setOtForm({ ...otForm, emplazamiento_id: '', activo_id: '' }); }}>
+                                        <option value="">-- Selecciona --</option>
+                                        {(zonas || []).map(z => <option key={z.id} value={z.id}>{z.nombre}</option>)}
+                                    </select>
+                                </div>
+                                <div className={`ficha-field ${!puedeEditarTodo ? 'field-locked' : ''}`}>
+                                    <span className="ficha-field-label">Activo{otForm.tipo !== 'preventivo' ? ' (opcional)' : ''}</span>
+                                    <select value={otForm.activo_id} disabled={!puedeEditarTodo} onChange={(e) => setOtForm({ ...otForm, activo_id: e.target.value })}>
+                                        <option value="">-- Selecciona --</option>
+                                        {activosFiltrados.map(a => <option key={a.id} value={a.id}>{a.nombre} · {a.tipo}</option>)}
+                                    </select>
+                                </div>
+                                <div className="ficha-field">
+                                    <span className="ficha-field-label">Estado</span>
+                                    <select value={otForm.estado} onChange={(e) => setOtForm({ ...otForm, estado: e.target.value })}>
+                                        <option value="pendiente">Pendiente</option>
+                                        <option value="abierta">Asignada / Abierta</option>
+                                        <option value="en_curso">En curso</option>
+                                        <option value="resuelta">Resuelta</option>
+                                        <option value="cancelada">Cancelada</option>
+                                    </select>
+                                </div>
+
+                                <div className="ficha-field">
+                                    <span className="ficha-field-label">Fecha Programada</span>
+                                    {esGestor ? (
+                                        <input type="date" value={otForm.fecha_programada} onChange={(e) => setOtForm({ ...otForm, fecha_programada: e.target.value })} />
+                                    ) : (
+                                        <span className="ficha-field-value">{otForm.fecha_programada || '—'}</span>
+                                    )}
+                                </div>
+                                {(() => {
+                                    const empSel = otForm.emplazamiento_id ? (emplazamientos || []).find(e => String(e.id) === String(otForm.emplazamiento_id)) : null;
+                                    const tieneCoords = empSel && empSel.lat != null;
+                                    return (
+                                        <React.Fragment>
+                                            <div className="ficha-field">
+                                                <span className="ficha-field-label">Coordenadas</span>
+                                                <span className="ficha-field-value">{tieneCoords ? `${empSel.lat}, ${empSel.lon}` : '—'}</span>
+                                            </div>
+                                            <div className="ficha-field">
+                                                <span className="ficha-field-label">Enlace MAPS</span>
+                                                <span className="ficha-field-value">
+                                                    {tieneCoords ? (
+                                                        <a href={`https://maps.google.com/?q=${empSel.lat},${empSel.lon}`} target="_blank" rel="noopener noreferrer">📍 Abrir en Maps</a>
+                                                    ) : '—'}
+                                                </span>
+                                            </div>
+                                        </React.Fragment>
+                                    );
+                                })()}
+
+                                <div className={`ficha-field ${!puedeEditarTodo ? 'field-locked' : ''}`}>
+                                    <span className="ficha-field-label">ID Mantis</span>
+                                    <input type="text" value={otForm.id_mantis} disabled={!puedeEditarTodo} onChange={(e) => setOtForm({ ...otForm, id_mantis: e.target.value })} />
+                                </div>
+                                <div className={`ficha-field ficha-field-span2 ${!puedeEditarTodo ? 'field-locked' : ''}`}>
+                                    <span className="ficha-field-label">Proyecto</span>
+                                    <input type="text" value={otForm.proyecto} disabled={!puedeEditarTodo} onChange={(e) => setOtForm({ ...otForm, proyecto: e.target.value })} />
+                                </div>
                             </div>
 
-                            {(otForm.tipo === 'preventivo' || otForm.tipo === 'guardia' || otForm.tipo === 'correctivo') && (
-                                <>
-                                    {puedeEditarTodo && (
-                                        <div className="form-group">
-                                            <label>Buscar Activo{otForm.tipo !== 'preventivo' ? ' (opcional)' : ''}</label>
-                                            <input type="text" placeholder="Escribe para filtrar..." value={activoSearch} onChange={(e) => setActivoSearch(e.target.value)} />
-                                        </div>
-                                    )}
-                                    <div className={`form-group ${!puedeEditarTodo ? 'field-locked' : ''}`}>
-                                        <label>Activo{otForm.tipo !== 'preventivo' ? ' Relacionado (opcional, indica el tipo y su checklist)' : ' a Revisar'}</label>
-                                        <select value={otForm.activo_id} disabled={!puedeEditarTodo} onChange={(e) => setOtForm({ ...otForm, activo_id: e.target.value })}>
-                                            <option value="">-- Selecciona un activo --</option>
-                                            {activosFiltrados.map(a => (
-                                                <option key={a.id} value={a.id}>{a.nombre} · {a.tipo} ({a.cliente_nombre} › {a.emplazamiento_nombre})</option>
-                                            ))}
-                                        </select>
-                                    </div>
-                                </>
-                            )}
+                            <div className="form-group">
+                                <label>Causa de la avería</label>
+                                <textarea rows="4" placeholder="Describe el trabajo o incidencia..." value={otForm.notas} onChange={(e) => setOtForm({ ...otForm, notas: e.target.value })}></textarea>
+                            </div>
 
                             <div className={`form-group ${!puedeEditarTodo ? 'field-locked' : ''}`}>
                                 <label>Prioridad</label>
@@ -1572,30 +1661,13 @@
                                 </select>
                             </div>
 
-                            <div className="form-group">
-                                <label>Estado</label>
-                                <select value={otForm.estado} onChange={(e) => setOtForm({ ...otForm, estado: e.target.value })}>
-                                    <option value="pendiente">Pendiente</option>
-                                    <option value="abierta">Asignada / Abierta</option>
-                                    <option value="en_curso">En curso</option>
-                                    <option value="resuelta">Resuelta</option>
-                                    <option value="cancelada">Cancelada</option>
-                                </select>
-                            </div>
-
                             {esGestor && (
-                                <>
-                                    <div className="form-group">
-                                        <label>Fecha Programada</label>
-                                        <input type="date" value={otForm.fecha_programada} onChange={(e) => setOtForm({ ...otForm, fecha_programada: e.target.value })} />
-                                    </div>
-                                    <div className="form-group">
-                                        <label>Responsable (Admin / Supervisor)</label>
-                                        <select value={otForm.responsable_id} onChange={(e) => setOtForm({ ...otForm, responsable_id: parseInt(e.target.value) })}>
-                                            {responsablesDisponibles.map(u => <option key={u.id} value={u.id}>{u.nombre} ({u.rol})</option>)}
-                                        </select>
-                                    </div>
-                                </>
+                                <div className="form-group">
+                                    <label>Responsable (Admin / Supervisor)</label>
+                                    <select value={otForm.responsable_id} onChange={(e) => setOtForm({ ...otForm, responsable_id: parseInt(e.target.value) })}>
+                                        {responsablesDisponibles.map(u => <option key={u.id} value={u.id}>{u.nombre} ({u.rol})</option>)}
+                                    </select>
+                                </div>
                             )}
 
                             <div className={`form-group ${!puedeEditarTodo ? 'field-locked' : ''}`}>
@@ -1618,11 +1690,6 @@
                                     ))}
                                 </div>
                             )}
-
-                            <div className="form-group">
-                                <label>Notas / Descripción</label>
-                                <textarea placeholder="Describe el trabajo o incidencia..." value={otForm.notas} onChange={(e) => setOtForm({ ...otForm, notas: e.target.value })}></textarea>
-                            </div>
 
                             <div className="btn-group">
                                 <button className="btn btn-success" onClick={guardarOt}>{editingOtId ? 'Guardar' : 'Crear'}</button>
@@ -1652,18 +1719,50 @@
                                 </div>
                                 <span className={`badge ${otSeleccionada.tipo}`}>{otSeleccionada.tipo}</span>
                             </div>
+                            <div className="ficha-grid">
+                                <div className="ficha-field"><span className="ficha-field-label">Nombre</span><span className="ficha-field-value">{otSeleccionada.titulo}</span></div>
+                                <div className="ficha-field"><span className="ficha-field-label">Fecha de Creación</span><span className="ficha-field-value">{String(otSeleccionada.creado_en || '').slice(0, 10)}</span></div>
+                                <div className="ficha-field"><span className="ficha-field-label">Nº OT</span><span className="ficha-field-value">{otSeleccionada.id}</span></div>
+
+                                <div className="ficha-field"><span className="ficha-field-label">Cliente</span><span className="ficha-field-value">{otSeleccionada.cliente_nombre || '—'}</span></div>
+                                <div className="ficha-field"><span className="ficha-field-label">Contrato</span><span className="ficha-field-value">{otSeleccionada.contrato_nombre || '—'}</span></div>
+                                <div className="ficha-field"><span className="ficha-field-label">Emplazamiento</span><span className="ficha-field-value">{otSeleccionada.emplazamiento_nombre || '—'}</span></div>
+
+                                <div className="ficha-field"><span className="ficha-field-label">Zona</span><span className="ficha-field-value">{otSeleccionada.zona_nombre || '—'}</span></div>
+                                <div className="ficha-field"><span className="ficha-field-label">Activo</span><span className="ficha-field-value">{otSeleccionada.activo_nombre || '—'}</span></div>
+                                <div className="ficha-field"><span className="ficha-field-label">Estado</span><span className="ficha-field-value">{otSeleccionada.estado}</span></div>
+
+                                <div className="ficha-field"><span className="ficha-field-label">Fecha Programada</span><span className="ficha-field-value">{otSeleccionada.fecha_programada || '—'}</span></div>
+                                <div className="ficha-field"><span className="ficha-field-label">Coordenadas</span><span className="ficha-field-value">{otSeleccionada.emplazamiento_lat != null ? `${otSeleccionada.emplazamiento_lat}, ${otSeleccionada.emplazamiento_lon}` : '—'}</span></div>
+                                <div className="ficha-field">
+                                    <span className="ficha-field-label">Enlace MAPS</span>
+                                    <span className="ficha-field-value">
+                                        {otSeleccionada.emplazamiento_lat != null ? (
+                                            <a href={`https://maps.google.com/?q=${otSeleccionada.emplazamiento_lat},${otSeleccionada.emplazamiento_lon}`} target="_blank" rel="noopener noreferrer">📍 Abrir en Maps</a>
+                                        ) : '—'}
+                                    </span>
+                                </div>
+
+                                <div className="ficha-field"><span className="ficha-field-label">ID Mantis</span><span className="ficha-field-value">{otSeleccionada.id_mantis || '—'}</span></div>
+                                <div className="ficha-field ficha-field-span2"><span className="ficha-field-label">Proyecto</span><span className="ficha-field-value">{otSeleccionada.proyecto || '—'}</span></div>
+                            </div>
+
+                            <div style={{ borderTop: '2px solid var(--border)', margin: '10px 0' }}></div>
+
                             <div className="readonly-view">
-                                {otSeleccionada.cliente_nombre && <div className="rv-row"><span className="rv-label">Cliente</span><span className="rv-value">{otSeleccionada.cliente_nombre}</span></div>}
-                                {otSeleccionada.activo_nombre && <div className="rv-row"><span className="rv-label">Activo</span><span className="rv-value">{otSeleccionada.activo_nombre}</span></div>}
                                 {otSeleccionada.ticket && <div className="rv-row"><span className="rv-label">Ticket</span><span className="rv-value">{otSeleccionada.ticket}</span></div>}
                                 {otSeleccionada.id_cliente && <div className="rv-row"><span className="rv-label">ID Cliente</span><span className="rv-value">{otSeleccionada.id_cliente}</span></div>}
-                                {otSeleccionada.fecha_programada && <div className="rv-row"><span className="rv-label">Programada</span><span className="rv-value">{otSeleccionada.fecha_programada}</span></div>}
                                 <div className="rv-row"><span className="rv-label">Técnico</span><span className="rv-value">{otSeleccionada.tecnico_nombre || '—'}</span></div>
                                 <div className="rv-row"><span className="rv-label">Responsable</span><span className="rv-value">{otSeleccionada.responsable_nombre || '—'}</span></div>
                                 {nombresApoyo.length > 0 && <div className="rv-row"><span className="rv-label">Apoyo</span><span className="rv-value">{nombresApoyo.join(', ')}</span></div>}
-                                <div className="rv-row"><span className="rv-label">Estado</span><span className="rv-value">{otSeleccionada.estado}</span></div>
-                                {otSeleccionada.notas && <div className="rv-row"><span className="rv-label">Notas</span><span className="rv-value">{otSeleccionada.notas}</span></div>}
                             </div>
+
+                            {otSeleccionada.notas && (
+                                <div className="form-group" style={{ marginTop: '8px' }}>
+                                    <label>Causa de la avería</label>
+                                    <p className="card-text" style={{ whiteSpace: 'pre-wrap' }}>{otSeleccionada.notas}</p>
+                                </div>
+                            )}
                             {(() => {
                                 const puedeGestionar = esGestor || otSeleccionada.asignado_a === user.id;
                                 const sinAsignar = !otSeleccionada.asignado_a;
@@ -1707,6 +1806,7 @@
                                             </span>
                                         </div>
                                         {v.descripcion && <p className="card-text">{v.descripcion}</p>}
+                                        {v.trabajos_pendientes && <p className="card-text" style={{ color: 'var(--fill-accent)' }}>⏳ Pendiente: {v.trabajos_pendientes}</p>}
                                         <div style={{ marginTop: '6px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                                             <button className="btn btn-secondary" onClick={() => { setViewingVisitId(v.id); setMode('view-visita'); }}>Ver</button>
                                             {(esGestor || v.tecnico_id === user.id) && <button className="btn btn-primary" onClick={() => abrirEditarVisita(v)}>Editar</button>}
@@ -1725,15 +1825,25 @@
                             </div>
 
                             <div className="print-section-title">Datos de la Orden</div>
+                            <div className="print-row"><span className="print-label">Nombre</span><span className="print-value">{otSeleccionada.titulo}</span></div>
+                            <div className="print-row"><span className="print-label">Fecha de Creación</span><span className="print-value">{String(otSeleccionada.creado_en || '').slice(0, 10)}</span></div>
                             {otSeleccionada.cliente_nombre && <div className="print-row"><span className="print-label">Cliente</span><span className="print-value">{otSeleccionada.cliente_nombre}</span></div>}
+                            {otSeleccionada.contrato_nombre && <div className="print-row"><span className="print-label">Contrato</span><span className="print-value">{otSeleccionada.contrato_nombre}</span></div>}
+                            {otSeleccionada.zona_nombre && <div className="print-row"><span className="print-label">Zona</span><span className="print-value">{otSeleccionada.zona_nombre}</span></div>}
+                            {otSeleccionada.emplazamiento_nombre && <div className="print-row"><span className="print-label">Emplazamiento</span><span className="print-value">{otSeleccionada.emplazamiento_nombre}</span></div>}
                             {otSeleccionada.activo_nombre && <div className="print-row"><span className="print-label">Activo</span><span className="print-value">{otSeleccionada.activo_nombre}</span></div>}
+                            {otSeleccionada.emplazamiento_lat != null && (
+                                <div className="print-row"><span className="print-label">Coordenadas</span><span className="print-value">{otSeleccionada.emplazamiento_lat}, {otSeleccionada.emplazamiento_lon}</span></div>
+                            )}
                             {otSeleccionada.ticket && <div className="print-row"><span className="print-label">Ticket</span><span className="print-value">{otSeleccionada.ticket}</span></div>}
                             {otSeleccionada.id_cliente && <div className="print-row"><span className="print-label">ID Cliente</span><span className="print-value">{otSeleccionada.id_cliente}</span></div>}
+                            {otSeleccionada.id_mantis && <div className="print-row"><span className="print-label">ID Mantis</span><span className="print-value">{otSeleccionada.id_mantis}</span></div>}
+                            {otSeleccionada.proyecto && <div className="print-row"><span className="print-label">Proyecto</span><span className="print-value">{otSeleccionada.proyecto}</span></div>}
                             {otSeleccionada.fecha_programada && <div className="print-row"><span className="print-label">Programada</span><span className="print-value">{otSeleccionada.fecha_programada}</span></div>}
                             <div className="print-row"><span className="print-label">Técnico</span><span className="print-value">{otSeleccionada.tecnico_nombre || '—'}</span></div>
                             <div className="print-row"><span className="print-label">Responsable</span><span className="print-value">{otSeleccionada.responsable_nombre || '—'}</span></div>
                             {nombresApoyo.length > 0 && <div className="print-row"><span className="print-label">Apoyo</span><span className="print-value">{nombresApoyo.join(', ')}</span></div>}
-                            {otSeleccionada.notas && <div className="print-row"><span className="print-label">Notas</span><span className="print-value">{otSeleccionada.notas}</span></div>}
+                            {otSeleccionada.notas && <div className="print-row"><span className="print-label">Causa de la avería</span><span className="print-value">{otSeleccionada.notas}</span></div>}
 
                             <div className="print-section-title">Visitas ({visitas.length})</div>
                             {visitas.length === 0 && <p className="print-json-item">No hay visitas registradas.</p>}
@@ -1749,7 +1859,8 @@
                                     <div key={v.id} className="print-visita">
                                         <p style={{ fontWeight: 700, fontSize: '13px', margin: '0 0 4px' }}>📅 Visita del {v.fecha} — {v.finalizado ? 'Finalizada' : 'En curso'}</p>
                                         <p className="print-json-item">Técnico: {v.tecnico_nombre || '—'} {v.hora_inicio && `· ${v.hora_inicio}${v.hora_fin ? '-' + v.hora_fin : ''}`}</p>
-                                        {v.descripcion && <p className="print-json-item">{v.descripcion}</p>}
+                                        {v.descripcion && <p className="print-json-item"><strong>Trabajos realizados:</strong> {v.descripcion}</p>}
+                                        {v.trabajos_pendientes && <p className="print-json-item"><strong>Trabajos pendientes:</strong> {v.trabajos_pendientes}</p>}
 
                                         {v.checklist_tipo && (
                                             <div>
@@ -1811,18 +1922,38 @@
                         <div className="card" style={{ marginTop: '10px' }}>
                             <h4 className="card-title">{editingVisitId ? 'Editar Visita' : 'Nueva Visita'}</h4>
 
-                            <div className="form-group"><label>Fecha</label><input type="date" value={visitaForm.fecha} onChange={(e) => setVisitaForm({ ...visitaForm, fecha: e.target.value })} /></div>
+                            <div className="ficha-grid">
+                                <div className="ficha-field">
+                                    <span className="ficha-field-label">Fecha visita</span>
+                                    <input type="date" value={visitaForm.fecha} onChange={(e) => setVisitaForm({ ...visitaForm, fecha: e.target.value })} />
+                                </div>
+                                <div className="ficha-field">
+                                    <span className="ficha-field-label">Hora Inicio</span>
+                                    <input type="time" value={visitaForm.hora_inicio} onChange={(e) => setVisitaForm({ ...visitaForm, hora_inicio: e.target.value })} />
+                                </div>
+                                <div className="ficha-field">
+                                    <span className="ficha-field-label">Hora Fin</span>
+                                    <input type="time" value={visitaForm.hora_fin} onChange={(e) => setVisitaForm({ ...visitaForm, hora_fin: e.target.value })} />
+                                </div>
+                            </div>
                             <div className="form-group">
                                 <label>Técnico</label>
                                 <select value={visitaForm.tecnico_id} onChange={(e) => setVisitaForm({ ...visitaForm, tecnico_id: parseInt(e.target.value) })}>
                                     {tecnicosDisponibles.map(u => <option key={u.id} value={u.id}>{u.nombre}</option>)}
                                 </select>
                             </div>
-                            <div className="form-group"><label>Hora inicio</label><input type="time" value={visitaForm.hora_inicio} onChange={(e) => setVisitaForm({ ...visitaForm, hora_inicio: e.target.value })} /></div>
-                            <div className="form-group"><label>Hora fin</label><input type="time" value={visitaForm.hora_fin} onChange={(e) => setVisitaForm({ ...visitaForm, hora_fin: e.target.value })} /></div>
-                            <div className="form-group"><label>ID Mantis / Ticket</label><input type="text" value={visitaForm.id_mantis} onChange={(e) => setVisitaForm({ ...visitaForm, id_mantis: e.target.value })} /></div>
-                            <div className="form-group"><label>Proyecto</label><input type="text" value={visitaForm.proyecto} onChange={(e) => setVisitaForm({ ...visitaForm, proyecto: e.target.value })} /></div>
-                            <div className="form-group"><label>Descripción</label><textarea value={visitaForm.descripcion} onChange={(e) => setVisitaForm({ ...visitaForm, descripcion: e.target.value })}></textarea></div>
+                            <div className="ficha-grid">
+                                <div className="ficha-field">
+                                    <span className="ficha-field-label">ID Mantis / Ticket</span>
+                                    <input type="text" value={visitaForm.id_mantis} onChange={(e) => setVisitaForm({ ...visitaForm, id_mantis: e.target.value })} />
+                                </div>
+                                <div className="ficha-field ficha-field-span2">
+                                    <span className="ficha-field-label">Proyecto</span>
+                                    <input type="text" value={visitaForm.proyecto} onChange={(e) => setVisitaForm({ ...visitaForm, proyecto: e.target.value })} />
+                                </div>
+                            </div>
+                            <div className="form-group"><label>Trabajos realizados</label><textarea rows="4" value={visitaForm.descripcion} onChange={(e) => setVisitaForm({ ...visitaForm, descripcion: e.target.value })}></textarea></div>
+                            <div className="form-group"><label>Trabajos pendientes</label><textarea rows="4" value={visitaForm.trabajos_pendientes} onChange={(e) => setVisitaForm({ ...visitaForm, trabajos_pendientes: e.target.value })}></textarea></div>
 
                             {otSeleccionada && otSeleccionada.activo_tipo && (
                                 <div className="checklist-section">
@@ -1898,13 +2029,28 @@
                         <button className="btn btn-secondary" onClick={() => setMode('detail')}>← Volver</button>
                         <div className="card" style={{ marginTop: '10px' }}>
                             <h4 className="card-title">👁️ Visita del {visitaViendo.fecha}</h4>
+                            <div className="ficha-grid">
+                                <div className="ficha-field"><span className="ficha-field-label">Fecha visita</span><span className="ficha-field-value">{visitaViendo.fecha}</span></div>
+                                <div className="ficha-field"><span className="ficha-field-label">Hora Inicio</span><span className="ficha-field-value">{visitaViendo.hora_inicio || '—'}</span></div>
+                                <div className="ficha-field"><span className="ficha-field-label">Hora Fin</span><span className="ficha-field-value">{visitaViendo.hora_fin || '—'}</span></div>
+                            </div>
                             <div className="readonly-view">
                                 <div className="rv-row"><span className="rv-label">Técnico</span><span className="rv-value">{visitaViendo.tecnico_nombre || '—'}</span></div>
-                                <div className="rv-row"><span className="rv-label">Horario</span><span className="rv-value">{visitaViendo.hora_inicio || '—'}{visitaViendo.hora_fin ? ' - ' + visitaViendo.hora_fin : ''}</span></div>
                                 {visitaViendo.id_mantis && <div className="rv-row"><span className="rv-label">ID Mantis</span><span className="rv-value">{visitaViendo.id_mantis}</span></div>}
                                 {visitaViendo.proyecto && <div className="rv-row"><span className="rv-label">Proyecto</span><span className="rv-value">{visitaViendo.proyecto}</span></div>}
                             </div>
-                            {visitaViendo.descripcion && <p className="card-text" style={{ marginTop: '8px' }}>{visitaViendo.descripcion}</p>}
+                            {visitaViendo.descripcion && (
+                                <div className="form-group" style={{ marginTop: '8px' }}>
+                                    <label>Trabajos realizados</label>
+                                    <p className="card-text" style={{ whiteSpace: 'pre-wrap' }}>{visitaViendo.descripcion}</p>
+                                </div>
+                            )}
+                            {visitaViendo.trabajos_pendientes && (
+                                <div className="form-group">
+                                    <label>Trabajos pendientes</label>
+                                    <p className="card-text" style={{ whiteSpace: 'pre-wrap' }}>{visitaViendo.trabajos_pendientes}</p>
+                                </div>
+                            )}
 
                             {otSeleccionada && visitaViendo.checklist_tipo && (
                                 <div className="checklist-section">
@@ -2015,6 +2161,7 @@
 
         // ===== ZONAS =====
         function ZonasView({ user, zonas, onRefresh }) {
+            const esGestor = user.rol === 'admin' || user.rol === 'supervisor';
             const [showForm, setShowForm] = useState(false);
             const [editingId, setEditingId] = useState(null);
             const [formData, setFormData] = useState({ nombre: '' });
@@ -2068,8 +2215,8 @@
                             <button className="btn btn-excel" onClick={() => exportToExcel(zonas, 'zonas', [
                                 { key: 'nombre', label: 'Zona' }
                             ])}>📤 Exportar</button>
-                            <ExcelImportButton onRows={handleImportRows} />
-                            <button className="btn btn-crear" onClick={() => { setShowForm(!showForm); setEditingId(null); }}>+ Nueva</button>
+                            {esGestor && <ExcelImportButton onRows={handleImportRows} />}
+                            {esGestor && <button className="btn btn-crear" onClick={() => { setShowForm(!showForm); setEditingId(null); }}>+ Nueva</button>}
                         </div>
                     </div>
 
@@ -2093,10 +2240,12 @@
                         {zonas.length === 0 ? <div className="empty-state">No hay zonas</div> : zonas.map(z => (
                             <div key={z.id} className="list-item">
                                 <p className="card-title">🗺️ {z.nombre}</p>
-                                <div style={{ marginTop: '8px', display: 'flex', gap: '8px' }}>
-                                    <button className="btn btn-primary" onClick={() => handleEdit(z)}>Editar</button>
-                                    <button className="btn btn-danger" onClick={() => handleDelete(z.id)}>Eliminar</button>
-                                </div>
+                                {esGestor && (
+                                    <div style={{ marginTop: '8px', display: 'flex', gap: '8px' }}>
+                                        <button className="btn btn-primary" onClick={() => handleEdit(z)}>Editar</button>
+                                        <button className="btn btn-danger" onClick={() => handleDelete(z.id)}>Eliminar</button>
+                                    </div>
+                                )}
                             </div>
                         ))}
                     </div>
@@ -2169,7 +2318,7 @@
 
         // Muestra los Activos de un Contrato, agrupados por Zona → Emplazamiento, con Ver/Editar/Eliminar
         // incrustados. Reutilizable desde Contratos y desde el árbol de Clientes.
-        function ActivosDeContratoPanel({ contrato, activos, clientes, contratos, zonas, emplazamientos, tiposActivo, camposConfig, onRefresh }) {
+        function ActivosDeContratoPanel({ contrato, activos, clientes, contratos, zonas, emplazamientos, tiposActivo, camposConfig, onRefresh, esGestor = true }) {
             const [activoViendo, setActivoViendo] = useState(null);
             const [activoEditando, setActivoEditando] = useState(null);
 
@@ -2210,10 +2359,12 @@
                                                         <button className="btn btn-secondary" onClick={() => { setActivoViendo(activoViendo && activoViendo.id === a.id ? null : a); setActivoEditando(null); }}>
                                                             {activoViendo && activoViendo.id === a.id ? 'Cerrar' : 'Ver'}
                                                         </button>
-                                                        <button className="btn btn-primary" onClick={() => { setActivoEditando(activoEditando && activoEditando.id === a.id ? null : a); setActivoViendo(null); }}>
-                                                            {activoEditando && activoEditando.id === a.id ? 'Cerrar' : 'Editar'}
-                                                        </button>
-                                                        <button className="btn btn-danger" onClick={() => eliminarActivo(a.id)}>Eliminar</button>
+                                                        {esGestor && (
+                                                            <button className="btn btn-primary" onClick={() => { setActivoEditando(activoEditando && activoEditando.id === a.id ? null : a); setActivoViendo(null); }}>
+                                                                {activoEditando && activoEditando.id === a.id ? 'Cerrar' : 'Editar'}
+                                                            </button>
+                                                        )}
+                                                        {esGestor && <button className="btn btn-danger" onClick={() => eliminarActivo(a.id)}>Eliminar</button>}
                                                     </div>
                                                 </div>
 
@@ -2387,6 +2538,7 @@
 
         // ===== EMPLAZAMIENTOS =====
         function EmplazamientosView({ user, emplazamientos, zonas, activos, clientes, contratos, tiposActivo, camposConfig, onRefresh }) {
+            const esGestor = user.rol === 'admin' || user.rol === 'supervisor';
             const [showForm, setShowForm] = useState(false);
             const [editingId, setEditingId] = useState(null);
             const [formData, setFormData] = useState({ zona_id: '', nombre: '', direccion: '', lat: '', lon: '' });
@@ -2458,8 +2610,8 @@
                                 { key: 'nombre', label: 'Emplazamiento' },
                                 { key: 'direccion', label: 'Dirección' }
                             ])}>📤 Exportar</button>
-                            <ExcelImportButton onRows={handleImportRows} />
-                            <button className="btn btn-crear" onClick={() => { setShowForm(!showForm); setEditingId(null); }}>+ Nuevo</button>
+                            {esGestor && <ExcelImportButton onRows={handleImportRows} />}
+                            {esGestor && <button className="btn btn-crear" onClick={() => { setShowForm(!showForm); setEditingId(null); }}>+ Nuevo</button>}
                         </div>
                     </div>
 
@@ -2517,8 +2669,8 @@
                                     <p className="breadcrumb-path">{e.zona_nombre}</p>
                                     {e.direccion && <p className="card-text">🏠 {e.direccion}</p>}
                                     <div style={{ marginTop: '8px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                                        <button className="btn btn-primary" onClick={() => handleEdit(e)}>Editar</button>
-                                        <button className="btn btn-danger" onClick={() => handleDelete(e.id)}>Eliminar</button>
+                                        {esGestor && <button className="btn btn-primary" onClick={() => handleEdit(e)}>Editar</button>}
+                                        {esGestor && <button className="btn btn-danger" onClick={() => handleDelete(e.id)}>Eliminar</button>}
                                         <button className="btn btn-secondary" onClick={() => { setExpandidoId(expandido ? null : e.id); setActivoFormEmpId(null); setActivoEditando(null); }}>
                                             {expandido ? 'Ocultar Activos' : `⚙️ Ver Activos (${activosDeAqui.length})`}
                                         </button>
@@ -2536,10 +2688,12 @@
                                                             <button className="btn btn-secondary" onClick={() => { setActivoViendo(activoViendo && activoViendo.id === a.id ? null : a); setActivoEditando(null); setActivoFormEmpId(null); }}>
                                                                 {activoViendo && activoViendo.id === a.id ? 'Cerrar' : 'Ver'}
                                                             </button>
-                                                            <button className="btn btn-primary" onClick={() => { setActivoEditando(activoEditando && activoEditando.id === a.id ? null : a); setActivoFormEmpId(null); setActivoViendo(null); }}>
-                                                                {activoEditando && activoEditando.id === a.id ? 'Cerrar' : 'Editar'}
-                                                            </button>
-                                                            <button className="btn btn-danger" onClick={() => eliminarActivo(a.id)}>Eliminar</button>
+                                                            {esGestor && (
+                                                                <button className="btn btn-primary" onClick={() => { setActivoEditando(activoEditando && activoEditando.id === a.id ? null : a); setActivoFormEmpId(null); setActivoViendo(null); }}>
+                                                                    {activoEditando && activoEditando.id === a.id ? 'Cerrar' : 'Editar'}
+                                                                </button>
+                                                            )}
+                                                            {esGestor && <button className="btn btn-danger" onClick={() => eliminarActivo(a.id)}>Eliminar</button>}
                                                         </div>
                                                     </div>
                                                     {activoViendo && activoViendo.id === a.id && (
@@ -2564,7 +2718,7 @@
                                                 </div>
                                             ))}
 
-                                            {activoFormEmpId === e.id ? (
+                                            {esGestor && (activoFormEmpId === e.id ? (
                                                 <ActivoInlineForm
                                                     emplazamientoId={e.id}
                                                     clientes={clientes}
@@ -2578,7 +2732,7 @@
                                                 />
                                             ) : (
                                                 <button className="btn btn-crear" style={{ marginTop: '10px' }} onClick={() => { setActivoFormEmpId(e.id); setActivoEditando(null); }}>+ Activo aquí</button>
-                                            )}
+                                            ))}
                                         </div>
                                     )}
                                 </div>
@@ -2856,6 +3010,7 @@
         }
 
         function ActivosView({ user, activos, emplazamientos, zonas, clientes, contratos, tiposActivo, camposConfig, onRefresh }) {
+            const esGestor = user.rol === 'admin' || user.rol === 'supervisor';
             const [showForm, setShowForm] = useState(false);
             const [editingId, setEditingId] = useState(null);
             const [importMsg, setImportMsg] = useState('');
@@ -2923,21 +3078,23 @@
                                 });
                                 exportToExcel(activosAplanados, 'activos', [...columnasFijas, ...columnasCampos]);
                             }}>📤 Exportar</button>
-                            <ExcelImportButton onRows={handleImportRows} />
-                            <button className="btn btn-secondary" onClick={() => setShowTiposManager(!showTiposManager)}>⚙️ Tipos de Activo</button>
-                            <button className="btn btn-secondary" onClick={() => setShowCamposManager(!showCamposManager)}>⚙️ Campos</button>
-                            <button className="btn btn-crear" onClick={() => {
-                                setEditingId(null); setShowForm(!showForm); setViendoActivo(null);
-                            }}>+ Nuevo</button>
+                            {esGestor && <ExcelImportButton onRows={handleImportRows} />}
+                            {esGestor && <button className="btn btn-secondary" onClick={() => setShowTiposManager(!showTiposManager)}>⚙️ Tipos de Activo</button>}
+                            {esGestor && <button className="btn btn-secondary" onClick={() => setShowCamposManager(!showCamposManager)}>⚙️ Campos</button>}
+                            {esGestor && (
+                                <button className="btn btn-crear" onClick={() => {
+                                    setEditingId(null); setShowForm(!showForm); setViendoActivo(null);
+                                }}>+ Nuevo</button>
+                            )}
                         </div>
                     </div>
 
-                    {showTiposManager && <TiposActivoManager tiposActivo={tiposActivo} onRefresh={onRefresh} onClose={() => setShowTiposManager(false)} />}
-                    {showCamposManager && <CamposConfigManager entidad="activo" camposConfig={camposConfig} tiposActivo={tiposActivo} onRefresh={onRefresh} onClose={() => setShowCamposManager(false)} />}
+                    {esGestor && showTiposManager && <TiposActivoManager tiposActivo={tiposActivo} onRefresh={onRefresh} onClose={() => setShowTiposManager(false)} />}
+                    {esGestor && showCamposManager && <CamposConfigManager entidad="activo" camposConfig={camposConfig} tiposActivo={tiposActivo} onRefresh={onRefresh} onClose={() => setShowCamposManager(false)} />}
 
                     {importMsg && <div className="import-summary">{importMsg}</div>}
 
-                    {showForm && !editingId && (
+                    {esGestor && showForm && !editingId && (
                         <div ref={formRef}>
                             <ActivoInlineForm
                                 key="nuevo"
@@ -2981,8 +3138,8 @@
                                             </div>
                                             <p className="card-text">✓ Estado: {a.estado}{fotos.length > 0 ? ` · 📷 ${fotos.length} foto${fotos.length === 1 ? '' : 's'}` : ''}</p>
                                             <div style={{ marginTop: '8px', display: 'flex', gap: '8px', flexWrap: 'wrap' }} onClick={(e) => e.stopPropagation()}>
-                                                <button className="btn btn-primary" onClick={() => { setEditingId(a.id); setShowForm(true); setViendoActivo(null); }}>Editar</button>
-                                                <button className="btn btn-danger" onClick={() => handleDelete(a.id)}>Eliminar</button>
+                                                {esGestor && <button className="btn btn-primary" onClick={() => { setEditingId(a.id); setShowForm(true); setViendoActivo(null); }}>Editar</button>}
+                                                {esGestor && <button className="btn btn-danger" onClick={() => handleDelete(a.id)}>Eliminar</button>}
                                             </div>
                                         </div>
 
@@ -2990,13 +3147,13 @@
                                             <div className="quickadd-box" ref={viewRef} style={{ marginTop: '4px' }}>
                                                 <FichaActivo activo={a} camposConfig={camposConfig} />
                                                 <div className="btn-group">
-                                                    <button className="btn btn-primary" onClick={() => { setEditingId(a.id); setShowForm(true); setViendoActivo(null); }}>Editar</button>
+                                                    {esGestor && <button className="btn btn-primary" onClick={() => { setEditingId(a.id); setShowForm(true); setViendoActivo(null); }}>Editar</button>}
                                                     <button className="btn btn-secondary" onClick={() => setViendoActivo(null)}>Cerrar</button>
                                                 </div>
                                             </div>
                                         )}
 
-                                        {editandoEste && (
+                                        {esGestor && editandoEste && (
                                             <div ref={formRef}>
                                                 <ActivoInlineForm
                                                     key={a.id}
@@ -3022,6 +3179,7 @@
         }
 
         function ContratosView({ user, contratos, clientes, activos, zonas, emplazamientos, tiposActivo, camposConfig, onRefresh }) {
+            const esGestor = user.rol === 'admin' || user.rol === 'supervisor';
             const [showForm, setShowForm] = useState(false);
             const [editingId, setEditingId] = useState(null);
             const [showCamposManager, setShowCamposManager] = useState(false);
@@ -3126,15 +3284,17 @@
                                 { key: 'fecha_fin', label: 'Fecha Fin' },
                                 { key: 'estado', label: 'Estado' }
                             ])}>📤 Exportar</button>
-                            <ExcelImportButton onRows={handleImportRows} />
-                            <button className="btn btn-secondary" onClick={() => setShowCamposManager(!showCamposManager)}>⚙️ Campos</button>
-                            <button className="btn btn-crear" onClick={() => { setShowForm(!showForm); setEditingId(null); }}>
-                                + Nuevo
-                            </button>
+                            {esGestor && <ExcelImportButton onRows={handleImportRows} />}
+                            {esGestor && <button className="btn btn-secondary" onClick={() => setShowCamposManager(!showCamposManager)}>⚙️ Campos</button>}
+                            {esGestor && (
+                                <button className="btn btn-crear" onClick={() => { setShowForm(!showForm); setEditingId(null); }}>
+                                    + Nuevo
+                                </button>
+                            )}
                         </div>
                     </div>
 
-                    {showCamposManager && <CamposConfigManager entidad="contrato" camposConfig={camposConfig} onRefresh={onRefresh} onClose={() => setShowCamposManager(false)} />}
+                    {esGestor && showCamposManager && <CamposConfigManager entidad="contrato" camposConfig={camposConfig} onRefresh={onRefresh} onClose={() => setShowCamposManager(false)} />}
 
                     {importMsg && <div className="import-summary">{importMsg}</div>}
 
@@ -3185,8 +3345,8 @@
                                         <p className="card-text">{contrato.descripcion}</p>
                                         <p className="card-text">📅 {contrato.fecha_inicio} a {contrato.fecha_fin}</p>
                                         <div style={{ marginTop: '8px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                                            <button className="btn btn-primary" onClick={() => handleEdit(contrato)}>Editar</button>
-                                            <button className="btn btn-danger" onClick={() => handleDelete(contrato.id)}>Eliminar</button>
+                                            {esGestor && <button className="btn btn-primary" onClick={() => handleEdit(contrato)}>Editar</button>}
+                                            {esGestor && <button className="btn btn-danger" onClick={() => handleDelete(contrato.id)}>Eliminar</button>}
                                             <button className="btn btn-secondary" onClick={() => setContratoExpandido(abierto ? null : contrato.id)}>
                                                 {abierto ? 'Ocultar Activos' : `⚙️ Ver Activos (${numActivos})`}
                                             </button>
@@ -3202,6 +3362,7 @@
                                                 tiposActivo={tiposActivo}
                                                 camposConfig={camposConfig}
                                                 onRefresh={onRefresh}
+                                                esGestor={esGestor}
                                             />
                                         )}
                                     </div>
@@ -3394,6 +3555,7 @@
         }
 
         function ClientesView({ user, clientes, contratos, activos, zonas, emplazamientos, tiposActivo, camposConfig, onRefresh }) {
+            const esGestor = user.rol === 'admin' || user.rol === 'supervisor';
             const [showForm, setShowForm] = useState(false);
             const [editingId, setEditingId] = useState(null);
             const [showCamposManager, setShowCamposManager] = useState(false);
@@ -3483,15 +3645,17 @@
                                 { key: 'contacto', label: 'Contacto' },
                                 { key: 'telefono', label: 'Teléfono' }
                             ])}>📤 Exportar</button>
-                            <ExcelImportButton onRows={handleImportRows} />
-                            <button className="btn btn-secondary" onClick={() => setShowCamposManager(!showCamposManager)}>⚙️ Campos</button>
-                            <button className="btn btn-crear" onClick={() => { setShowForm(!showForm); setEditingId(null); }}>
-                                + Nuevo
-                            </button>
+                            {esGestor && <ExcelImportButton onRows={handleImportRows} />}
+                            {esGestor && <button className="btn btn-secondary" onClick={() => setShowCamposManager(!showCamposManager)}>⚙️ Campos</button>}
+                            {esGestor && (
+                                <button className="btn btn-crear" onClick={() => { setShowForm(!showForm); setEditingId(null); }}>
+                                    + Nuevo
+                                </button>
+                            )}
                         </div>
                     </div>
 
-                    {showCamposManager && <CamposConfigManager entidad="cliente" camposConfig={camposConfig} onRefresh={onRefresh} onClose={() => setShowCamposManager(false)} />}
+                    {esGestor && showCamposManager && <CamposConfigManager entidad="cliente" camposConfig={camposConfig} onRefresh={onRefresh} onClose={() => setShowCamposManager(false)} />}
 
                     {importMsg && <div className="import-summary">{importMsg}</div>}
 
@@ -3528,8 +3692,8 @@
                                         <p className="card-text">📧 {cliente.contacto}</p>
                                         <p className="card-text">📱 {cliente.telefono}</p>
                                         <div style={{ marginTop: '8px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                                            <button className="btn btn-primary" onClick={() => handleEdit(cliente)}>Editar</button>
-                                            <button className="btn btn-danger" onClick={() => handleDelete(cliente.id)}>Eliminar</button>
+                                            {esGestor && <button className="btn btn-primary" onClick={() => handleEdit(cliente)}>Editar</button>}
+                                            {esGestor && <button className="btn btn-danger" onClick={() => handleDelete(cliente.id)}>Eliminar</button>}
                                             <button className="btn btn-secondary" onClick={() => { setClienteExpandido(arbolAbierto ? null : cliente.id); setContratoExpandido(null); }}>
                                                 {arbolAbierto ? 'Ocultar árbol' : `🌳 Ver árbol (${contratosDelCliente.length} contrato${contratosDelCliente.length === 1 ? '' : 's'})`}
                                             </button>
@@ -3562,6 +3726,7 @@
                                                                     tiposActivo={tiposActivo}
                                                                     camposConfig={camposConfig}
                                                                     onRefresh={onRefresh}
+                                                                    esGestor={esGestor}
                                                                 />
                                                             )}
                                                         </div>
