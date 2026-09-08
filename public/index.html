@@ -166,10 +166,19 @@
         .readonly-view { font-size: 12px; }
         .ficha-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px 12px; margin-bottom: 12px; }
         @media (max-width: 420px) { .ficha-grid { grid-template-columns: repeat(2, 1fr); } }
+        .tecnico-items-wrap { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 16px; margin-bottom: 12px; }
+        @media (max-width: 620px) { .tecnico-items-wrap { grid-template-columns: 1fr; } }
+        .tecnico-item-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 6px 0; border-bottom: 1px dashed var(--border); }
+        .tecnico-item-label { font-size: 12px; font-weight: 600; color: var(--text-secondary); width: 100%; margin-bottom: 2px; }
+        .tecnico-item-radios { display: flex; gap: 8px; flex-shrink: 0; }
+        .tecnico-item-radios label { display: flex; align-items: center; gap: 3px; font-size: 12px; white-space: nowrap; }
+        .tecnico-item-tipo { flex: 1 1 90px; min-width: 80px; padding: 6px 8px !important; font-size: 12px !important; }
+        .tecnico-item-uds { width: 55px !important; flex: 0 0 55px; padding: 6px 8px !important; font-size: 12px !important; }
+        .tecnico-item-value { font-size: 12px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-1); }
         .ficha-field { display: flex; flex-direction: column; min-width: 0; }
         .ficha-field-span2 { grid-column: span 2; }
         .ficha-field-label { font-size: 10px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.3px; margin-bottom: 2px; }
-        .ficha-field-value { font-size: 13px; font-weight: 600; border-bottom: 1px solid var(--border); padding-bottom: 3px; overflow-wrap: break-word; }
+        .ficha-field-value { font-size: 14px; font-weight: 500; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-1); overflow-wrap: break-word; min-height: 20px; box-sizing: border-box; }
         .ficha-field-value a { color: var(--fill-accent); text-decoration: none; }
         .readonly-view .rv-row { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed var(--border); }
         .readonly-view .rv-label { color: var(--text-secondary); }
@@ -502,10 +511,12 @@
                         { id: 'calendario', label: 'Calendario' },
                         { id: 'inventario', label: 'Inventario' },
                         { id: 'preciario', label: 'Preciario' },
+                        { id: 'facturacion', label: 'Resumen Facturación' },
+                        { id: 'alta-campo', label: 'Alta en Campo' },
                         { id: 'usuarios', label: 'Usuarios' }
                     ];
                 } else {
-                    return [{ id: 'ordenes', label: 'Mis Órdenes' }, { id: 'inventario', label: 'Inventario' }];
+                    return [{ id: 'ordenes', label: 'Mis Órdenes' }, { id: 'inventario', label: 'Inventario' }, { id: 'alta-campo', label: 'Alta en Campo' }];
                 }
             };
 
@@ -566,6 +577,8 @@
                         {activeTab === 'calendario' && (user.rol === 'admin' || user.rol === 'supervisor') && <CalendarView user={user} ordenes={ordenes} usuarios={usuarios} activos={activos} onRefresh={cargarDatos} />}
                         {activeTab === 'inventario' && <InventarioView user={user} activos={activos} emplazamientos={emplazamientos} zonas={zonas} clientes={clientes} contratos={contratos} tiposActivo={tiposActivo} camposConfig={camposConfig} onRefresh={cargarDatos} />}
                         {activeTab === 'preciario' && (user.rol === 'admin' || user.rol === 'supervisor') && <PreciarioView user={user} materiales={materiales} clientes={clientes} onRefresh={cargarDatos} />}
+                        {activeTab === 'facturacion' && (user.rol === 'admin' || user.rol === 'supervisor') && <FacturacionView user={user} ordenes={ordenes} clientes={clientes} materiales={materiales} usuarios={usuarios} />}
+                        {activeTab === 'alta-campo' && <AltaCampoView user={user} clientes={clientes} contratos={contratos} zonas={zonas} emplazamientos={emplazamientos} tiposActivo={tiposActivo} camposConfig={camposConfig} onRefresh={cargarDatos} />}
                         {activeTab === 'usuarios' && (user.rol === 'admin' || user.rol === 'supervisor') && <UsuariosView user={user} usuarios={usuarios} onRefresh={cargarDatos} />}
                     </div>
                 </div>
@@ -1385,6 +1398,13 @@
                 onRefresh();
             };
 
+            const toggleFacturada = async (o, nuevoValor) => {
+                await fetch(`${API_URL}/api/ordenes/${o.id}/facturar`, {
+                    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ facturada: nuevoValor })
+                });
+                onRefresh();
+            };
+
             const asignarmeOt = async (o) => {
                 await fetch(`${API_URL}/api/ordenes/${o.id}`, {
                     method: 'PUT', headers: { 'Content-Type': 'application/json' },
@@ -1727,6 +1747,26 @@
                                 </div>
                                 <span className={`badge ${otSeleccionada.tipo}`}>{otSeleccionada.tipo}</span>
                             </div>
+
+                            {otSeleccionada.tipo === 'correctivo' && (
+                                <div className="finalizar-banner" style={{ marginTop: '10px', marginBottom: '10px' }}>
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: esGestor ? 'pointer' : 'default' }}>
+                                        <input
+                                            type="checkbox"
+                                            checked={!!otSeleccionada.facturada}
+                                            disabled={!esGestor}
+                                            onChange={(e) => toggleFacturada(otSeleccionada, e.target.checked)}
+                                        />
+                                        <span>
+                                            <strong>💶 Facturada</strong>
+                                            {otSeleccionada.facturada
+                                                ? <span className="card-text"> — el {otSeleccionada.fecha_facturacion}</span>
+                                                : <span className="card-text"> — todavía no se ha facturado</span>}
+                                        </span>
+                                    </label>
+                                </div>
+                            )}
+
                             <div className="ficha-grid">
                                 <div className="ficha-field"><span className="ficha-field-label">Nombre</span><span className="ficha-field-value">{otSeleccionada.titulo}</span></div>
                                 <div className="ficha-field"><span className="ficha-field-label">Fecha de Creación</span><span className="ficha-field-value">{String(otSeleccionada.creado_en || '').slice(0, 10)}</span></div>
@@ -2287,7 +2327,7 @@
 
                         <div className="ficha-field">
                             <span className="ficha-field-label">Estado</span>
-                            <span className="ficha-field-value" style={{ borderBottom: 'none' }}>
+                            <span className="ficha-field-value" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                                 <input type="checkbox" checked={activo.estado === 'Activo'} readOnly disabled style={{ width: '16px', height: '16px' }} /> {activo.estado || '—'}
                             </span>
                         </div>
@@ -3536,11 +3576,29 @@
             const camposGrid = campos.filter(c => c.tipo !== 'textarea');
             const camposTextarea = campos.filter(c => c.tipo === 'textarea');
 
+            // Detectar "ítems técnicos" compuestos (Sí/No + Tipo + Unidades opcional) y agruparlos
+            // en una fila compacta por ítem, en vez de repartirlos por la rejilla genérica.
+            const usadosEnItem = new Set();
+            const itemsTecnicos = [];
+            camposGrid.forEach(campo => {
+                const m = campo.clave.match(/^(.+)_sn$/);
+                if (m && campo.tipo === 'radio') {
+                    const base = m[1];
+                    const campoTipo = camposGrid.find(c => c.clave === `${base}_tipo`);
+                    const campoUds = camposGrid.find(c => c.clave === `${base}_uds`);
+                    itemsTecnicos.push({ base, etiqueta: campo.etiqueta.replace(/\s*\(Sí\/No\)\s*$/, ''), sn: campo, tipoCampo: campoTipo, udsCampo: campoUds });
+                    usadosEnItem.add(campo.clave);
+                    if (campoTipo) usadosEnItem.add(campoTipo.clave);
+                    if (campoUds) usadosEnItem.add(campoUds.clave);
+                }
+            });
+            const camposGridSimples = camposGrid.filter(c => !usadosEnItem.has(c.clave));
+
             return (
                 <React.Fragment>
-                    {camposGrid.length > 0 && (
+                    {camposGridSimples.length > 0 && (
                         <div className="ficha-grid">
-                            {camposGrid.map(campo => {
+                            {camposGridSimples.map(campo => {
                                 let opciones = [];
                                 try { opciones = JSON.parse(campo.opciones || '[]'); } catch { opciones = []; }
                                 const val = getValue(campo);
@@ -3571,6 +3629,38 @@
                             })}
                         </div>
                     )}
+
+                    {itemsTecnicos.length > 0 && (
+                        <div className="tecnico-items-wrap">
+                            {itemsTecnicos.map(item => {
+                                const valSn = getValue(item.sn);
+                                const valTipo = item.tipoCampo ? getValue(item.tipoCampo) : '';
+                                const valUds = item.udsCampo ? getValue(item.udsCampo) : '';
+                                return (
+                                    <div className="tecnico-item-row" key={item.base}>
+                                        <span className="tecnico-item-label">{item.etiqueta}</span>
+                                        {readOnly ? (
+                                            <>
+                                                <span className="tecnico-item-value">{valSn || '—'}</span>
+                                                {item.tipoCampo && <span className="tecnico-item-value" style={{ flex: '1 1 90px' }}>{valTipo || '—'}</span>}
+                                                {item.udsCampo && <span className="tecnico-item-value" style={{ width: '55px' }}>{valUds || '—'}</span>}
+                                            </>
+                                        ) : (
+                                            <>
+                                                <div className="tecnico-item-radios">
+                                                    <label><input type="radio" name={`ti-${item.base}`} checked={valSn === 'Sí'} onChange={() => setValue(item.sn, 'Sí')} /> Sí</label>
+                                                    <label><input type="radio" name={`ti-${item.base}`} checked={valSn === 'No'} onChange={() => setValue(item.sn, 'No')} /> No</label>
+                                                </div>
+                                                {item.tipoCampo && <input className="tecnico-item-tipo" placeholder="Tipo" value={valTipo} onChange={(e) => setValue(item.tipoCampo, e.target.value)} />}
+                                                {item.udsCampo && <input className="tecnico-item-uds" type="number" placeholder="UDs" value={valUds} onChange={(e) => setValue(item.udsCampo, e.target.value)} />}
+                                            </>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
+
                     {camposTextarea.map(campo => {
                         const val = getValue(campo);
                         return (
@@ -4250,6 +4340,538 @@
         }
 
         // ===== PRECIARIO (con historial de precios) =====
+        // ===== RESUMEN DE FACTURACIÓN (solo Admin/Supervisor) =====
+        // Por cada OT: técnico(s), horas trabajadas (según hora_inicio/hora_fin de sus visitas),
+        // materiales utilizados con su precio (sacado del preciario del cliente) y el total.
+        // ===== ALTA DE ACTIVOS EN CAMPO =====
+        // Los técnicos recogen los datos de un activo nuevo (con GPS de su móvil) y quedan
+        // pendientes de revisión. Admin/Supervisor los revisa, edita si hace falta, y los
+        // aprueba (se crea el Activo real) o los rechaza.
+        function AltaCampoView({ user, clientes, contratos, zonas, emplazamientos, tiposActivo, camposConfig, onRefresh }) {
+            const esGestor = user.rol === 'admin' || user.rol === 'supervisor';
+            const [pendientes, setPendientes] = useState([]);
+            const [cargando, setCargando] = useState(true);
+            const [showForm, setShowForm] = useState(false);
+            const [editandoId, setEditandoId] = useState(null);
+            const [viendoId, setViendoId] = useState(null);
+
+            const cargarPendientes = () => {
+                setCargando(true);
+                fetch(`${API_URL}/api/activos-pendientes`).then(r => r.json()).then(data => { setPendientes(data); setCargando(false); }).catch(() => setCargando(false));
+            };
+            useEffect(() => { cargarPendientes(); }, []);
+
+            const propuestaEditando = editandoId ? pendientes.find(p => p.id === editandoId) : null;
+            const propuestaViendo = viendoId ? pendientes.find(p => p.id === viendoId) : null;
+
+            const visibles = esGestor ? pendientes.filter(p => p.estado_revision === 'pendiente') : pendientes.filter(p => p.creado_por === user.id);
+            const rechazadas = !esGestor ? pendientes.filter(p => p.creado_por === user.id && p.estado_revision === 'rechazado') : [];
+
+            const aprobar = async (id) => {
+                const res = await fetch(`${API_URL}/api/activos-pendientes/${id}/aprobar`, { method: 'POST' });
+                const data = await res.json();
+                if (!res.ok) { alert(data.error || 'No se pudo aprobar. Revisa que tenga Emplazamiento y Contrato.'); return; }
+                cargarPendientes();
+                onRefresh();
+            };
+            const rechazar = async (id) => {
+                const motivo = prompt('¿Motivo del rechazo? (opcional, se lo verá el técnico)');
+                if (motivo === null) return;
+                await fetch(`${API_URL}/api/activos-pendientes/${id}/rechazar`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ notas_revision: motivo }) });
+                cargarPendientes();
+            };
+            const eliminar = async (id) => {
+                if (!confirm('¿Eliminar esta propuesta?')) return;
+                await fetch(`${API_URL}/api/activos-pendientes/${id}`, { method: 'DELETE' });
+                cargarPendientes();
+            };
+
+            return (
+                <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '8px' }}>
+                        <h3 className="section-title" style={{ margin: 0 }}>🆕 Alta en Campo</h3>
+                        <button className="btn btn-crear" onClick={() => { setShowForm(!showForm); setEditandoId(null); setViendoId(null); }}>
+                            {showForm ? 'Cancelar' : '+ Nueva Propuesta'}
+                        </button>
+                    </div>
+
+                    <p className="lock-note">
+                        {esGestor
+                            ? 'Aquí aparecen los activos que los técnicos recogen en campo. Revísalos, edítalos si hace falta, y apruébalos para que pasen al inventario real.'
+                            : 'Rellena los datos del activo que has encontrado en campo (con foto y ubicación GPS). Quedará pendiente de revisión antes de añadirse al inventario.'}
+                    </p>
+
+                    {showForm && (
+                        <AltaCampoForm
+                            key="nueva"
+                            clientes={clientes} contratos={contratos} zonas={zonas} emplazamientos={emplazamientos}
+                            tiposActivo={tiposActivo} camposConfig={camposConfig} user={user}
+                            onSaved={() => { setShowForm(false); cargarPendientes(); onRefresh(); }}
+                            onCancel={() => setShowForm(false)}
+                        />
+                    )}
+
+                    {cargando ? <div className="empty-state">Cargando...</div> : (
+                        <div className="list">
+                            {visibles.length === 0 ? (
+                                <div className="empty-state">{esGestor ? 'No hay propuestas pendientes de revisar.' : 'No has enviado ninguna propuesta todavía.'}</div>
+                            ) : visibles.map(p => (
+                                <div key={p.id}>
+                                    <div className="list-item">
+                                        <div className="list-item-header">
+                                            <div>
+                                                <p className="card-title">⚙️ {p.nombre}</p>
+                                                <p className="breadcrumb-path">{p.cliente_nombre || '—'} › {p.contrato_nombre || '—'} › {p.emplazamiento_nombre || 'Sin emplazamiento aún'}</p>
+                                            </div>
+                                            {p.tipo && <span className="badge" style={{ background: 'var(--bg-accent)', color: 'var(--fill-accent)' }}>{p.tipo}</span>}
+                                        </div>
+                                        <p className="card-text">Recogido por: {p.creado_por_nombre || '—'} · {String(p.creado_en || '').slice(0, 10)}</p>
+                                        <div style={{ marginTop: '8px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                                            <button className="btn btn-secondary" onClick={() => { setViendoId(viendoId === p.id ? null : p.id); setEditandoId(null); setShowForm(false); }}>
+                                                {viendoId === p.id ? 'Cerrar' : 'Ver'}
+                                            </button>
+                                            <button className="btn btn-primary" onClick={() => { setEditandoId(editandoId === p.id ? null : p.id); setViendoId(null); setShowForm(false); }}>
+                                                {editandoId === p.id ? 'Cerrar' : 'Editar'}
+                                            </button>
+                                            {esGestor && <button className="btn btn-success" onClick={() => aprobar(p.id)}>✔ Aprobar</button>}
+                                            {esGestor && <button className="btn btn-danger" onClick={() => rechazar(p.id)}>✘ Rechazar</button>}
+                                            {!esGestor && <button className="btn btn-danger" onClick={() => eliminar(p.id)}>Eliminar</button>}
+                                        </div>
+                                    </div>
+
+                                    {viendoId === p.id && (
+                                        <div className="quickadd-box" style={{ marginTop: '4px' }}>
+                                            <FichaActivo activo={{ ...p, emplazamiento_lat: p.lat ?? p.emplazamiento_lat, emplazamiento_lon: p.lon ?? p.emplazamiento_lon }} camposConfig={camposConfig} />
+                                        </div>
+                                    )}
+
+                                    {editandoId === p.id && (
+                                        <AltaCampoForm
+                                            key={p.id}
+                                            propuestaExistente={p}
+                                            clientes={clientes} contratos={contratos} zonas={zonas} emplazamientos={emplazamientos}
+                                            tiposActivo={tiposActivo} camposConfig={camposConfig} user={user}
+                                            onSaved={() => { setEditandoId(null); cargarPendientes(); onRefresh(); }}
+                                            onCancel={() => setEditandoId(null)}
+                                        />
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    {!esGestor && rechazadas.length > 0 && (
+                        <div style={{ marginTop: '1.5rem' }}>
+                            <h4 className="section-title">Rechazadas</h4>
+                            {rechazadas.map(p => (
+                                <div key={p.id} className="list-item" style={{ opacity: 0.7 }}>
+                                    <p className="card-title">⚙️ {p.nombre}</p>
+                                    {p.notas_revision && <p className="card-text">Motivo: {p.notas_revision}</p>}
+                                    <div style={{ marginTop: '8px' }}>
+                                        <button className="btn btn-danger" onClick={() => eliminar(p.id)}>Eliminar</button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        // Formulario de recogida/edición de una propuesta de alta en campo. Incluye la
+        // captura de coordenadas GPS directamente desde el dispositivo del técnico.
+        function AltaCampoForm({ propuestaExistente, clientes, contratos, zonas, emplazamientos, tiposActivo, camposConfig, user, onSaved, onCancel }) {
+            const empInicial = propuestaExistente ? (emplazamientos || []).find(e => e.id === propuestaExistente.emplazamiento_id) : null;
+            const contratoInicial = propuestaExistente ? contratos.find(c => c.id === propuestaExistente.contrato_id) : null;
+
+            const [selectedCliente, setSelectedCliente] = useState(contratoInicial ? String(contratoInicial.cliente_id) : '');
+            const [selectedZona, setSelectedZona] = useState(empInicial ? String(empInicial.zona_id) : '');
+            const [gpsLoading, setGpsLoading] = useState(false);
+            const [gpsError, setGpsError] = useState('');
+            const [formData, setFormData] = useState(() => {
+                if (!propuestaExistente) return { contrato_id: '', emplazamiento_id: '', tipo: '', nombre: '', fabricante: '', modelo: '', estado: 'Activo', observaciones: '', campos_extra: {}, fotos_json: [], lat: null, lon: null };
+                let extra = {}; try { extra = propuestaExistente.campos_extra ? JSON.parse(propuestaExistente.campos_extra) : {}; } catch { extra = {}; }
+                let fotos = []; try { fotos = propuestaExistente.fotos_json ? JSON.parse(propuestaExistente.fotos_json) : []; } catch { fotos = []; }
+                return {
+                    contrato_id: propuestaExistente.contrato_id || '', emplazamiento_id: propuestaExistente.emplazamiento_id || '',
+                    tipo: propuestaExistente.tipo || '', nombre: propuestaExistente.nombre,
+                    fabricante: propuestaExistente.fabricante || '', modelo: propuestaExistente.modelo || '', estado: propuestaExistente.estado || 'Activo',
+                    observaciones: propuestaExistente.observaciones || '', campos_extra: extra, fotos_json: fotos,
+                    lat: propuestaExistente.lat, lon: propuestaExistente.lon
+                };
+            });
+
+            const crearClienteRapido = async (values) => {
+                const res = await fetch(`${API_URL}/api/clientes`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nombre: values.nombre, contacto: values.contacto || '', telefono: values.telefono || '' }) });
+                const creado = await res.json();
+                setSelectedCliente(String(creado.id));
+                setFormData(f => ({ ...f, contrato_id: '' }));
+            };
+            const crearContratoRapido = async (values) => {
+                const res = await fetch(`${API_URL}/api/contratos`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cliente_id: parseInt(selectedCliente), nombre: values.nombre, descripcion: values.descripcion || '' }) });
+                const creado = await res.json();
+                setFormData(f => ({ ...f, contrato_id: String(creado.id) }));
+            };
+            const crearZonaRapida = async (values) => {
+                const res = await fetch(`${API_URL}/api/zonas`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nombre: values.nombre }) });
+                const creada = await res.json();
+                setSelectedZona(String(creada.id));
+                setFormData(f => ({ ...f, emplazamiento_id: '' }));
+            };
+            const crearEmplazamientoRapido = async (values) => {
+                const res = await fetch(`${API_URL}/api/emplazamientos`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ zona_id: parseInt(selectedZona), nombre: values.nombre, direccion: values.direccion || '', lat: formData.lat, lon: formData.lon })
+                });
+                const creado = await res.json();
+                setFormData(f => ({ ...f, emplazamiento_id: String(creado.id) }));
+            };
+            const crearTipoRapido = async (values) => {
+                const res = await fetch(`${API_URL}/api/tipos-activo`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nombre: values.nombre, checklist_json: '[]' }) });
+                const creado = await res.json();
+                setFormData(f => ({ ...f, tipo: creado.nombre || values.nombre }));
+            };
+
+            const capturarUbicacion = () => {
+                if (!navigator.geolocation) { setGpsError('Este dispositivo no permite obtener la ubicación.'); return; }
+                setGpsLoading(true); setGpsError('');
+                navigator.geolocation.getCurrentPosition(
+                    (pos) => { setFormData(f => ({ ...f, lat: pos.coords.latitude, lon: pos.coords.longitude })); setGpsLoading(false); },
+                    (err) => { setGpsError('No se pudo obtener la ubicación: ' + err.message); setGpsLoading(false); },
+                    { enableHighAccuracy: true, timeout: 10000 }
+                );
+            };
+
+            const contratosFiltrados = selectedCliente ? contratos.filter(c => c.cliente_id === parseInt(selectedCliente)) : contratos;
+            const emplazamientosFiltrados = selectedZona ? (emplazamientos || []).filter(e => e.zona_id === parseInt(selectedZona)) : (emplazamientos || []);
+            const camposRestantes = camposConfig.filter(c => c.entidad === 'activo' && !['estado', 'custom_id_interno', 'custom_codigo_origen'].includes(c.clave));
+
+            const idInternoVal = (formData.campos_extra || {}).custom_id_interno || '';
+            const codigoVal = (formData.campos_extra || {}).custom_codigo_origen || '';
+            const setCampoExtra = (clave, val) => setFormData({ ...formData, campos_extra: { ...(formData.campos_extra || {}), [clave]: val } });
+
+            const guardar = async () => {
+                if (!formData.nombre.trim()) { alert('El nombre es obligatorio'); return; }
+                const payload = { ...formData, campos_extra: JSON.stringify(formData.campos_extra || {}), fotos_json: JSON.stringify(formData.fotos_json || []), creado_por: user.id };
+                const url = propuestaExistente ? `${API_URL}/api/activos-pendientes/${propuestaExistente.id}` : `${API_URL}/api/activos-pendientes`;
+                const method = propuestaExistente ? 'PUT' : 'POST';
+                await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+                onSaved();
+            };
+
+            return (
+                <div className="quickadd-box" style={{ marginTop: '10px' }}>
+                    <p className="card-text" style={{ fontWeight: 600, marginBottom: '6px' }}>{propuestaExistente ? 'Editar Propuesta' : '+ Nueva Propuesta de Alta'}</p>
+
+                    <div className="ficha-grid">
+                        <div className="ficha-field">
+                            <span className="ficha-field-label">Nombre</span>
+                            <input type="text" placeholder="Ej: Puerta Andén 1" value={formData.nombre} onChange={(e) => setFormData({ ...formData, nombre: e.target.value })} />
+                        </div>
+                        <div className="ficha-field">
+                            <span className="ficha-field-label">ID Interno</span>
+                            <input type="text" value={idInternoVal} onChange={(e) => setCampoExtra('custom_id_interno', e.target.value)} />
+                        </div>
+                        <div className="ficha-field">
+                            <span className="ficha-field-label">Código</span>
+                            <input type="text" value={codigoVal} onChange={(e) => setCampoExtra('custom_codigo_origen', e.target.value)} />
+                        </div>
+
+                        <div className="ficha-field">
+                            <span className="ficha-field-label">Estado</span>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '4px' }}>
+                                <input type="checkbox" checked={formData.estado === 'Activo'} onChange={(e) => setFormData({ ...formData, estado: e.target.checked ? 'Activo' : 'Inactivo' })} style={{ width: '16px', height: '16px' }} />
+                                {formData.estado === 'Activo' ? 'Activo' : 'Inactivo'}
+                            </label>
+                        </div>
+                        <div className="ficha-field">
+                            <span className="ficha-field-label">Tipo Activo</span>
+                            <div className="field-with-add">
+                                <select value={formData.tipo} onChange={(e) => setFormData({ ...formData, tipo: e.target.value })}>
+                                    <option value="">-- Selecciona tipo --</option>
+                                    {tiposActivo.map(t => <option key={t.id} value={t.nombre}>{t.nombre}</option>)}
+                                </select>
+                                <QuickAddInline label="Tipo de Activo" onCreate={crearTipoRapido} fields={[{ key: 'nombre', placeholder: 'Nombre del tipo *' }]} />
+                            </div>
+                        </div>
+                        <div className="ficha-field">
+                            <span className="ficha-field-label">Emplazamiento</span>
+                            <div className="field-with-add">
+                                <select value={formData.emplazamiento_id} onChange={(e) => setFormData({ ...formData, emplazamiento_id: e.target.value })}>
+                                    <option value="">-- Aún sin decidir --</option>
+                                    {emplazamientosFiltrados.map(e => <option key={e.id} value={e.id}>{e.nombre}</option>)}
+                                </select>
+                                {selectedZona && (
+                                    <QuickAddInline label="Emplazamiento" onCreate={crearEmplazamientoRapido} fields={[
+                                        { key: 'nombre', placeholder: 'Nombre del emplazamiento *' },
+                                        { key: 'direccion', placeholder: 'Dirección' }
+                                    ]} />
+                                )}
+                            </div>
+                        </div>
+
+                        <div className="ficha-field">
+                            <span className="ficha-field-label">Zona</span>
+                            <div className="field-with-add">
+                                <select value={selectedZona} onChange={(e) => { setSelectedZona(e.target.value); setFormData({ ...formData, emplazamiento_id: '' }); }}>
+                                    <option value="">-- Selecciona --</option>
+                                    {(zonas || []).map(z => <option key={z.id} value={z.id}>{z.nombre}</option>)}
+                                </select>
+                                <QuickAddInline label="Zona" onCreate={crearZonaRapida} fields={[{ key: 'nombre', placeholder: 'Nombre de la zona *' }]} />
+                            </div>
+                        </div>
+                        <div className="ficha-field">
+                            <span className="ficha-field-label">Cliente</span>
+                            <div className="field-with-add">
+                                <select value={selectedCliente} onChange={(e) => { setSelectedCliente(e.target.value); setFormData({ ...formData, contrato_id: '' }); }}>
+                                    <option value="">-- Selecciona --</option>
+                                    {clientes.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                                </select>
+                                <QuickAddInline label="Cliente" onCreate={crearClienteRapido} fields={[
+                                    { key: 'nombre', placeholder: 'Nombre del cliente *' },
+                                    { key: 'contacto', placeholder: 'Contacto (email)' },
+                                    { key: 'telefono', placeholder: 'Teléfono' }
+                                ]} />
+                            </div>
+                        </div>
+                        <div className="ficha-field">
+                            <span className="ficha-field-label">Contrato</span>
+                            <div className="field-with-add">
+                                <select value={formData.contrato_id} disabled={!selectedCliente} className={!selectedCliente ? 'select-disabled' : ''} onChange={(e) => setFormData({ ...formData, contrato_id: e.target.value })}>
+                                    <option value="">-- Selecciona --</option>
+                                    {contratosFiltrados.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                                </select>
+                                {selectedCliente && (
+                                    <QuickAddInline label="Contrato" onCreate={crearContratoRapido} fields={[
+                                        { key: 'nombre', placeholder: 'Nombre del contrato *' },
+                                        { key: 'descripcion', placeholder: 'Descripción' }
+                                    ]} />
+                                )}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="form-group">
+                        <label>📍 Coordenadas GPS</label>
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                            <button className="btn btn-secondary" onClick={capturarUbicacion} disabled={gpsLoading}>
+                                {gpsLoading ? 'Obteniendo ubicación...' : '📍 Usar mi ubicación'}
+                            </button>
+                            {formData.lat != null && (
+                                <span className="card-text">✓ {Number(formData.lat).toFixed(6)}, {Number(formData.lon).toFixed(6)}</span>
+                            )}
+                        </div>
+                        {gpsError && <p className="lock-note" style={{ color: 'var(--fill-danger)' }}>{gpsError}</p>}
+                    </div>
+
+                    <div style={{ borderTop: '2px solid var(--border)', margin: '10px 0' }}></div>
+
+                    <DynamicExtraFields entidad="activo" camposConfig={camposRestantes} formData={formData} setFormData={setFormData} tipoActivo={formData.tipo} />
+
+                    <div className="form-group">
+                        <label>Fotos</label>
+                        <PhotoCapture value={formData.fotos_json} onChange={(v) => setFormData({ ...formData, fotos_json: v })} />
+                    </div>
+
+                    <div className="btn-group">
+                        <button className="btn btn-success" onClick={guardar}>{propuestaExistente ? 'Guardar cambios' : 'Enviar propuesta'}</button>
+                        <button className="btn btn-secondary" onClick={onCancel}>Cancelar</button>
+                    </div>
+                </div>
+            );
+        }
+
+        function FacturacionView({ user, ordenes, clientes, materiales, usuarios }) {
+            const [visitas, setVisitas] = useState([]);
+            const [cargando, setCargando] = useState(true);
+            const [filtroCliente, setFiltroCliente] = useState('todos');
+            const [filtroDesde, setFiltroDesde] = useState('');
+            const [filtroHasta, setFiltroHasta] = useState('');
+            const [filtroFacturada, setFiltroFacturada] = useState('todas');
+
+            useEffect(() => {
+                fetch(`${API_URL}/api/visitas`)
+                    .then(r => r.json())
+                    .then(data => { setVisitas(data); setCargando(false); })
+                    .catch(() => setCargando(false));
+            }, []);
+
+            const getHistorial = (m) => { try { return JSON.parse(m.historial_json || '[]'); } catch { return []; } };
+            const getPrecioActual = (m) => { const h = getHistorial(m); return h.length ? h[h.length - 1].precio : null; };
+
+            // Precio de la hora de mano de obra para un cliente: prioriza un material del preciario
+            // específico de ese cliente cuyo tipo/descripción mencione "mano de obra" u "hora"; si no
+            // existe, usa uno genérico (sin cliente asignado) que cumpla lo mismo.
+            const precioHoraParaCliente = (clienteId) => {
+                const candidatos = materiales.filter(m => {
+                    const texto = `${m.tipo || ''} ${m.descripcion || ''}`.toLowerCase();
+                    return texto.includes('mano de obra') || texto.includes('hora');
+                });
+                const especifico = candidatos.find(m => m.cliente_id === clienteId);
+                const generico = candidatos.find(m => !m.cliente_id);
+                const elegido = especifico || generico;
+                return elegido ? getPrecioActual(elegido) : null;
+            };
+
+            const calcularHoras = (hi, hf) => {
+                if (!hi || !hf) return 0;
+                const [h1, m1] = hi.split(':').map(Number);
+                const [h2, m2] = hf.split(':').map(Number);
+                if (isNaN(h1) || isNaN(h2)) return 0;
+                let mins = (h2 * 60 + m2) - (h1 * 60 + m1);
+                if (mins < 0) mins += 24 * 60; // cruza medianoche
+                return mins / 60;
+            };
+
+            const filasOT = ordenes
+                .filter(o => filtroCliente === 'todos' || String(o.cliente_id) === filtroCliente)
+                .filter(o => filtroFacturada === 'todas' || (filtroFacturada === 'facturadas' ? !!o.facturada : !o.facturada))
+                .map(o => {
+                    let visitasOT = visitas.filter(v => v.orden_id === o.id);
+                    if (filtroDesde) visitasOT = visitasOT.filter(v => v.fecha >= filtroDesde);
+                    if (filtroHasta) visitasOT = visitasOT.filter(v => v.fecha <= filtroHasta);
+                    if ((filtroDesde || filtroHasta) && visitasOT.length === 0) return null;
+
+                    const trabajadores = [...new Set(visitasOT.map(v => v.tecnico_nombre).filter(Boolean))];
+                    const horasTotales = visitasOT.reduce((sum, v) => sum + calcularHoras(v.hora_inicio, v.hora_fin), 0);
+
+                    const materialesAgregados = {};
+                    visitasOT.forEach(v => {
+                        let mats = [];
+                        try { mats = v.materiales_json ? JSON.parse(v.materiales_json) : []; } catch { mats = []; }
+                        mats.forEach(m => {
+                            if (!m.descripcion) return;
+                            const key = m.material_id || m.descripcion;
+                            if (!materialesAgregados[key]) materialesAgregados[key] = { descripcion: m.descripcion, cantidad: 0, material_id: m.material_id };
+                            materialesAgregados[key].cantidad += parseFloat(m.cantidad) || 0;
+                        });
+                    });
+
+                    const precioHora = precioHoraParaCliente(o.cliente_id);
+                    const totalHoras = precioHora != null ? horasTotales * precioHora : 0;
+
+                    let totalMateriales = 0;
+                    const listaConPrecio = Object.values(materialesAgregados).map(m => {
+                        const mat = m.material_id ? materiales.find(x => x.id === m.material_id) : null;
+                        const precio = mat ? getPrecioActual(mat) : null;
+                        const subtotal = precio != null ? precio * m.cantidad : null;
+                        if (subtotal != null) totalMateriales += subtotal;
+                        return { ...m, precio, subtotal };
+                    });
+
+                    return { ot: o, trabajadores, horasTotales, precioHora, totalHoras, listaConPrecio, totalMateriales, total: totalHoras + totalMateriales };
+                })
+                .filter(Boolean);
+
+            const granTotal = filasOT.reduce((sum, f) => sum + f.total, 0);
+
+            if (cargando) return <div className="empty-state">Cargando datos de facturación...</div>;
+
+            return (
+                <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '8px' }}>
+                        <h3 className="section-title" style={{ margin: 0 }}>💶 Resumen Facturación</h3>
+                        <div className="toolbar">
+                            <button className="btn btn-excel" onClick={() => exportToExcel(
+                                filasOT.map(f => ({
+                                    ot: `${f.ot.id} - ${f.ot.titulo}`,
+                                    cliente: f.ot.cliente_nombre || '',
+                                    trabajador: f.trabajadores.join(', '),
+                                    horas: f.horasTotales.toFixed(2),
+                                    precio_hora: f.precioHora != null ? f.precioHora.toFixed(2) : '',
+                                    materiales: f.listaConPrecio.map(m => `${m.descripcion} x${m.cantidad}`).join(' | '),
+                                    total: f.total.toFixed(2),
+                                    facturada: f.ot.tipo === 'correctivo' ? (f.ot.facturada ? 'Sí' : 'No') : '',
+                                    fecha_facturacion: f.ot.fecha_facturacion || ''
+                                })), 'resumen_facturacion', [
+                                    { key: 'ot', label: 'OT' }, { key: 'cliente', label: 'Cliente' }, { key: 'trabajador', label: 'Trabajador' },
+                                    { key: 'horas', label: 'Horas' }, { key: 'precio_hora', label: 'Precio/hora' },
+                                    { key: 'materiales', label: 'Materiales' }, { key: 'total', label: 'Total' },
+                                    { key: 'facturada', label: 'Facturada' }, { key: 'fecha_facturacion', label: 'Fecha Facturación' }
+                                ]
+                            )}>📤 Exportar</button>
+                        </div>
+                    </div>
+
+                    <div className="ficha-grid">
+                        <div className="ficha-field">
+                            <span className="ficha-field-label">Cliente</span>
+                            <select value={filtroCliente} onChange={(e) => setFiltroCliente(e.target.value)}>
+                                <option value="todos">Todos</option>
+                                {clientes.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                            </select>
+                        </div>
+                        <div className="ficha-field">
+                            <span className="ficha-field-label">Desde</span>
+                            <input type="date" value={filtroDesde} onChange={(e) => setFiltroDesde(e.target.value)} />
+                        </div>
+                        <div className="ficha-field">
+                            <span className="ficha-field-label">Hasta</span>
+                            <input type="date" value={filtroHasta} onChange={(e) => setFiltroHasta(e.target.value)} />
+                        </div>
+                        <div className="ficha-field">
+                            <span className="ficha-field-label">Facturación</span>
+                            <select value={filtroFacturada} onChange={(e) => setFiltroFacturada(e.target.value)}>
+                                <option value="todas">Todas</option>
+                                <option value="facturadas">Facturadas</option>
+                                <option value="no_facturadas">No facturadas</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div className="list">
+                        {filasOT.length === 0 ? <div className="empty-state">No hay órdenes que coincidan con el filtro</div> : filasOT.map(f => (
+                            <div key={f.ot.id} className="list-item">
+                                <div className="list-item-header">
+                                    <div>
+                                        <p className="card-title">{f.ot.id} — {f.ot.titulo}</p>
+                                        <p className="breadcrumb-path">{f.ot.cliente_nombre || 'Sin cliente'}</p>
+                                    </div>
+                                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' }}>
+                                        <span className="badge" style={{ background: 'var(--bg-accent)', color: 'var(--fill-accent)' }}>{f.total.toFixed(2)} €</span>
+                                        {f.ot.tipo === 'correctivo' && (
+                                            f.ot.facturada
+                                                ? <span className="badge" style={{ background: '#d1fae5', color: '#065f46' }}>💶 Facturada {f.ot.fecha_facturacion}</span>
+                                                : <span className="badge" style={{ background: '#fee2e2', color: '#991b1b' }}>Sin facturar</span>
+                                        )}
+                                    </div>
+                                </div>
+
+                                <div className="readonly-view" style={{ marginTop: '8px' }}>
+                                    <div className="rv-row"><span className="rv-label">Trabajador</span><span className="rv-value">{f.trabajadores.join(', ') || '—'}</span></div>
+                                    <div className="rv-row"><span className="rv-label">Horas</span><span className="rv-value">{f.horasTotales.toFixed(2)} h</span></div>
+                                    <div className="rv-row">
+                                        <span className="rv-label">Precio/hora</span>
+                                        <span className="rv-value">{f.precioHora != null ? `${f.precioHora.toFixed(2)} €` : '⚠️ No encontrado en el preciario'}</span>
+                                    </div>
+                                    <div className="rv-row"><span className="rv-label">Subtotal mano de obra</span><span className="rv-value">{f.totalHoras.toFixed(2)} €</span></div>
+                                </div>
+
+                                {f.listaConPrecio.length > 0 && (
+                                    <div style={{ marginTop: '8px' }}>
+                                        <p className="card-text" style={{ fontWeight: 600 }}>Materiales</p>
+                                        {f.listaConPrecio.map((m, i) => (
+                                            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', borderBottom: '1px dashed var(--border)', padding: '4px 0' }}>
+                                                <span>{m.descripcion} × {m.cantidad}</span>
+                                                <span>{m.precio != null ? `${m.subtotal.toFixed(2)} €` : '⚠️ Sin precio'}</span>
+                                            </div>
+                                        ))}
+                                        <p className="card-text" style={{ textAlign: 'right', fontWeight: 600, marginTop: '4px' }}>Subtotal materiales: {f.totalMateriales.toFixed(2)} €</p>
+                                    </div>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+
+                    {filasOT.length > 0 && (
+                        <div className="card" style={{ marginTop: '1rem', textAlign: 'right' }}>
+                            <p className="card-title">Total general: {granTotal.toFixed(2)} €</p>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
         function PreciarioView({ user, materiales, clientes, onRefresh }) {
             const [showForm, setShowForm] = useState(false);
             const [search, setSearch] = useState('');
