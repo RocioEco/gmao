@@ -103,6 +103,23 @@ async function registrarCamposSwitch() {
   }
 }
 
+// Registra un "ítem técnico" compuesto de 3 campos: Sí/No (radio), Tipo (texto) y Unidades (número).
+// Se usa para elementos como "FC Adicionales", "Telemando", etc. en Persianas y Puertas.
+async function registrarItemTecnico(claveBase, etiqueta, orden, tiposActivoScope) {
+  const tiposJson = JSON.stringify(tiposActivoScope);
+  const campos = [
+    [`${claveBase}_sn`, `${etiqueta} (Sí/No)`, 'radio', orden],
+    [`${claveBase}_tipo`, `${etiqueta} - Tipo`, 'text', orden + 0.1],
+    [`${claveBase}_uds`, `${etiqueta} - Unidades`, 'number', orden + 0.2]
+  ];
+  for (const [clave, etiquetaCampo, tipo, ordenCampo] of campos) {
+    await dbRun(
+      `INSERT OR IGNORE INTO campos_config (entidad, clave, etiqueta, tipo, es_sistema, visible, orden, tipo_activo) VALUES ('activo', ?, ?, ?, 0, 1, ?, ?)`,
+      [clave, etiquetaCampo, tipo, ordenCampo, tiposJson]
+    );
+  }
+}
+
 // Registra los campos técnicos específicos de activos tipo "Persiana Motorizada" (Tipo de lama, Motor),
 // y oculta para ese tipo concreto los campos genéricos Fabricante/Modelo (que para persianas no aportan).
 async function registrarCamposPersiana() {
@@ -113,6 +130,10 @@ async function registrarCamposPersiana() {
     await dbRun(
       `INSERT OR IGNORE INTO campos_config (entidad, clave, etiqueta, tipo, es_sistema, visible, orden, tipo_activo) VALUES ('activo', 'custom_motor', 'Motor', 'text', 0, 1, 71, 'Persiana Motorizada')`
     );
+    await registrarItemTecnico('custom_fc_adicionales', 'FC Adicionales', 72, ['Persiana Motorizada']);
+    await registrarItemTecnico('custom_telemando_pers', 'Telemando', 73, ['Persiana Motorizada']);
+    await registrarItemTecnico('custom_detector_presencia', 'Detector presencia', 74, ['Persiana Motorizada']);
+    await registrarItemTecnico('custom_desbloqueo_emergencia', 'Desbloqueo emergencia', 75, ['Persiana Motorizada']);
     for (const clave of ['fabricante', 'modelo']) {
       const campo = await dbGet(`SELECT * FROM campos_config WHERE entidad = 'activo' AND clave = ?`, [clave]);
       if (!campo) continue;
@@ -125,6 +146,18 @@ async function registrarCamposPersiana() {
     }
   } catch (e) {
     console.error('Error registrando campos de Persiana:', e.message);
+  }
+}
+
+// Registra los campos técnicos específicos de activos tipo "Puerta Automática".
+async function registrarCamposPuerta() {
+  try {
+    await registrarItemTecnico('custom_cuadro_control', 'Cuadro de control', 70, ['Puerta Automática']);
+    await registrarItemTecnico('custom_dispositivos_seguridad', 'Dispositivos de seguridad', 71, ['Puerta Automática']);
+    await registrarItemTecnico('custom_telemando_puerta', 'Telemando', 72, ['Puerta Automática']);
+    await registrarItemTecnico('custom_finales_carrera', 'Finales de carrera', 73, ['Puerta Automática']);
+  } catch (e) {
+    console.error('Error registrando campos de Puerta:', e.message);
   }
 }
 
@@ -439,6 +472,7 @@ db.serialize(() => {
             console.log(`✓ Cargado inventario inicial de switches (${seed.length} registros)`);
             registrarCamposSwitch();
             registrarCamposPersiana();
+            registrarCamposPuerta();
             migrarSwitchesAActivos().then(() => fusionarActivosSwitchDuplicados());
           });
           return;
@@ -451,6 +485,7 @@ db.serialize(() => {
     // igualmente comprobamos si falta migrarlos a Activos.
     registrarCamposSwitch();
     registrarCamposPersiana();
+    registrarCamposPuerta();
     migrarSwitchesAActivos().then(() => fusionarActivosSwitchDuplicados());
   });
 
