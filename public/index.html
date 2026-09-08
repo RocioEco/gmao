@@ -1141,7 +1141,7 @@
 
         function ParteTrabajoForm({ value, onChange, readOnly }) {
             const data = value || {};
-            const medioAmbiente = data.medioAmbiente || [{ tipoResiduo: '', cantidad: '', destino: '' }];
+            const medioAmbiente = (data.medioAmbiente && data.medioAmbiente.length > 0) ? data.medioAmbiente : [{ tipoResiduo: '', cantidad: '', destino: '' }];
             const desplazamientos = data.desplazamientos || [{ matricula: '', origen: '', destino: '', kilometros: '' }];
             const seguridad = data.seguridad || { epis: '', maquinariaBuenEstado: '', mediosElevacion: '', mediosElevacionTipo: '' };
 
@@ -1293,7 +1293,7 @@
             const blankVisita = () => ({
                 fecha: new Date().toISOString().slice(0, 10), tecnico_id: user.id, hora_inicio: '', hora_fin: '',
                 id_mantis: '', proyecto: '', descripcion: '', trabajos_pendientes: '', checklist_json: {}, materiales_json: [], fotos_json: [], videos_json: [],
-                medio_ambiente_json: {}, seguridad_json: {}, desplazamientos_json: [], firma: '', firma_nombre: '', finalizado: false
+                medio_ambiente_json: [], seguridad_json: {}, desplazamientos_json: [], firma: '', firma_nombre: '', finalizado: false
             });
             const [visitaForm, setVisitaForm] = useState(blankVisita());
 
@@ -1400,12 +1400,12 @@
             };
 
             const abrirEditarVisita = (v) => {
-                let checklist = {}, mats = [], fotos = [], videos = [], medio = {}, seg = {}, desp = [];
+                let checklist = {}, mats = [], fotos = [], videos = [], medio = [], seg = {}, desp = [];
                 try { checklist = v.checklist_json ? JSON.parse(v.checklist_json) : {}; } catch {}
                 try { mats = v.materiales_json ? JSON.parse(v.materiales_json) : []; } catch {}
                 try { fotos = v.fotos_json ? JSON.parse(v.fotos_json) : []; } catch {}
                 try { videos = v.videos_json ? JSON.parse(v.videos_json) : []; } catch {}
-                try { medio = v.medio_ambiente_json ? JSON.parse(v.medio_ambiente_json) : {}; } catch {}
+                try { medio = v.medio_ambiente_json ? JSON.parse(v.medio_ambiente_json) : []; } catch {}
                 try { seg = v.seguridad_json ? JSON.parse(v.seguridad_json) : {}; } catch {}
                 try { desp = v.desplazamientos_json ? JSON.parse(v.desplazamientos_json) : []; } catch {}
                 setVisitaForm({
@@ -1858,11 +1858,11 @@
                             <div className="print-section-title">Visitas ({visitas.length})</div>
                             {visitas.length === 0 && <p className="print-json-item">No hay visitas registradas.</p>}
                             {visitas.map(v => {
-                                let checklist = {}, mats = [], fotos = [], medio = {}, seg = {}, desp = [];
+                                let checklist = {}, mats = [], fotos = [], medio = [], seg = {}, desp = [];
                                 try { checklist = v.checklist_json ? JSON.parse(v.checklist_json) : {}; } catch {}
                                 try { mats = v.materiales_json ? JSON.parse(v.materiales_json) : []; } catch {}
                                 try { fotos = v.fotos_json ? JSON.parse(v.fotos_json) : []; } catch {}
-                                try { medio = v.medio_ambiente_json ? JSON.parse(v.medio_ambiente_json) : {}; } catch {}
+                                try { medio = v.medio_ambiente_json ? JSON.parse(v.medio_ambiente_json) : []; } catch {}
                                 try { seg = v.seguridad_json ? JSON.parse(v.seguridad_json) : {}; } catch {}
                                 try { desp = v.desplazamientos_json ? JSON.parse(v.desplazamientos_json) : []; } catch {}
                                 return (
@@ -2025,12 +2025,12 @@
             // ============ RENDER: VIEW VISITA (solo lectura) ============
             if (mode === 'view-visita') {
                 if (!visitaViendo) return <div className="empty-state">Visita no encontrada</div>;
-                let checklist = {}, mats = [], fotos = [], videos = [], medio = {}, seg = {}, desp = [];
+                let checklist = {}, mats = [], fotos = [], videos = [], medio = [], seg = {}, desp = [];
                 try { checklist = visitaViendo.checklist_json ? JSON.parse(visitaViendo.checklist_json) : {}; } catch {}
                 try { mats = visitaViendo.materiales_json ? JSON.parse(visitaViendo.materiales_json) : []; } catch {}
                 try { fotos = visitaViendo.fotos_json ? JSON.parse(visitaViendo.fotos_json) : []; } catch {}
                 try { videos = visitaViendo.videos_json ? JSON.parse(visitaViendo.videos_json) : []; } catch {}
-                try { medio = visitaViendo.medio_ambiente_json ? JSON.parse(visitaViendo.medio_ambiente_json) : {}; } catch {}
+                try { medio = visitaViendo.medio_ambiente_json ? JSON.parse(visitaViendo.medio_ambiente_json) : []; } catch {}
                 try { seg = visitaViendo.seguridad_json ? JSON.parse(visitaViendo.seguridad_json) : {}; } catch {}
                 try { desp = visitaViendo.desplazamientos_json ? JSON.parse(visitaViendo.desplazamientos_json) : []; } catch {}
 
