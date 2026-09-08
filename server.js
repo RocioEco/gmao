@@ -130,7 +130,7 @@ async function registrarItemTecnico(claveBase, etiqueta, orden, tiposActivoScope
 // Oculta para esos tipos los campos genéricos Fabricante/Modelo (que para persianas no aportan).
 async function registrarCamposPersiana() {
   try {
-    const TIPOS_PERSIANA = ['Persiana Motorizada', 'Persiana Motorizada Telemandada'];
+    const TIPOS_PERSIANA = ['Persiana Motorizada', 'Persiana motorizada telemandada'];
     for (const nombreTipo of TIPOS_PERSIANA) {
       await dbRun(`INSERT OR IGNORE INTO tipos_activo (nombre, checklist_json) VALUES (?, '[]')`, [nombreTipo]);
     }
@@ -171,7 +171,7 @@ async function registrarCamposPersiana() {
 // Dispositivos de seguridad y Finales de carrera SÍ.
 async function registrarCamposPuerta() {
   try {
-    const TIPOS_PUERTA = ['Puerta Automática', 'Puerta Automática Telemandada', 'Puerta con Cerradura Telemandada'];
+    const TIPOS_PUERTA = ['Puerta Automática', 'Puerta automática telemandada', 'Puerta con cerradura telemandada'];
     for (const nombreTipo of TIPOS_PUERTA) {
       await dbRun(`INSERT OR IGNORE INTO tipos_activo (nombre, checklist_json) VALUES (?, '[]')`, [nombreTipo]);
     }
@@ -181,6 +181,91 @@ async function registrarCamposPuerta() {
     await registrarItemTecnico('custom_finales_carrera', 'Finales de carrera', 73, TIPOS_PUERTA, true);
   } catch (e) {
     console.error('Error registrando campos de Puerta:', e.message);
+  }
+}
+
+// Limpia duplicados de tipos_activo que hayan podido crearse con capitalización distinta
+// (ej: "Puerta Automática Telemandada" vs el ya existente "Puerta automática telemandada"),
+// reasignando cualquier activo que apuntara al duplicado hacia el tipo original.
+async function fusionarTiposActivoDuplicados() {
+  const pares = [
+    ['Puerta Automática Telemandada', 'Puerta automática telemandada'],
+    ['Puerta con Cerradura Telemandada', 'Puerta con cerradura telemandada'],
+    ['Persiana Motorizada Telemandada', 'Persiana motorizada telemandada']
+  ];
+  for (const [duplicado, original] of pares) {
+    try {
+      const tOriginal = await dbGet(`SELECT id FROM tipos_activo WHERE nombre = ?`, [original]);
+      const tDuplicado = await dbGet(`SELECT id FROM tipos_activo WHERE nombre = ?`, [duplicado]);
+      if (!tOriginal || !tDuplicado || tOriginal.id === tDuplicado.id) continue;
+      await dbRun(`UPDATE activos SET tipo = ? WHERE tipo = ?`, [original, duplicado]);
+      await dbRun(`DELETE FROM tipos_activo WHERE id = ?`, [tDuplicado.id]);
+      console.log(`✓ Fusionado tipo de activo duplicado "${duplicado}" → "${original}"`);
+    } catch (e) {
+      console.error(`Error fusionando tipo "${duplicado}":`, e.message);
+    }
+  }
+}
+
+// Migra datos guardados en campos "antiguos" (creados manualmente antes de existir el modelo
+// unificado, ej. "Tipo de Lama", "Mascara de Red", "Firmware versión", "Número de Serie",
+// "Tipo de Telemando") hacia los campos nuevos correspondientes, solo cuando el campo nuevo
+// está vacío (nunca sobreescribe datos ya presentes). Después oculta el campo antiguo.
+async function migrarCamposLegacyActivos() {
+  // etiqueta del campo antiguo -> clave del campo nuevo (o función que decide la clave según el tipo de activo)
+  const MAPEOS = [
+    { etiquetaAntigua: 'Tipo de Lama', claveNueva: () => 'custom_tipo_lama' },
+    { etiquetaAntigua: 'Mascara de Red', claveNueva: () => 'custom_mascara_red' },
+    { etiquetaAntigua: 'Firmware versión', claveNueva: () => 'custom_firmware' },
+    { etiquetaAntigua: 'Número de Serie', claveNueva: () => 'custom_sn' },
+    { etiquetaAntigua: 'Tipo de Telemando', claveNueva: (tipoActivo) => (tipoActivo || '').toLowerCase().includes('persiana') ? 'custom_telemando_pers_tipo' : 'custom_telemando_puerta_tipo' },
+    { etiquetaAntigua: 'Marca', claveNueva: () => 'fabricante', esSistema: true }
+  ];
+
+  try {
+    for (const mapeo of MAPEOS) {
+      const campoAntiguo = await dbGet(`SELECT * FROM campos_config WHERE entidad = 'activo' AND etiqueta = ?`, [mapeo.etiquetaAntigua]);
+      if (!campoAntiguo || campoAntiguo.clave.startsWith('fabricante')) {
+        // Evita confundir el campo de sistema "Fabricante" consigo mismo cuando el mapeo apunta a 'fabricante'
+        if (!campoAntiguo) continue;
+      }
+      const claveAntigua = campoAntiguo.clave;
+
+      const activosConDato = await dbAll(`SELECT id, tipo, campos_extra FROM activos WHERE campos_extra LIKE ?`, [`%"${claveAntigua}"%`]);
+      for (const a of activosConDato) {
+        let extra = {};
+        try { extra = a.campos_extra ? JSON.parse(a.campos_extra) : {}; } catch { extra = {}; }
+        const valorAntiguo = extra[claveAntigua];
+        if (valorAntiguo === undefined || valorAntiguo === null || valorAntiguo === '') continue;
+
+        const claveNueva = mapeo.claveNueva(a.tipo);
+        if (claveNueva === claveAntigua) continue;
+
+        let cambiado = false;
+        if (mapeo.esSistema) {
+          // El campo nuevo es de sistema (columna propia de la tabla activos), no de campos_extra
+          const activoActual = await dbGet(`SELECT ${claveNueva} as val FROM activos WHERE id = ?`, [a.id]);
+          if (!activoActual.val) {
+            await dbRun(`UPDATE activos SET ${claveNueva} = ? WHERE id = ?`, [valorAntiguo, a.id]);
+            cambiado = true;
+          }
+        } else if (!extra[claveNueva]) {
+          extra[claveNueva] = valorAntiguo;
+          cambiado = true;
+        }
+
+        if (cambiado) {
+          delete extra[claveAntigua];
+          await dbRun(`UPDATE activos SET campos_extra = ? WHERE id = ?`, [JSON.stringify(extra), a.id]);
+        }
+      }
+
+      // Ocultamos el campo antiguo (no lo borramos, por si queda algún resto sin migrar que revisar)
+      await dbRun(`UPDATE campos_config SET visible = 0 WHERE id = ?`, [campoAntiguo.id]);
+      console.log(`✓ Migrados datos de campo antiguo "${mapeo.etiquetaAntigua}" (${activosConDato.length} activos revisados)`);
+    }
+  } catch (e) {
+    console.error('Error migrando campos antiguos de activos:', e.message);
   }
 }
 
@@ -496,6 +581,7 @@ db.serialize(() => {
             registrarCamposSwitch();
             registrarCamposPersiana();
             registrarCamposPuerta();
+            fusionarTiposActivoDuplicados().then(() => migrarCamposLegacyActivos());
             migrarSwitchesAActivos().then(() => fusionarActivosSwitchDuplicados());
           });
           return;
@@ -509,6 +595,7 @@ db.serialize(() => {
     registrarCamposSwitch();
     registrarCamposPersiana();
     registrarCamposPuerta();
+    fusionarTiposActivoDuplicados().then(() => migrarCamposLegacyActivos());
     migrarSwitchesAActivos().then(() => fusionarActivosSwitchDuplicados());
   });
 
