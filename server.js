@@ -273,6 +273,74 @@ async function migrarCamposLegacyActivos() {
 // con los datos más completos entre los duplicados: más fotos, más campos rellenos, y el
 // emplazamiento que sí tenga coordenadas GPS si alguno de los duplicados las tiene y el "ganador" no.
 // Se ejecuta siempre al arrancar; si no hay duplicados, no hace nada (segura de repetir).
+// Fusiona materiales del Preciario duplicados (mismo cliente + misma descripción) en uno solo.
+// Combina el historial de precios de todos los duplicados, y reasigna cualquier referencia que
+// tuvieran las visitas ya guardadas hacia el material que se conserva, para no perder el enlace
+// al precio. Se ejecuta siempre al arrancar (segura de repetir).
+async function fusionarMaterialesDuplicados() {
+  try {
+    const materiales = await dbAll('SELECT * FROM materiales');
+    const grupos = {};
+    materiales.forEach(m => {
+      const key = `${m.cliente_id || 'null'}|${(m.descripcion || '').trim().toLowerCase()}`;
+      if (!grupos[key]) grupos[key] = [];
+      grupos[key].push(m);
+    });
+
+    for (const key in grupos) {
+      const grupo = grupos[key];
+      if (grupo.length <= 1) continue;
+
+      // Combinar el historial de precios de todos los duplicados, sin repetir fecha+precio, en orden
+      let historialCombinado = [];
+      grupo.forEach(m => {
+        let h = []; try { h = JSON.parse(m.historial_json || '[]'); } catch { h = []; }
+        historialCombinado = historialCombinado.concat(h);
+      });
+      const vistos = new Set();
+      historialCombinado = historialCombinado.filter(h => {
+        const k = `${h.fecha}|${h.precio}`;
+        if (vistos.has(k)) return false;
+        vistos.add(k);
+        return true;
+      });
+      historialCombinado.sort((a, b) => (a.fecha || '').localeCompare(b.fecha || ''));
+
+      // Se conserva el más antiguo (menor id); los demás se fusionan en él
+      grupo.sort((a, b) => a.id - b.id);
+      const ganador = grupo[0];
+      const perdedores = grupo.slice(1);
+
+      const tipoFinal = ganador.tipo || perdedores.map(p => p.tipo).find(Boolean) || '';
+      await dbRun('UPDATE materiales SET historial_json = ?, tipo = ? WHERE id = ?', [JSON.stringify(historialCombinado), tipoFinal, ganador.id]);
+
+      // Reasignar en las visitas ya guardadas cualquier referencia a los duplicados eliminados
+      const idsPerdedores = perdedores.map(p => String(p.id));
+      const visitasTodas = await dbAll('SELECT id, materiales_json FROM visitas');
+      for (const v of visitasTodas) {
+        let mats = []; try { mats = v.materiales_json ? JSON.parse(v.materiales_json) : []; } catch { mats = []; }
+        let cambiado = false;
+        mats = mats.map(m => {
+          if (m.material_id && idsPerdedores.includes(String(m.material_id))) {
+            cambiado = true;
+            return { ...m, material_id: ganador.id };
+          }
+          return m;
+        });
+        if (cambiado) await dbRun('UPDATE visitas SET materiales_json = ? WHERE id = ?', [JSON.stringify(mats), v.id]);
+      }
+
+      for (const p of perdedores) {
+        await dbRun('DELETE FROM materiales WHERE id = ?', [p.id]);
+      }
+      console.log(`✓ Fusionados ${grupo.length} materiales duplicados: "${ganador.descripcion}" (conservado id ${ganador.id})`);
+    }
+  } catch (e) {
+    console.error('Error fusionando materiales duplicados:', e.message);
+  }
+}
+
+
 async function fusionarActivosSwitchDuplicados() {
   try {
     const switches = await dbAll(`
@@ -586,6 +654,7 @@ db.serialize(() => {
             registrarCamposPersiana();
             registrarCamposPuerta();
             fusionarTiposActivoDuplicados().then(() => migrarCamposLegacyActivos());
+            fusionarMaterialesDuplicados();
             migrarSwitchesAActivos().then(() => fusionarActivosSwitchDuplicados());
           });
           return;
@@ -600,6 +669,7 @@ db.serialize(() => {
     registrarCamposPersiana();
     registrarCamposPuerta();
     fusionarTiposActivoDuplicados().then(() => migrarCamposLegacyActivos());
+    fusionarMaterialesDuplicados();
     migrarSwitchesAActivos().then(() => fusionarActivosSwitchDuplicados());
   });
 
