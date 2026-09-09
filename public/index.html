@@ -2533,8 +2533,17 @@
             const setCampoExtra = (clave, val) => setFormData({ ...formData, campos_extra: { ...(formData.campos_extra || {}), [clave]: val } });
 
             const emplazamientoActual = (emplazamientos || []).find(e => String(e.id) === String(formData.emplazamiento_id));
-            const tieneCoords = emplazamientoActual && emplazamientoActual.lat != null;
+            const [coordsLat, setCoordsLat] = useState(empInicial && empInicial.lat != null ? String(empInicial.lat) : '');
+            const [coordsLon, setCoordsLon] = useState(empInicial && empInicial.lon != null ? String(empInicial.lon) : '');
             const fechaCreacion = activoExistente && activoExistente.creado_en ? String(activoExistente.creado_en).slice(0, 10) : '—';
+
+            // Al cambiar de Emplazamiento, carga las coordenadas que ya tuviera ese lugar (si las tiene)
+            const cambiarEmplazamiento = (nuevoId) => {
+                setFormData({ ...formData, emplazamiento_id: nuevoId });
+                const emp = (emplazamientos || []).find(e => String(e.id) === String(nuevoId));
+                setCoordsLat(emp && emp.lat != null ? String(emp.lat) : '');
+                setCoordsLon(emp && emp.lon != null ? String(emp.lon) : '');
+            };
 
             const guardar = async () => {
                 if (!formData.nombre.trim() || !formData.contrato_id || !formData.emplazamiento_id) { alert('Selecciona cliente/contrato, emplazamiento y nombre'); return; }
@@ -2546,6 +2555,17 @@
                 const url = activoExistente ? `${API_URL}/api/activos/${activoExistente.id}` : `${API_URL}/api/activos`;
                 const method = activoExistente ? 'PUT' : 'POST';
                 await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+
+                // Si se han indicado o cambiado las coordenadas, se guardan en el Emplazamiento correspondiente
+                const latCambiada = coordsLat !== '' && coordsLat !== (emplazamientoActual && emplazamientoActual.lat != null ? String(emplazamientoActual.lat) : '');
+                const lonCambiada = coordsLon !== '' && coordsLon !== (emplazamientoActual && emplazamientoActual.lon != null ? String(emplazamientoActual.lon) : '');
+                if ((latCambiada || lonCambiada) && emplazamientoActual) {
+                    await fetch(`${API_URL}/api/emplazamientos/${emplazamientoActual.id}`, {
+                        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ zona_id: emplazamientoActual.zona_id, nombre: emplazamientoActual.nombre, direccion: emplazamientoActual.direccion || '', lat: coordsLat, lon: coordsLon })
+                    });
+                    if (onRefresh) await onRefresh();
+                }
                 onSaved();
             };
 
@@ -2627,7 +2647,7 @@
                         <div className="ficha-field">
                             <span className="ficha-field-label">Emplazamiento</span>
                             <div className="field-with-add">
-                                <select value={formData.emplazamiento_id} onChange={(e) => setFormData({ ...formData, emplazamiento_id: e.target.value })}>
+                                <select value={formData.emplazamiento_id} onChange={(e) => cambiarEmplazamiento(e.target.value)}>
                                     <option value="">-- Selecciona --</option>
                                     {emplazamientosFiltrados.map(e => <option key={e.id} value={e.id}>{e.nombre}</option>)}
                                 </select>
@@ -2640,19 +2660,26 @@
                             </div>
                         </div>
 
-                        <div className="ficha-field"><span className="ficha-field-label">Coordenadas</span><span className="ficha-field-value">{tieneCoords ? `${emplazamientoActual.lat}, ${emplazamientoActual.lon}` : '—'}</span></div>
+                        <div className="ficha-field">
+                            <span className="ficha-field-label">Latitud</span>
+                            <input type="text" placeholder="Ej: 43.591497" value={coordsLat} onChange={(e) => setCoordsLat(e.target.value)} />
+                        </div>
+                        <div className="ficha-field">
+                            <span className="ficha-field-label">Longitud</span>
+                            <input type="text" placeholder="Ej: -5.930617" value={coordsLon} onChange={(e) => setCoordsLon(e.target.value)} />
+                        </div>
                         <div className="ficha-field"><span className="ficha-field-label">Fecha de creación</span><span className="ficha-field-value">{fechaCreacion}</span></div>
                         <div className="ficha-field">
                             <span className="ficha-field-label">Enlace Maps</span>
                             <span className="ficha-field-value">
-                                {tieneCoords ? (
-                                    <a href={`https://maps.google.com/?q=${emplazamientoActual.lat},${emplazamientoActual.lon}`} target="_blank" rel="noopener noreferrer">📍 Abrir en Maps</a>
+                                {coordsLat && coordsLon ? (
+                                    <a href={`https://maps.google.com/?q=${coordsLat},${coordsLon}`} target="_blank" rel="noopener noreferrer">📍 Abrir en Maps</a>
                                 ) : '—'}
                             </span>
                         </div>
                     </div>
 
-                    <p className="lock-note">Las coordenadas se editan desde el Emplazamiento correspondiente.</p>
+                    <p className="lock-note">Al guardar, estas coordenadas se aplican al Emplazamiento seleccionado (le afectan a todos los activos que estén en ese mismo lugar).</p>
 
                     <div style={{ borderTop: '2px solid var(--border)', margin: '10px 0' }}></div>
 
@@ -5155,7 +5182,21 @@
         }
 
         function App() {
-            const [user, setUser] = useState(null);
+            const [user, setUser] = useState(() => {
+                try {
+                    const guardado = localStorage.getItem('gmao-user');
+                    return guardado ? JSON.parse(guardado) : null;
+                } catch { return null; }
+            });
+
+            const iniciarSesion = (u) => {
+                try { localStorage.setItem('gmao-user', JSON.stringify(u)); } catch {}
+                setUser(u);
+            };
+            const cerrarSesion = () => {
+                try { localStorage.removeItem('gmao-user'); } catch {}
+                setUser(null);
+            };
 
             useEffect(() => {
                 const savedTheme = localStorage.getItem('gmao-theme') || 'light';
@@ -5163,9 +5204,9 @@
             }, []);
 
             return user ? (
-                <Dashboard user={user} onLogout={() => setUser(null)} />
+                <Dashboard user={user} onLogout={cerrarSesion} />
             ) : (
-                <LoginScreen onLogin={setUser} />
+                <LoginScreen onLogin={iniciarSesion} />
             );
         }
 
@@ -5174,4 +5215,3 @@
     </script>
 </body>
 </html>
-    
