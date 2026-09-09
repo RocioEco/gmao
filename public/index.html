@@ -960,7 +960,7 @@
                     {!readOnly && (
                         <label className="photo-add-btn">
                             📷
-                            <input type="file" accept="image/*" capture="environment" multiple className="file-input-hidden" onChange={handleFiles} />
+                            <input type="file" accept="image/*" multiple className="file-input-hidden" onChange={handleFiles} />
                         </label>
                     )}
                     {fotos.length === 0 && readOnly && <p className="card-text">Sin fotos.</p>}
@@ -1017,7 +1017,7 @@
                     {!readOnly && (
                         <label className="btn-video-add" style={{ marginTop: '8px' }}>
                             🎥 Añadir vídeo (máx. {MAX_MB}MB)
-                            <input type="file" accept="video/*" capture="environment" multiple className="file-input-hidden" onChange={handleFiles} />
+                            <input type="file" accept="video/*" multiple className="file-input-hidden" onChange={handleFiles} />
                         </label>
                     )}
                     {videos.length === 0 && readOnly && <p className="card-text">Sin vídeos.</p>}
@@ -4652,14 +4652,22 @@
                     </div>
 
                     <div className="form-group">
-                        <label>📍 Coordenadas GPS</label>
-                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                        <label>📍 Coordenadas</label>
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '8px' }}>
                             <button className="btn btn-secondary" onClick={capturarUbicacion} disabled={gpsLoading}>
                                 {gpsLoading ? 'Obteniendo ubicación...' : '📍 Usar mi ubicación'}
                             </button>
-                            {formData.lat != null && (
-                                <span className="card-text">✓ {Number(formData.lat).toFixed(6)}, {Number(formData.lon).toFixed(6)}</span>
-                            )}
+                            <span className="card-text">o escríbelas manualmente:</span>
+                        </div>
+                        <div className="ficha-grid">
+                            <div className="ficha-field">
+                                <span className="ficha-field-label">Latitud</span>
+                                <input type="text" placeholder="Ej: 43.591497" value={formData.lat ?? ''} onChange={(e) => setFormData({ ...formData, lat: e.target.value === '' ? null : e.target.value })} />
+                            </div>
+                            <div className="ficha-field">
+                                <span className="ficha-field-label">Longitud</span>
+                                <input type="text" placeholder="Ej: -5.930617" value={formData.lon ?? ''} onChange={(e) => setFormData({ ...formData, lon: e.target.value === '' ? null : e.target.value })} />
+                            </div>
                         </div>
                         {gpsError && <p className="lock-note" style={{ color: 'var(--fill-danger)' }}>{gpsError}</p>}
                     </div>
@@ -4915,12 +4923,15 @@
 
         function PreciarioView({ user, materiales, clientes, onRefresh }) {
             const [showForm, setShowForm] = useState(false);
+            const [editingId, setEditingId] = useState(null);
             const [search, setSearch] = useState('');
             const [filtroCliente, setFiltroCliente] = useState('todos');
             const [verHistorialId, setVerHistorialId] = useState(null);
             const [precioNuevo, setPrecioNuevo] = useState({});
             const [formData, setFormData] = useState({ cliente_id: '', tipo: '', descripcion: '', unidad: 'ud', precio: '' });
             const [importMsg, setImportMsg] = useState('');
+            const [seleccionados, setSeleccionados] = useState([]);
+            const [eliminando, setEliminando] = useState(false);
             const formRef = useAutoScrollForm(showForm);
 
             const getHistorial = (m) => { try { return JSON.parse(m.historial_json || '[]'); } catch { return []; } };
@@ -4933,11 +4944,44 @@
             const handleAdd = async () => {
                 if (!formData.descripcion.trim()) { alert('La descripción es obligatoria'); return; }
                 try {
-                    await fetch(`${API_URL}/api/materiales`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(formData) });
+                    if (editingId) {
+                        await fetch(`${API_URL}/api/materiales/${editingId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(formData) });
+                        // Si además se ha indicado un precio nuevo al editar, se añade al historial
+                        if (formData.precio !== '' && formData.precio !== undefined) {
+                            await fetch(`${API_URL}/api/materiales/${editingId}/precio`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ precio: formData.precio }) });
+                        }
+                    } else {
+                        await fetch(`${API_URL}/api/materiales`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(formData) });
+                    }
                     setFormData({ cliente_id: '', tipo: '', descripcion: '', unidad: 'ud', precio: '' });
+                    setEditingId(null);
                     setShowForm(false);
                     onRefresh();
                 } catch { alert('Error al guardar material'); }
+            };
+
+            const handleEdit = (m) => {
+                setFormData({ cliente_id: m.cliente_id || '', tipo: m.tipo || '', descripcion: m.descripcion || '', unidad: m.unidad || 'ud', precio: '' });
+                setEditingId(m.id);
+                setShowForm(true);
+            };
+
+            const toggleSeleccionado = (id) => {
+                setSeleccionados(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+            };
+            const seleccionarTodosVisibles = () => {
+                setSeleccionados(seleccionados.length === filtrados.length ? [] : filtrados.map(m => m.id));
+            };
+            const eliminarSeleccionados = async () => {
+                if (seleccionados.length === 0) return;
+                if (!confirm(`¿Eliminar ${seleccionados.length} material(es) del preciario? Esta acción no se puede deshacer.`)) return;
+                setEliminando(true);
+                for (const id of seleccionados) {
+                    await fetch(`${API_URL}/api/materiales/${id}`, { method: 'DELETE' });
+                }
+                setEliminando(false);
+                setSeleccionados([]);
+                onRefresh();
             };
 
             const handleDelete = async (id) => {
@@ -5008,7 +5052,7 @@
                                 { key: 'unidad', label: 'Unidad' }, { key: 'precio_actual', label: 'Precio Actual' }
                             ])}>📤 Exportar</button>
                             <ExcelImportButton onRows={handleImportRows} />
-                            <button className="btn btn-crear" onClick={() => setShowForm(!showForm)}>+ Nuevo</button>
+                            <button className="btn btn-crear" onClick={() => { setShowForm(!showForm); setEditingId(null); setFormData({ cliente_id: '', tipo: '', descripcion: '', unidad: 'ud', precio: '' }); }}>+ Nuevo</button>
                         </div>
                     </div>
 
@@ -5026,6 +5070,7 @@
 
                     {showForm && (
                         <div className="card" ref={formRef} style={{ marginBottom: '1rem' }}>
+                            <p className="card-text" style={{ fontWeight: 600, marginBottom: '6px' }}>{editingId ? 'Editar Material' : '+ Nuevo Material'}</p>
                             <div className="form-group">
                                 <label>Cliente</label>
                                 <select value={formData.cliente_id} onChange={(e) => setFormData({ ...formData, cliente_id: e.target.value })}>
@@ -5036,11 +5081,28 @@
                             <div className="form-group"><label>Tipo / Categoría</label><input type="text" placeholder="Ej: Accesorios Puertas" value={formData.tipo} onChange={(e) => setFormData({ ...formData, tipo: e.target.value })} /></div>
                             <div className="form-group"><label>Descripción</label><input type="text" placeholder="Descripción del material" value={formData.descripcion} onChange={(e) => setFormData({ ...formData, descripcion: e.target.value })} /></div>
                             <div className="form-group"><label>Unidad</label><input type="text" placeholder="ud, m, kg..." value={formData.unidad} onChange={(e) => setFormData({ ...formData, unidad: e.target.value })} /></div>
-                            <div className="form-group"><label>Precio inicial (€)</label><input type="number" step="0.01" placeholder="0.00" value={formData.precio} onChange={(e) => setFormData({ ...formData, precio: e.target.value })} /></div>
-                            <div className="btn-group">
-                                <button className="btn btn-success" onClick={handleAdd}>Crear</button>
-                                <button className="btn btn-secondary" onClick={() => setShowForm(false)}>Cancelar</button>
+                            <div className="form-group">
+                                <label>{editingId ? 'Añadir nuevo precio (opcional)' : 'Precio inicial (€)'}</label>
+                                <input type="number" step="0.01" placeholder="0.00" value={formData.precio} onChange={(e) => setFormData({ ...formData, precio: e.target.value })} />
                             </div>
+                            <div className="btn-group">
+                                <button className="btn btn-success" onClick={handleAdd}>{editingId ? 'Guardar cambios' : 'Crear'}</button>
+                                <button className="btn btn-secondary" onClick={() => { setShowForm(false); setEditingId(null); }}>Cancelar</button>
+                            </div>
+                        </div>
+                    )}
+
+                    {filtrados.length > 0 && (
+                        <div className="finalizar-banner" style={{ marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
+                                <input type="checkbox" checked={seleccionados.length === filtrados.length} onChange={seleccionarTodosVisibles} />
+                                Seleccionar todos ({seleccionados.length}/{filtrados.length})
+                            </label>
+                            {seleccionados.length > 0 && (
+                                <button className="btn btn-danger" disabled={eliminando} onClick={eliminarSeleccionados}>
+                                    {eliminando ? 'Eliminando...' : `🗑️ Eliminar ${seleccionados.length} seleccionado(s)`}
+                                </button>
+                            )}
                         </div>
                     )}
 
@@ -5051,9 +5113,12 @@
                             return (
                                 <div key={m.id} className="list-item">
                                     <div className="list-item-header">
-                                        <div>
-                                            <p className="card-title">{m.descripcion}</p>
-                                            <p className="card-text">{m.tipo} {m.cliente_nombre ? `· ${m.cliente_nombre}` : ''}</p>
+                                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+                                            <input type="checkbox" checked={seleccionados.includes(m.id)} onChange={() => toggleSeleccionado(m.id)} style={{ marginTop: '4px' }} />
+                                            <div>
+                                                <p className="card-title">{m.descripcion}</p>
+                                                <p className="card-text">{m.tipo} {m.cliente_nombre ? `· ${m.cliente_nombre}` : ''}</p>
+                                            </div>
                                         </div>
                                         <span className="badge" style={{ background: 'var(--bg-accent)', color: 'var(--fill-accent)' }}>
                                             {precioActual !== null ? `${precioActual.toFixed(2)} €` : 'Sin precio'} / {m.unidad}
@@ -5061,6 +5126,7 @@
                                     </div>
 
                                     <div style={{ marginTop: '8px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                                        <button className="btn btn-primary" onClick={() => handleEdit(m)}>Editar</button>
                                         <button className="btn btn-secondary" onClick={() => setVerHistorialId(verHistorialId === m.id ? null : m.id)}>
                                             {verHistorialId === m.id ? 'Ocultar historial' : `Ver historial (${historial.length})`}
                                         </button>
@@ -5108,3 +5174,4 @@
     </script>
 </body>
 </html>
+    
