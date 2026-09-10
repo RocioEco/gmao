@@ -385,7 +385,7 @@
         }
 
         function Dashboard({ user, onLogout }) {
-            const [activeTab, setActiveTab] = useState('dashboard');
+            const [activeTab, setActiveTab] = useState(() => (user.rol === 'tecnico' ? 'mis-ots' : 'dashboard'));
             const [clientes, setClientes] = useState([]);
             const [contratos, setContratos] = useState([]);
             const [zonas, setZonas] = useState([]);
@@ -516,7 +516,7 @@
                         { id: 'usuarios', label: 'Usuarios' }
                     ];
                 } else {
-                    return [{ id: 'ordenes', label: 'Mis Órdenes' }, { id: 'inventario', label: 'Inventario' }, { id: 'alta-campo', label: 'Alta en Campo' }];
+                    return [{ id: 'mis-ots', label: 'Mis OTs' }, { id: 'ordenes', label: 'OTs' }, { id: 'inventario', label: 'Inventario' }, { id: 'alta-campo', label: 'Alta en Campo' }];
                 }
             };
 
@@ -572,6 +572,7 @@
 
                     <div className="content">
                         {activeTab === 'dashboard' && <DashboardView user={user} usuarios={usuarios} ordenes={ordenes} clientes={clientes} activos={activos} contratos={contratos} />}
+                        {activeTab === 'mis-ots' && <OrdenesView user={user} ordenes={ordenes} clientes={clientes} contratos={contratos} activos={activos} zonas={zonas} emplazamientos={emplazamientos} tiposActivo={tiposActivo} usuarios={usuarios} materiales={materiales} onRefresh={cargarDatos} soloAsignadas={true} />}
                         {activeTab === 'ordenes' && <OrdenesView user={user} ordenes={ordenes} clientes={clientes} contratos={contratos} activos={activos} zonas={zonas} emplazamientos={emplazamientos} tiposActivo={tiposActivo} usuarios={usuarios} materiales={materiales} onRefresh={cargarDatos} />}
                         {activeTab === 'guardias' && (user.rol === 'admin' || user.rol === 'supervisor') && <OrdenesView user={user} ordenes={ordenes} clientes={clientes} contratos={contratos} activos={activos} zonas={zonas} emplazamientos={emplazamientos} tiposActivo={tiposActivo} usuarios={usuarios} materiales={materiales} onRefresh={cargarDatos} filtroInicialTipo="guardia" />}
                         {activeTab === 'calendario' && (user.rol === 'admin' || user.rol === 'supervisor') && <CalendarView user={user} ordenes={ordenes} usuarios={usuarios} activos={activos} onRefresh={cargarDatos} />}
@@ -1269,7 +1270,7 @@
             return <p className="print-json-item">{String(data)}</p>;
         }
 
-        function OrdenesView({ user, ordenes, clientes, contratos, activos, zonas, emplazamientos, tiposActivo, usuarios, materiales, onRefresh, filtroInicialTipo }) {
+        function OrdenesView({ user, ordenes, clientes, contratos, activos, zonas, emplazamientos, tiposActivo, usuarios, materiales, onRefresh, filtroInicialTipo, soloAsignadas }) {
             const esGestor = user.rol === 'admin' || user.rol === 'supervisor';
             const [mode, setMode] = useState('list'); // list | form-ot | detail | form-visita | view-visita
             const [filtroTipo, setFiltroTipo] = useState(filtroInicialTipo || 'todas');
@@ -1295,7 +1296,7 @@
                 titulo: '', tipo: esGestor ? 'correctivo' : 'guardia', ticket: '', id_cliente: '',
                 cliente_id: '', contrato_id: '', emplazamiento_id: '', id_mantis: '', proyecto: '', procedencia_aviso: '',
                 activo_id: '', prioridad: 'media', fecha_programada: '',
-                responsable_id: user.id, asignado_a: user.id, tecnicos_apoyo: [], notas: '', estado: esGestor ? 'pendiente' : 'pendiente'
+                responsable_id: user.id, asignado_a: null, tecnicos_apoyo: [], notas: '', estado: esGestor ? 'pendiente' : 'pendiente'
             };
             const [otForm, setOtForm] = useState(initialOtForm);
             const [selectedZonaOt, setSelectedZonaOt] = useState('');
@@ -1352,7 +1353,7 @@
                     cliente_id: o.cliente_id || '', contrato_id: o.contrato_id || '', emplazamiento_id: o.emplazamiento_id || '',
                     id_mantis: o.id_mantis || '', proyecto: o.proyecto || '', procedencia_aviso: o.procedencia_aviso || '',
                     activo_id: o.activo_id || '', prioridad: o.prioridad || 'media',
-                    fecha_programada: o.fecha_programada || '', responsable_id: o.responsable_id || user.id, asignado_a: o.asignado_a || user.id,
+                    fecha_programada: o.fecha_programada || '', responsable_id: o.responsable_id || user.id, asignado_a: o.asignado_a ?? null,
                     tecnicos_apoyo: tecApoyo, notas: o.notas || '', estado: o.estado
                 });
                 if (o.cliente_id) setSelectedCliente(String(o.cliente_id));
@@ -1474,7 +1475,7 @@
             };
 
             // El técnico puede VER todas las órdenes (la edición se restringe aparte, según asignación)
-            const ordenesBase = ordenes;
+            const ordenesBase = soloAsignadas ? ordenes.filter(o => o.asignado_a === user.id) : ordenes;
             let ordenesFiltradas = filtroTipo === 'todas' ? ordenesBase : ordenesBase.filter(o => o.tipo === filtroTipo);
             if (filtroEstado !== 'todas') ordenesFiltradas = ordenesFiltradas.filter(o => o.estado === filtroEstado);
 
@@ -1483,9 +1484,13 @@
                 return (
                     <div>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '8px' }}>
-                            <h3 className="section-title" style={{ margin: 0 }}>📋 {esGestor ? 'Órdenes de Trabajo' : 'Mis Órdenes'}</h3>
-                            <button className="btn btn-crear" onClick={abrirNuevaOt}>+ Nueva {!esGestor && 'Guardia'}</button>
+                            <h3 className="section-title" style={{ margin: 0 }}>📋 {esGestor ? 'Órdenes de Trabajo' : (soloAsignadas ? 'Mis OTs' : 'OTs')}</h3>
+                            {(esGestor || !soloAsignadas) && <button className="btn btn-crear" onClick={abrirNuevaOt}>+ Nueva {!esGestor && 'Guardia'}</button>}
                         </div>
+
+                        {!esGestor && !soloAsignadas && (
+                            <p className="lock-note">Aquí ves todas las órdenes. Solo puedes gestionar las que estén sin asignar (pulsando "Asignarme para Gestionar") o las que ya sean tuyas — las demás son de solo consulta.</p>
+                        )}
 
                         <div className="tipo-filter-bar">
                             {['todas', 'correctivo', 'preventivo', 'obra', 'guardia'].map(t => (
@@ -1700,7 +1705,8 @@
 
                             <div className={`form-group ${!puedeEditarTodo ? 'field-locked' : ''}`}>
                                 <label>Técnico Principal</label>
-                                <select value={otForm.asignado_a} disabled={!puedeEditarTodo} onChange={(e) => setOtForm({ ...otForm, asignado_a: parseInt(e.target.value) })}>
+                                <select value={otForm.asignado_a || ''} disabled={!puedeEditarTodo} onChange={(e) => setOtForm({ ...otForm, asignado_a: e.target.value ? parseInt(e.target.value) : null })}>
+                                    <option value="">-- Sin asignar --</option>
                                     {tecnicosDisponibles.map(u => <option key={u.id} value={u.id}>{u.nombre} ({u.rol})</option>)}
                                 </select>
                             </div>
