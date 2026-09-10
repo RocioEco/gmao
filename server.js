@@ -1582,12 +1582,9 @@ app.post('/api/visitas', (req, res) => {
      seguridad_json, desplazamientos_json, firma, firma_nombre, finalizado ? 1 : 0],
     function(err) {
       if (err) return res.status(500).json({ error: err.message });
-      // Si la visita finaliza el trabajo, marcamos la OT como resuelta
-      if (finalizado) {
-        db.run(`UPDATE ordenes_trabajo SET estado = 'resuelta', fecha_cierre = CURRENT_TIMESTAMP WHERE id = ?`, [orden_id]);
-      } else {
-        db.run(`UPDATE ordenes_trabajo SET estado = 'en_curso' WHERE id = ? AND estado = 'abierta'`, [orden_id]);
-      }
+      // Una visita finalizada NO cierra la OT automáticamente (puede requerir más técnicos/visitas).
+      // Solo avanzamos el estado a "en_curso" si la OT seguía en "abierta"; el cierre a "resuelta" lo decide el gestor.
+      db.run(`UPDATE ordenes_trabajo SET estado = 'en_curso' WHERE id = ? AND estado = 'abierta'`, [orden_id]);
       res.json({ id, orden_id, fecha, tecnico_id, hora_inicio, hora_fin, id_mantis, proyecto, descripcion, trabajos_pendientes,
         checklist_tipo, checklist_json, materiales_json, fotos_json, videos_json, medio_ambiente_json,
         seguridad_json, desplazamientos_json, firma, firma_nombre, finalizado: finalizado ? 1 : 0 });
@@ -1608,11 +1605,9 @@ app.put('/api/visitas/:id', (req, res) => {
     (err) => {
       if (err) return res.status(500).json({ error: err.message });
       if (orden_id) {
-        if (finalizado) {
-          db.run(`UPDATE ordenes_trabajo SET estado = 'resuelta', fecha_cierre = CURRENT_TIMESTAMP WHERE id = ?`, [orden_id]);
-        } else {
-          db.run(`UPDATE ordenes_trabajo SET estado = 'en_curso' WHERE id = ? AND estado = 'abierta'`, [orden_id]);
-        }
+        // Una visita finalizada NO cierra la OT automáticamente (puede requerir más técnicos/visitas).
+        // El cierre a "resuelta" lo decide el gestor manualmente.
+        db.run(`UPDATE ordenes_trabajo SET estado = 'en_curso' WHERE id = ? AND estado = 'abierta'`, [orden_id]);
       }
       res.json({ id: req.params.id, ...req.body });
     });
@@ -1711,6 +1706,23 @@ app.put('/api/guardia/:id', (req, res) => {
 // Servir archivos estáticos
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// Red de seguridad: si cualquier endpoint lanza un error no controlado, respondemos con un 500
+// en vez de dejar que tumbe todo el proceso (y con él, a todos los usuarios conectados).
+app.use((err, req, res, next) => {
+  console.error('Error no controlado en', req.method, req.originalUrl, ':', err.stack || err.message);
+  if (res.headersSent) return next(err);
+  res.status(500).json({ error: 'Error interno del servidor' });
+});
+
+// Últimas redes de seguridad: registran el error pero NO cierran el proceso, para que una
+// petición problemática no derribe el servidor para todo el mundo.
+process.on('uncaughtException', (err) => {
+  console.error('⚠️ Excepción no capturada (el servidor sigue funcionando):', err.stack || err.message);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('⚠️ Promesa rechazada sin capturar (el servidor sigue funcionando):', reason);
 });
 
 app.listen(PORT, () => {
