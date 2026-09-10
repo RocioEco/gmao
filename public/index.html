@@ -577,7 +577,7 @@
                         {activeTab === 'guardias' && (user.rol === 'admin' || user.rol === 'supervisor') && <OrdenesView user={user} ordenes={ordenes} clientes={clientes} contratos={contratos} activos={activos} zonas={zonas} emplazamientos={emplazamientos} tiposActivo={tiposActivo} usuarios={usuarios} materiales={materiales} onRefresh={cargarDatos} filtroInicialTipo="guardia" />}
                         {activeTab === 'calendario' && (user.rol === 'admin' || user.rol === 'supervisor') && <CalendarView user={user} ordenes={ordenes} usuarios={usuarios} activos={activos} onRefresh={cargarDatos} />}
                         {activeTab === 'inventario' && <InventarioView user={user} activos={activos} emplazamientos={emplazamientos} zonas={zonas} clientes={clientes} contratos={contratos} tiposActivo={tiposActivo} camposConfig={camposConfig} onRefresh={cargarDatos} />}
-                        {activeTab === 'preciario' && (user.rol === 'admin' || user.rol === 'supervisor') && <PreciarioView user={user} materiales={materiales} clientes={clientes} onRefresh={cargarDatos} />}
+                        {activeTab === 'preciario' && (user.rol === 'admin' || user.rol === 'supervisor') && <PreciarioView user={user} materiales={materiales} clientes={clientes} contratos={contratos} onRefresh={cargarDatos} />}
                         {activeTab === 'facturacion' && (user.rol === 'admin' || user.rol === 'supervisor') && <FacturacionView user={user} ordenes={ordenes} clientes={clientes} materiales={materiales} usuarios={usuarios} onRefresh={cargarDatos} />}
                         {activeTab === 'alta-campo' && <AltaCampoView user={user} clientes={clientes} contratos={contratos} zonas={zonas} emplazamientos={emplazamientos} tiposActivo={tiposActivo} camposConfig={camposConfig} onRefresh={cargarDatos} />}
                         {activeTab === 'usuarios' && (user.rol === 'admin' || user.rol === 'supervisor') && <UsuariosView user={user} usuarios={usuarios} onRefresh={cargarDatos} />}
@@ -1079,9 +1079,22 @@
         }
 
         // ===== SELECTOR DE MATERIALES (desde Preciario) =====
-        function MaterialesPicker({ value, onChange, materiales, clienteId, readOnly }) {
+        function MaterialesPicker({ value, onChange, materiales, clienteId, contratoId, readOnly }) {
             const filas = value && value.length ? value : [{ material_id: '', descripcion: '', cantidad: 1 }];
-            const materialesCliente = clienteId ? materiales.filter(m => !m.cliente_id || m.cliente_id === parseInt(clienteId)) : materiales;
+
+            const materialesCliente = !clienteId ? materiales : (() => {
+                const candidatos = materiales.filter(m =>
+                    !m.cliente_id ||
+                    (m.cliente_id === parseInt(clienteId) && (!m.contrato_id || (contratoId && m.contrato_id === parseInt(contratoId))))
+                );
+                const puntuar = (m) => (m.contrato_id ? 2 : m.cliente_id ? 1 : 0);
+                const mejores = {};
+                candidatos.forEach(m => {
+                    const key = m.descripcion.trim().toLowerCase();
+                    if (!mejores[key] || puntuar(m) > puntuar(mejores[key])) mejores[key] = m;
+                });
+                return Object.values(mejores).sort((a, b) => a.descripcion.localeCompare(b.descripcion));
+            })();
 
             const updateRow = (i, field, val) => {
                 const copy = [...filas];
@@ -2038,7 +2051,7 @@
 
                             <div className="checklist-section">
                                 <div className="checklist-section-title">📦 Materiales Utilizados</div>
-                                <MaterialesPicker value={visitaForm.materiales_json} onChange={(v) => setVisitaForm({ ...visitaForm, materiales_json: v })} materiales={materiales} clienteId={otSeleccionada ? otSeleccionada.cliente_id : ''} />
+                                <MaterialesPicker value={visitaForm.materiales_json} onChange={(v) => setVisitaForm({ ...visitaForm, materiales_json: v })} materiales={materiales} clienteId={otSeleccionada ? otSeleccionada.cliente_id : ''} contratoId={otSeleccionada ? otSeleccionada.contrato_id : ''} />
                             </div>
 
                             <div className="checklist-section">
@@ -4745,14 +4758,15 @@
             // Precio de la hora de mano de obra para un cliente: prioriza un material del preciario
             // específico de ese cliente cuyo tipo/descripción mencione "mano de obra" u "hora"; si no
             // existe, usa uno genérico (sin cliente asignado) que cumpla lo mismo.
-            const precioHoraParaCliente = (clienteId) => {
+            const precioHoraParaCliente = (clienteId, contratoId) => {
                 const candidatos = materiales.filter(m => {
                     const texto = `${m.tipo || ''} ${m.descripcion || ''}`.toLowerCase();
                     return texto.includes('mano de obra') || texto.includes('hora');
                 });
-                const especifico = candidatos.find(m => m.cliente_id === clienteId);
+                const delContrato = contratoId ? candidatos.find(m => m.contrato_id === contratoId) : null;
+                const especifico = candidatos.find(m => m.cliente_id === clienteId && !m.contrato_id);
                 const generico = candidatos.find(m => !m.cliente_id);
-                const elegido = especifico || generico;
+                const elegido = delContrato || especifico || generico;
                 return elegido ? getPrecioActual(elegido) : null;
             };
 
@@ -4790,7 +4804,7 @@
                         });
                     });
 
-                    const precioHora = precioHoraParaCliente(o.cliente_id);
+                    const precioHora = precioHoraParaCliente(o.cliente_id, o.contrato_id);
                     const totalHoras = precioHora != null ? horasTotales * precioHora : 0;
 
                     let totalMateriales = 0;
@@ -4954,14 +4968,14 @@
             );
         }
 
-        function PreciarioView({ user, materiales, clientes, onRefresh }) {
+        function PreciarioView({ user, materiales, clientes, contratos, onRefresh }) {
             const [showForm, setShowForm] = useState(false);
             const [editingId, setEditingId] = useState(null);
             const [search, setSearch] = useState('');
             const [filtroCliente, setFiltroCliente] = useState('todos');
             const [verHistorialId, setVerHistorialId] = useState(null);
             const [precioNuevo, setPrecioNuevo] = useState({});
-            const [formData, setFormData] = useState({ cliente_id: '', tipo: '', descripcion: '', unidad: 'ud', precio: '' });
+            const [formData, setFormData] = useState({ cliente_id: '', contrato_id: '', tipo: '', descripcion: '', unidad: 'ud', precio: '' });
             const [importMsg, setImportMsg] = useState('');
             const [seleccionados, setSeleccionados] = useState([]);
             const [eliminando, setEliminando] = useState(false);
@@ -4969,6 +4983,8 @@
 
             const getHistorial = (m) => { try { return JSON.parse(m.historial_json || '[]'); } catch { return []; } };
             const getPrecioActual = (m) => { const h = getHistorial(m); return h.length ? h[h.length - 1].precio : null; };
+
+            const contratosDelFormulario = formData.cliente_id ? (contratos || []).filter(c => c.cliente_id === parseInt(formData.cliente_id)) : [];
 
             let filtrados = materiales;
             if (filtroCliente !== 'todos') filtrados = filtrados.filter(m => m.cliente_id === parseInt(filtroCliente));
@@ -4986,7 +5002,7 @@
                     } else {
                         await fetch(`${API_URL}/api/materiales`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(formData) });
                     }
-                    setFormData({ cliente_id: '', tipo: '', descripcion: '', unidad: 'ud', precio: '' });
+                    setFormData({ cliente_id: '', contrato_id: '', tipo: '', descripcion: '', unidad: 'ud', precio: '' });
                     setEditingId(null);
                     setShowForm(false);
                     onRefresh();
@@ -4994,7 +5010,7 @@
             };
 
             const handleEdit = (m) => {
-                setFormData({ cliente_id: m.cliente_id || '', tipo: m.tipo || '', descripcion: m.descripcion || '', unidad: m.unidad || 'ud', precio: '' });
+                setFormData({ cliente_id: m.cliente_id || '', contrato_id: m.contrato_id || '', tipo: m.tipo || '', descripcion: m.descripcion || '', unidad: m.unidad || 'ud', precio: '' });
                 setEditingId(m.id);
                 setShowForm(true);
             };
@@ -5037,13 +5053,17 @@
                     const descripcion = row['Descripción'] || row['descripcion'];
                     const clienteNombre = row['Cliente'] || row['cliente'];
                     const cliente = clientes.find(c => c.nombre === clienteNombre);
+                    const contratoNombre = row['Contrato'] || row['contrato'];
+                    const contrato = (contratos || []).find(c => c.nombre === contratoNombre && (!cliente || c.cliente_id === cliente.id));
                     if (!descripcion) { fail++; continue; }
                     const clienteIdFila = cliente ? cliente.id : null;
+                    const contratoIdFila = contrato ? contrato.id : null;
                     const precio = row['Precio'] !== undefined && row['Precio'] !== '' ? row['Precio']
                         : row['precio'] !== undefined && row['precio'] !== '' ? row['precio']
                         : (row['Precio Actual'] ?? row['precio_actual'] ?? '');
                     const existente = materiales.find(m =>
                         (m.cliente_id || null) === clienteIdFila &&
+                        (m.contrato_id || null) === contratoIdFila &&
                         (m.descripcion || '').trim().toLowerCase() === descripcion.trim().toLowerCase()
                     );
                     try {
@@ -5052,7 +5072,7 @@
                             await fetch(`${API_URL}/api/materiales/${existente.id}`, {
                                 method: 'PUT', headers: { 'Content-Type': 'application/json' },
                                 body: JSON.stringify({
-                                    cliente_id: existente.cliente_id, tipo: row['Tipo'] || row['tipo'] || existente.tipo,
+                                    cliente_id: existente.cliente_id, contrato_id: existente.contrato_id, tipo: row['Tipo'] || row['tipo'] || existente.tipo,
                                     descripcion, unidad: row['Unidad'] || row['unidad'] || existente.unidad
                                 })
                             });
@@ -5065,7 +5085,7 @@
                         } else {
                             await fetch(`${API_URL}/api/materiales`, {
                                 method: 'POST', headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ cliente_id: clienteIdFila, tipo: row['Tipo'] || row['tipo'] || '', descripcion, unidad: row['Unidad'] || row['unidad'] || 'ud', precio })
+                                body: JSON.stringify({ cliente_id: clienteIdFila, contrato_id: contratoIdFila, tipo: row['Tipo'] || row['tipo'] || '', descripcion, unidad: row['Unidad'] || row['unidad'] || 'ud', precio })
                             });
                             creados++;
                         }
@@ -5080,12 +5100,12 @@
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '8px' }}>
                         <h3 className="section-title" style={{ margin: 0 }}>💰 Preciario</h3>
                         <div className="toolbar">
-                            <button className="btn btn-excel" onClick={() => exportToExcel(materiales.map(m => ({ ...m, cliente_nombre: (clientes.find(c => c.id === m.cliente_id) || {}).nombre || '', precio_actual: getPrecioActual(m) })), 'preciario', [
-                                { key: 'cliente_nombre', label: 'Cliente' }, { key: 'tipo', label: 'Tipo' }, { key: 'descripcion', label: 'Descripción' },
+                            <button className="btn btn-excel" onClick={() => exportToExcel(materiales.map(m => ({ ...m, cliente_nombre: (clientes.find(c => c.id === m.cliente_id) || {}).nombre || '', contrato_nombre: m.contrato_nombre || '', precio_actual: getPrecioActual(m) })), 'preciario', [
+                                { key: 'cliente_nombre', label: 'Cliente' }, { key: 'contrato_nombre', label: 'Contrato' }, { key: 'tipo', label: 'Tipo' }, { key: 'descripcion', label: 'Descripción' },
                                 { key: 'unidad', label: 'Unidad' }, { key: 'precio_actual', label: 'Precio Actual' }
                             ])}>📤 Exportar</button>
                             <ExcelImportButton onRows={handleImportRows} />
-                            <button className="btn btn-crear" onClick={() => { setShowForm(!showForm); setEditingId(null); setFormData({ cliente_id: '', tipo: '', descripcion: '', unidad: 'ud', precio: '' }); }}>+ Nuevo</button>
+                            <button className="btn btn-crear" onClick={() => { setShowForm(!showForm); setEditingId(null); setFormData({ cliente_id: '', contrato_id: '', tipo: '', descripcion: '', unidad: 'ud', precio: '' }); }}>+ Nuevo</button>
                         </div>
                     </div>
 
@@ -5106,10 +5126,18 @@
                             <p className="card-text" style={{ fontWeight: 600, marginBottom: '6px' }}>{editingId ? 'Editar Material' : '+ Nuevo Material'}</p>
                             <div className="form-group">
                                 <label>Cliente</label>
-                                <select value={formData.cliente_id} onChange={(e) => setFormData({ ...formData, cliente_id: e.target.value })}>
+                                <select value={formData.cliente_id} onChange={(e) => setFormData({ ...formData, cliente_id: e.target.value, contrato_id: '' })}>
                                     <option value="">-- Sin cliente específico --</option>
                                     {clientes.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
                                 </select>
+                            </div>
+                            <div className="form-group">
+                                <label>Contrato (opcional)</label>
+                                <select value={formData.contrato_id} disabled={!formData.cliente_id} className={!formData.cliente_id ? 'select-disabled' : ''} onChange={(e) => setFormData({ ...formData, contrato_id: e.target.value })}>
+                                    <option value="">-- Todos los contratos de este cliente --</option>
+                                    {contratosDelFormulario.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                                </select>
+                                {!formData.cliente_id && <p className="lock-note">Selecciona primero un cliente para poder limitar a un contrato concreto.</p>}
                             </div>
                             <div className="form-group"><label>Tipo / Categoría</label><input type="text" placeholder="Ej: Accesorios Puertas" value={formData.tipo} onChange={(e) => setFormData({ ...formData, tipo: e.target.value })} /></div>
                             <div className="form-group"><label>Descripción</label><input type="text" placeholder="Descripción del material" value={formData.descripcion} onChange={(e) => setFormData({ ...formData, descripcion: e.target.value })} /></div>
@@ -5150,7 +5178,7 @@
                                             <input type="checkbox" checked={seleccionados.includes(m.id)} onChange={() => toggleSeleccionado(m.id)} style={{ marginTop: '4px' }} />
                                             <div>
                                                 <p className="card-title">{m.descripcion}</p>
-                                                <p className="card-text">{m.tipo} {m.cliente_nombre ? `· ${m.cliente_nombre}` : ''}</p>
+                                                <p className="card-text">{m.tipo} {m.cliente_nombre ? `· ${m.cliente_nombre}` : ''}{m.contrato_nombre ? ` › ${m.contrato_nombre}` : ''}</p>
                                             </div>
                                         </div>
                                         <span className="badge" style={{ background: 'var(--bg-accent)', color: 'var(--fill-accent)' }}>
