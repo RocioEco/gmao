@@ -605,13 +605,16 @@ db.serialize(() => {
   db.run(`CREATE TABLE IF NOT EXISTS materiales (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     cliente_id INTEGER,
+    contrato_id INTEGER,
     tipo TEXT,
     descripcion TEXT NOT NULL,
     unidad TEXT DEFAULT 'ud',
     historial_json TEXT DEFAULT '[]',
     creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY(cliente_id) REFERENCES clientes(id)
+    FOREIGN KEY(cliente_id) REFERENCES clientes(id),
+    FOREIGN KEY(contrato_id) REFERENCES contratos(id)
   )`);
+  db.run(`ALTER TABLE materiales ADD COLUMN contrato_id INTEGER`, () => {});
 
   // ===== INVENTARIO DE SWITCHES (SPA) =====
   db.run(`CREATE TABLE IF NOT EXISTS switches (
@@ -1624,30 +1627,32 @@ app.delete('/api/visitas/:id', (req, res) => {
 
 // MATERIALES (PRECIARIO)
 app.get('/api/materiales', (req, res) => {
-  db.all(`SELECT m.*, c.nombre as cliente_nombre FROM materiales m 
-          LEFT JOIN clientes c ON m.cliente_id = c.id ORDER BY m.descripcion`, (err, rows) => {
+  db.all(`SELECT m.*, c.nombre as cliente_nombre, ct.nombre as contrato_nombre FROM materiales m 
+          LEFT JOIN clientes c ON m.cliente_id = c.id
+          LEFT JOIN contratos ct ON m.contrato_id = ct.id
+          ORDER BY m.descripcion`, (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
     res.json(rows);
   });
 });
 
 app.post('/api/materiales', (req, res) => {
-  const { cliente_id, tipo, descripcion, unidad, precio } = req.body;
+  const { cliente_id, contrato_id, tipo, descripcion, unidad, precio } = req.body;
   if (!descripcion) return res.status(400).json({ error: 'Descripción requerida' });
   const historial = precio !== undefined && precio !== '' ? [{ fecha: new Date().toISOString().slice(0, 10), precio: parseFloat(precio) }] : [];
-  db.run(`INSERT INTO materiales (cliente_id, tipo, descripcion, unidad, historial_json) VALUES (?, ?, ?, ?, ?)`,
-    [cliente_id || null, tipo, descripcion, unidad || 'ud', JSON.stringify(historial)], function(err) {
+  db.run(`INSERT INTO materiales (cliente_id, contrato_id, tipo, descripcion, unidad, historial_json) VALUES (?, ?, ?, ?, ?, ?)`,
+    [cliente_id || null, contrato_id || null, tipo, descripcion, unidad || 'ud', JSON.stringify(historial)], function(err) {
       if (err) return res.status(500).json({ error: err.message });
-      res.json({ id: this.lastID, cliente_id, tipo, descripcion, unidad, historial_json: JSON.stringify(historial) });
+      res.json({ id: this.lastID, cliente_id, contrato_id, tipo, descripcion, unidad, historial_json: JSON.stringify(historial) });
     });
 });
 
 app.put('/api/materiales/:id', (req, res) => {
-  const { cliente_id, tipo, descripcion, unidad } = req.body;
-  db.run(`UPDATE materiales SET cliente_id = ?, tipo = ?, descripcion = ?, unidad = ? WHERE id = ?`,
-    [cliente_id || null, tipo, descripcion, unidad, req.params.id], (err) => {
+  const { cliente_id, contrato_id, tipo, descripcion, unidad } = req.body;
+  db.run(`UPDATE materiales SET cliente_id = ?, contrato_id = ?, tipo = ?, descripcion = ?, unidad = ? WHERE id = ?`,
+    [cliente_id || null, contrato_id || null, tipo, descripcion, unidad, req.params.id], (err) => {
       if (err) return res.status(500).json({ error: err.message });
-      res.json({ id: req.params.id, cliente_id, tipo, descripcion, unidad });
+      res.json({ id: req.params.id, cliente_id, contrato_id, tipo, descripcion, unidad });
     });
 });
 
