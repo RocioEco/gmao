@@ -1524,21 +1524,33 @@
                             {ordenesFiltradas.length === 0 ? (
                                 <div className="empty-state">No hay órdenes</div>
                             ) : (
-                                ordenesFiltradas.map(order => (
-                                    <div key={order.id} className="list-item" style={{ cursor: 'pointer' }} onClick={() => abrirDetalle(order.id)}>
-                                        <div className="list-item-header">
-                                            <div>
-                                                <p className="card-title">{order.id} <span className={`prioridad-badge ${order.prioridad || 'media'}`}>{order.prioridad || 'media'}</span></p>
-                                                <p className="card-text">{order.titulo}</p>
+                                ordenesFiltradas.map(order => {
+                                    const colorEstado = {
+                                        pendiente: 'var(--text-secondary)',
+                                        abierta: 'var(--fill-accent)',
+                                        en_curso: 'var(--fill-orange)',
+                                        resuelta: 'var(--fill-success)',
+                                        cancelada: 'var(--fill-danger)'
+                                    }[order.estado] || 'var(--border)';
+                                    return (
+                                        <div key={order.id} className="list-item" style={{ cursor: 'pointer', borderLeft: `4px solid ${colorEstado}` }} onClick={() => abrirDetalle(order.id)}>
+                                            <div className="list-item-header">
+                                                <div>
+                                                    <p className="card-title">{order.id} <span className={`prioridad-badge ${order.prioridad || 'media'}`}>{order.prioridad || 'media'}</span></p>
+                                                    <p className="card-text">{order.titulo}</p>
+                                                </div>
+                                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' }}>
+                                                    <span className={`badge ${order.tipo}`}>{order.tipo}</span>
+                                                    <span className="card-text" style={{ fontSize: '11px', whiteSpace: 'nowrap' }}>👷 {order.tecnico_nombre || 'Sin asignar'}</span>
+                                                </div>
                                             </div>
-                                            <span className={`badge ${order.tipo}`}>{order.tipo}</span>
+                                            {order.cliente_nombre && <p className="card-text">👤 {order.cliente_nombre}</p>}
+                                            {order.activo_nombre && <p className="card-text">⚙️ {order.activo_nombre}</p>}
+                                            {order.fecha_programada && <p className="card-text">📅 Programada: {order.fecha_programada}</p>}
+                                            <p className="card-text">✓ {order.estado} · 📋 Visitas: {order.num_visitas || 0}{order.ultima_visita ? ` (última ${order.ultima_visita})` : ''}</p>
                                         </div>
-                                        {order.cliente_nombre && <p className="card-text">👤 {order.cliente_nombre}</p>}
-                                        {order.activo_nombre && <p className="card-text">⚙️ {order.activo_nombre}</p>}
-                                        {order.fecha_programada && <p className="card-text">📅 Programada: {order.fecha_programada}</p>}
-                                        <p className="card-text">✓ {order.estado} · 📋 Visitas: {order.num_visitas || 0}{order.ultima_visita ? ` (última ${order.ultima_visita})` : ''}</p>
-                                    </div>
-                                ))
+                                    );
+                                })
                             )}
                         </div>
                     </div>
@@ -2068,7 +2080,7 @@
                                 <input type="checkbox" checked={visitaForm.finalizado} onChange={(e) => setVisitaForm({ ...visitaForm, finalizado: e.target.checked })} />
                                 <div className="finalizar-banner-text">
                                     <p className="finalizar-banner-title">{visitaForm.finalizado ? '✅ Parte marcado como FINALIZADO' : '🔓 Marcar este parte como finalizado'}</p>
-                                    <p className="finalizar-banner-sub">Al finalizar, la orden de trabajo se marca como resuelta.</p>
+                                    <p className="finalizar-banner-sub">Indica que esta visita concreta está terminada. La orden de trabajo no se cierra sola: puede necesitar más visitas de otros técnicos. Un gestor la marcará como "Resuelta" cuando corresponda.</p>
                                 </div>
                             </label>
 
@@ -2160,7 +2172,7 @@
 
                             <p className="card-text" style={{ marginTop: '10px' }}>
                                 <span className="badge" style={{ background: visitaViendo.finalizado ? 'var(--bg-success)' : 'var(--bg-warning)', color: visitaViendo.finalizado ? 'var(--fill-success)' : '#b8860b' }}>
-                                    {visitaViendo.finalizado ? 'Finalizada / OT resuelta' : 'En curso'}
+                                    {visitaViendo.finalizado ? 'Visita finalizada' : 'Visita en curso'}
                                 </span>
                             </p>
 
