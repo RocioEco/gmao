@@ -4789,6 +4789,8 @@
             const [filtroDesde, setFiltroDesde] = useState('');
             const [filtroHasta, setFiltroHasta] = useState('');
             const [filtroFacturada, setFiltroFacturada] = useState('todas');
+            const [dandoPrecioA, setDandoPrecioA] = useState(null); // { otId, descripcion }
+            const [nuevoPrecioForm, setNuevoPrecioForm] = useState({ precio: '', costo: '', generico: false });
 
             useEffect(() => {
                 fetch(`${API_URL}/api/visitas`)
@@ -4864,10 +4866,23 @@
                     const totalHoras = (precioHora != null && horaFacturable) ? horasFacturables * precioHora : 0;
                     const costeHoras = costeHora != null ? horasFacturables * costeHora : 0;
 
+                    // Un material registrado a mano (sin material_id, porque no estaba en el preciario
+                    // en su momento) también se intenta emparejar por descripción, por si mientras tanto
+                    // ya se le dio de alta un precio para este cliente/contrato.
+                    const buscarMaterialPorDescripcion = (descripcion) => {
+                        const candidatos = materiales.filter(x => x.descripcion.trim().toLowerCase() === descripcion.trim().toLowerCase());
+                        const delContrato = o.contrato_id ? candidatos.find(x => x.contrato_id === o.contrato_id) : null;
+                        const delCliente = candidatos.find(x => x.cliente_id === o.cliente_id && !x.contrato_id);
+                        const generico = candidatos.find(x => !x.cliente_id);
+                        return delContrato || delCliente || generico || null;
+                    };
+
                     let totalMateriales = 0;
                     let costeMateriales = 0;
                     const listaConPrecio = Object.values(materialesAgregados).map(m => {
-                        const mat = m.material_id ? materiales.find(x => String(x.id) === String(m.material_id)) : null;
+                        const mat = m.material_id
+                            ? materiales.find(x => String(x.id) === String(m.material_id))
+                            : buscarMaterialPorDescripcion(m.descripcion);
                         const precio = mat ? getPrecioActual(mat) : null;
                         const coste = mat ? getCosteActual(mat) : null;
                         const esFacturable = !mat || mat.facturable !== 0;
@@ -4903,6 +4918,24 @@
                 }
                 setMarcando(false);
                 setSeleccionadas([]);
+                if (onRefresh) onRefresh();
+            };
+
+            const guardarNuevoPrecio = async () => {
+                if (!dandoPrecioA) return;
+                if (nuevoPrecioForm.precio === '' && nuevoPrecioForm.costo === '') { alert('Indica al menos un precio o un coste'); return; }
+                const ot = ordenes.find(o => o.id === dandoPrecioA.otId);
+                await fetch(`${API_URL}/api/materiales`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        cliente_id: nuevoPrecioForm.generico ? null : (ot ? ot.cliente_id : null),
+                        contrato_id: nuevoPrecioForm.generico ? null : (ot ? ot.contrato_id : null),
+                        tipo: '', descripcion: dandoPrecioA.descripcion, unidad: 'ud',
+                        precio: nuevoPrecioForm.precio, costo: nuevoPrecioForm.costo
+                    })
+                });
+                setDandoPrecioA(null);
+                setNuevoPrecioForm({ precio: '', costo: '', generico: false });
                 if (onRefresh) onRefresh();
             };
 
@@ -5032,12 +5065,50 @@
                                     <div style={{ marginTop: '8px' }}>
                                         <p className="card-text" style={{ fontWeight: 600 }}>Materiales</p>
                                         {f.listaConPrecio.map((m, i) => (
-                                            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', borderBottom: '1px dashed var(--border)', padding: '4px 0' }}>
-                                                <span>{m.descripcion} × {m.cantidad} {!m.esFacturable && <span className="badge" style={{ background: '#fee2e2', color: '#991b1b', fontSize: '10px', marginLeft: '4px' }}>No facturable</span>}</span>
-                                                <span>
-                                                    {m.precio != null ? `${(m.subtotal ?? 0).toFixed(2)} €` : '⚠️ Sin precio'}
-                                                    {m.coste != null && <span className="card-text" style={{ fontSize: '11px', display: 'block' }}>Coste: {m.subtotalCoste.toFixed(2)} €</span>}
-                                                </span>
+                                            <div key={i}>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px', borderBottom: '1px dashed var(--border)', padding: '4px 0' }}>
+                                                    <span>{m.descripcion} × {m.cantidad} {!m.esFacturable && <span className="badge" style={{ background: '#fee2e2', color: '#991b1b', fontSize: '10px', marginLeft: '4px' }}>No facturable</span>}</span>
+                                                    <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                        {m.precio != null ? (
+                                                            <>
+                                                                {(m.subtotal ?? 0).toFixed(2)} €
+                                                                {m.coste != null && <span className="card-text" style={{ fontSize: '11px', display: 'block' }}>Coste: {m.subtotalCoste.toFixed(2)} €</span>}
+                                                            </>
+                                                        ) : (
+                                                            <>
+                                                                <span style={{ color: 'var(--fill-orange)' }}>⚠️ Sin precio</span>
+                                                                <button className="btn btn-secondary" style={{ fontSize: '11px', padding: '4px 8px' }}
+                                                                    onClick={() => { setDandoPrecioA({ otId: f.ot.id, descripcion: m.descripcion }); setNuevoPrecioForm({ precio: '', costo: '', generico: false }); }}>
+                                                                    + Añadir precio
+                                                                </button>
+                                                            </>
+                                                        )}
+                                                    </span>
+                                                </div>
+
+                                                {dandoPrecioA && dandoPrecioA.otId === f.ot.id && dandoPrecioA.descripcion === m.descripcion && (
+                                                    <div className="quickadd-box" style={{ marginTop: '6px', marginBottom: '6px' }}>
+                                                        <p className="card-text" style={{ fontWeight: 600 }}>Dar de alta "{m.descripcion}" en el Preciario</p>
+                                                        <div className="ficha-grid">
+                                                            <div className="ficha-field">
+                                                                <span className="ficha-field-label">Precio de venta (€)</span>
+                                                                <input type="number" step="0.01" placeholder="0.00" value={nuevoPrecioForm.precio} onChange={(e) => setNuevoPrecioForm({ ...nuevoPrecioForm, precio: e.target.value })} />
+                                                            </div>
+                                                            <div className="ficha-field">
+                                                                <span className="ficha-field-label">Precio de coste (€)</span>
+                                                                <input type="number" step="0.01" placeholder="0.00" value={nuevoPrecioForm.costo} onChange={(e) => setNuevoPrecioForm({ ...nuevoPrecioForm, costo: e.target.value })} />
+                                                            </div>
+                                                        </div>
+                                                        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', marginBottom: '8px' }}>
+                                                            <input type="checkbox" checked={nuevoPrecioForm.generico} onChange={(e) => setNuevoPrecioForm({ ...nuevoPrecioForm, generico: e.target.checked })} />
+                                                            Aplicar a todos los clientes (genérico), en vez de solo a {f.ot.cliente_nombre || 'este cliente'}
+                                                        </label>
+                                                        <div className="btn-group">
+                                                            <button className="btn btn-success" onClick={guardarNuevoPrecio}>Guardar precio</button>
+                                                            <button className="btn btn-secondary" onClick={() => setDandoPrecioA(null)}>Cancelar</button>
+                                                        </div>
+                                                    </div>
+                                                )}
                                             </div>
                                         ))}
                                         <p className="card-text" style={{ textAlign: 'right', fontWeight: 600, marginTop: '4px' }}>
