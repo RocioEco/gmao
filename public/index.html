@@ -5107,6 +5107,15 @@
                 setShowForm(true);
             };
 
+            // Crea una nueva entrada para el MISMO material (misma descripción/tipo/unidad), pero
+            // dejando Cliente, Contrato, Precio y Coste en blanco para elegir el otro contrato con su
+            // propio precio, sin tener que volver a escribir la descripción desde cero.
+            const handleDuplicar = (m) => {
+                setFormData({ cliente_id: '', contrato_id: '', tipo: m.tipo || '', descripcion: m.descripcion || '', unidad: m.unidad || 'ud', precio: '', costo: '', facturable: true });
+                setEditingId(null);
+                setShowForm(true);
+            };
+
             const toggleSeleccionado = (id) => {
                 setSeleccionados(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
             };
@@ -5301,6 +5310,7 @@
 
                                     <div style={{ marginTop: '8px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                                         <button className="btn btn-primary" onClick={() => handleEdit(m)}>Editar</button>
+                                        <button className="btn btn-secondary" onClick={() => handleDuplicar(m)}>📋 Duplicar para otro contrato</button>
                                         <button className="btn btn-secondary" onClick={() => setVerHistorialId(verHistorialId === m.id ? null : m.id)}>
                                             {verHistorialId === m.id ? 'Ocultar historial' : `Ver historial (${historial.length})`}
                                         </button>
