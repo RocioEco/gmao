@@ -13,7 +13,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 app.use(cors());
-app.use(bodyParser.json({ limit: '25mb' }));
+app.use(bodyParser.json({ limit: '150mb' }));
+app.use(bodyParser.urlencoded({ extended: true, limit: '150mb' }));
 app.use(express.static('public'));
 
 // Ruta de la base de datos: usa DB_PATH si está definida (para volumen persistente en Railway),
@@ -586,6 +587,7 @@ db.serialize(() => {
     checklist_tipo TEXT,
     checklist_json TEXT,
     materiales_json TEXT,
+    materiales_pendientes_json TEXT,
     fotos_json TEXT,
     videos_json TEXT,
     medio_ambiente_json TEXT,
@@ -601,6 +603,7 @@ db.serialize(() => {
 
   db.run(`ALTER TABLE visitas ADD COLUMN videos_json TEXT`, () => {});
   db.run(`ALTER TABLE visitas ADD COLUMN trabajos_pendientes TEXT`, () => {});
+  db.run(`ALTER TABLE visitas ADD COLUMN materiales_pendientes_json TEXT`, () => {});
 
   db.run(`CREATE TABLE IF NOT EXISTS materiales (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1487,7 +1490,9 @@ app.get('/api/ordenes', (req, res) => {
                  e.lon as emplazamiento_lon,
                  z.nombre as zona_nombre,
                  (SELECT COUNT(*) FROM visitas v WHERE v.orden_id = o.id) as num_visitas,
-                 (SELECT MAX(fecha) FROM visitas v WHERE v.orden_id = o.id) as ultima_visita
+                 (SELECT MAX(fecha) FROM visitas v WHERE v.orden_id = o.id) as ultima_visita,
+                 (SELECT trabajos_pendientes FROM visitas v WHERE v.orden_id = o.id ORDER BY v.fecha DESC, v.rowid DESC LIMIT 1) as ultimo_trabajos_pendientes,
+                 (SELECT materiales_pendientes_json FROM visitas v WHERE v.orden_id = o.id ORDER BY v.fecha DESC, v.rowid DESC LIMIT 1) as ultimo_materiales_pendientes_json
           FROM ordenes_trabajo o 
           LEFT JOIN clientes c ON o.cliente_id = c.id
           LEFT JOIN contratos ct ON o.contrato_id = ct.id
@@ -1569,16 +1574,16 @@ app.get('/api/visitas', (req, res) => {
 
 app.post('/api/visitas', (req, res) => {
   const { orden_id, fecha, tecnico_id, hora_inicio, hora_fin, id_mantis, proyecto, descripcion, trabajos_pendientes,
-          checklist_tipo, checklist_json, materiales_json, fotos_json, videos_json, medio_ambiente_json,
+          checklist_tipo, checklist_json, materiales_json, materiales_pendientes_json, fotos_json, videos_json, medio_ambiente_json,
           seguridad_json, desplazamientos_json, firma, firma_nombre, finalizado } = req.body;
   if (!orden_id) return res.status(400).json({ error: 'orden_id requerido' });
   const id = `VIS-${Date.now()}`;
   db.run(`INSERT INTO visitas (id, orden_id, fecha, tecnico_id, hora_inicio, hora_fin, id_mantis, proyecto, 
-          descripcion, trabajos_pendientes, checklist_tipo, checklist_json, materiales_json, fotos_json, videos_json, medio_ambiente_json, 
+          descripcion, trabajos_pendientes, checklist_tipo, checklist_json, materiales_json, materiales_pendientes_json, fotos_json, videos_json, medio_ambiente_json, 
           seguridad_json, desplazamientos_json, firma, firma_nombre, finalizado) 
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [id, orden_id, fecha, tecnico_id, hora_inicio, hora_fin, id_mantis, proyecto, descripcion, trabajos_pendientes,
-     checklist_tipo, checklist_json, materiales_json, fotos_json, videos_json, medio_ambiente_json,
+     checklist_tipo, checklist_json, materiales_json, materiales_pendientes_json, fotos_json, videos_json, medio_ambiente_json,
      seguridad_json, desplazamientos_json, firma, firma_nombre, finalizado ? 1 : 0],
     function(err) {
       if (err) return res.status(500).json({ error: err.message });
@@ -1586,21 +1591,21 @@ app.post('/api/visitas', (req, res) => {
       // Solo avanzamos el estado a "en_curso" si la OT seguía en "abierta"; el cierre a "resuelta" lo decide el gestor.
       db.run(`UPDATE ordenes_trabajo SET estado = 'en_curso' WHERE id = ? AND estado = 'abierta'`, [orden_id]);
       res.json({ id, orden_id, fecha, tecnico_id, hora_inicio, hora_fin, id_mantis, proyecto, descripcion, trabajos_pendientes,
-        checklist_tipo, checklist_json, materiales_json, fotos_json, videos_json, medio_ambiente_json,
+        checklist_tipo, checklist_json, materiales_json, materiales_pendientes_json, fotos_json, videos_json, medio_ambiente_json,
         seguridad_json, desplazamientos_json, firma, firma_nombre, finalizado: finalizado ? 1 : 0 });
     });
 });
 
 app.put('/api/visitas/:id', (req, res) => {
   const { fecha, tecnico_id, hora_inicio, hora_fin, id_mantis, proyecto, descripcion, trabajos_pendientes,
-          checklist_tipo, checklist_json, materiales_json, fotos_json, videos_json, medio_ambiente_json,
+          checklist_tipo, checklist_json, materiales_json, materiales_pendientes_json, fotos_json, videos_json, medio_ambiente_json,
           seguridad_json, desplazamientos_json, firma, firma_nombre, finalizado, orden_id } = req.body;
   db.run(`UPDATE visitas SET fecha = ?, tecnico_id = ?, hora_inicio = ?, hora_fin = ?, id_mantis = ?, 
-          proyecto = ?, descripcion = ?, trabajos_pendientes = ?, checklist_tipo = ?, checklist_json = ?, materiales_json = ?, 
+          proyecto = ?, descripcion = ?, trabajos_pendientes = ?, checklist_tipo = ?, checklist_json = ?, materiales_json = ?, materiales_pendientes_json = ?,
           fotos_json = ?, videos_json = ?, medio_ambiente_json = ?, seguridad_json = ?, desplazamientos_json = ?, 
           firma = ?, firma_nombre = ?, finalizado = ? WHERE id = ?`,
     [fecha, tecnico_id, hora_inicio, hora_fin, id_mantis, proyecto, descripcion, trabajos_pendientes, checklist_tipo,
-     checklist_json, materiales_json, fotos_json, videos_json, medio_ambiente_json, seguridad_json,
+     checklist_json, materiales_json, materiales_pendientes_json, fotos_json, videos_json, medio_ambiente_json, seguridad_json,
      desplazamientos_json, firma, firma_nombre, finalizado ? 1 : 0, req.params.id],
     (err) => {
       if (err) return res.status(500).json({ error: err.message });
