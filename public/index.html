@@ -166,6 +166,10 @@
         .readonly-view { font-size: 12px; }
         .ficha-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px 12px; margin-bottom: 12px; }
         @media (max-width: 420px) { .ficha-grid { grid-template-columns: repeat(2, 1fr); } }
+        .tecnicos-apoyo-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px 10px; margin-top: 4px; }
+        @media (max-width: 640px) { .tecnicos-apoyo-grid { grid-template-columns: repeat(3, 1fr); } }
+        @media (max-width: 420px) { .tecnicos-apoyo-grid { grid-template-columns: repeat(2, 1fr); } }
+        .tecnico-apoyo-item { display: flex; align-items: center; gap: 6px; font-size: 12px; }
         .tecnico-items-wrap { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 16px; margin-bottom: 12px; }
         @media (max-width: 620px) { .tecnico-items-wrap { grid-template-columns: 1fr; } }
         .tecnico-item-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 6px 0; border-bottom: 1px dashed var(--border); }
@@ -1755,14 +1759,16 @@
                             {esGestor && (
                                 <div className="form-group">
                                     <label>Técnicos de Apoyo</label>
-                                    {tecnicosDisponibles.filter(u => u.id !== otForm.asignado_a).map(u => (
-                                        <label key={u.id} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', marginBottom: '4px' }}>
-                                            <input type="checkbox" checked={otForm.tecnicos_apoyo.includes(u.id)} disabled={!puedeEditarTodo} onChange={(e) => {
-                                                const checked = e.target.checked;
-                                                setOtForm(f => ({ ...f, tecnicos_apoyo: checked ? [...f.tecnicos_apoyo, u.id] : f.tecnicos_apoyo.filter(id => id !== u.id) }));
-                                            }} /> {u.nombre}
-                                        </label>
-                                    ))}
+                                    <div className="tecnicos-apoyo-grid">
+                                        {tecnicosDisponibles.filter(u => u.id !== otForm.asignado_a).map(u => (
+                                            <label key={u.id} className="tecnico-apoyo-item">
+                                                <input type="checkbox" checked={otForm.tecnicos_apoyo.includes(u.id)} disabled={!puedeEditarTodo} onChange={(e) => {
+                                                    const checked = e.target.checked;
+                                                    setOtForm(f => ({ ...f, tecnicos_apoyo: checked ? [...f.tecnicos_apoyo, u.id] : f.tecnicos_apoyo.filter(id => id !== u.id) }));
+                                                }} /> {u.nombre}
+                                            </label>
+                                        ))}
+                                    </div>
                                 </div>
                             )}
 
@@ -4831,6 +4837,14 @@
                     const trabajadores = [...new Set(visitasOT.map(v => v.tecnico_nombre).filter(Boolean))];
                     const horasTotales = visitasOT.reduce((sum, v) => sum + calcularHoras(v.hora_inicio, v.hora_fin), 0);
 
+                    // Si la OT tuvo técnicos de apoyo, las horas se facturan multiplicadas por el
+                    // número total de técnicos que trabajaron en ella (principal + apoyo), ya que
+                    // cada uno dedica su propio tiempo en paralelo.
+                    let tecnicosApoyo = [];
+                    try { tecnicosApoyo = o.tecnicos_apoyo ? JSON.parse(o.tecnicos_apoyo) : []; } catch { tecnicosApoyo = []; }
+                    const numTecnicos = 1 + (Array.isArray(tecnicosApoyo) ? tecnicosApoyo.length : 0);
+                    const horasFacturables = horasTotales * numTecnicos;
+
                     const materialesAgregados = {};
                     visitasOT.forEach(v => {
                         let mats = [];
@@ -4844,7 +4858,7 @@
                     });
 
                     const precioHora = precioHoraParaCliente(o.cliente_id, o.contrato_id);
-                    const totalHoras = precioHora != null ? horasTotales * precioHora : 0;
+                    const totalHoras = precioHora != null ? horasFacturables * precioHora : 0;
 
                     let totalMateriales = 0;
                     const listaConPrecio = Object.values(materialesAgregados).map(m => {
@@ -4855,7 +4869,7 @@
                         return { ...m, precio, subtotal };
                     });
 
-                    return { ot: o, trabajadores, horasTotales, precioHora, totalHoras, listaConPrecio, totalMateriales, total: totalHoras + totalMateriales };
+                    return { ot: o, trabajadores, numTecnicos, horasTotales, horasFacturables, precioHora, totalHoras, listaConPrecio, totalMateriales, total: totalHoras + totalMateriales };
                 })
                 .filter(Boolean);
 
@@ -4890,7 +4904,9 @@
                                     ot: `${f.ot.id} - ${f.ot.titulo}`,
                                     cliente: f.ot.cliente_nombre || '',
                                     trabajador: f.trabajadores.join(', '),
-                                    horas: f.horasTotales.toFixed(2),
+                                    num_tecnicos: f.numTecnicos,
+                                    horas_registradas: f.horasTotales.toFixed(2),
+                                    horas_facturables: f.horasFacturables.toFixed(2),
                                     precio_hora: f.precioHora != null ? f.precioHora.toFixed(2) : '',
                                     materiales: f.listaConPrecio.map(m => `${m.descripcion} x${m.cantidad}`).join(' | '),
                                     total: f.total.toFixed(2),
@@ -4898,7 +4914,8 @@
                                     fecha_facturacion: f.ot.fecha_facturacion || ''
                                 })), 'resumen_facturacion', [
                                     { key: 'ot', label: 'OT' }, { key: 'cliente', label: 'Cliente' }, { key: 'trabajador', label: 'Trabajador' },
-                                    { key: 'horas', label: 'Horas' }, { key: 'precio_hora', label: 'Precio/hora' },
+                                    { key: 'num_tecnicos', label: 'Nº Técnicos' }, { key: 'horas_registradas', label: 'Horas Registradas' },
+                                    { key: 'horas_facturables', label: 'Horas Facturables' }, { key: 'precio_hora', label: 'Precio/hora' },
                                     { key: 'materiales', label: 'Materiales' }, { key: 'total', label: 'Total' },
                                     { key: 'facturada', label: 'Facturada' }, { key: 'fecha_facturacion', label: 'Fecha Facturación' }
                                 ]
@@ -4974,7 +4991,14 @@
 
                                 <div className="readonly-view" style={{ marginTop: '8px' }}>
                                     <div className="rv-row"><span className="rv-label">Trabajador</span><span className="rv-value">{f.trabajadores.join(', ') || '—'}</span></div>
-                                    <div className="rv-row"><span className="rv-label">Horas</span><span className="rv-value">{f.horasTotales.toFixed(2)} h</span></div>
+                                    <div className="rv-row">
+                                        <span className="rv-label">Horas</span>
+                                        <span className="rv-value">
+                                            {f.numTecnicos > 1
+                                                ? `${f.horasTotales.toFixed(2)} h × ${f.numTecnicos} técnicos = ${f.horasFacturables.toFixed(2)} h facturables`
+                                                : `${f.horasTotales.toFixed(2)} h`}
+                                        </span>
+                                    </div>
                                     <div className="rv-row">
                                         <span className="rv-label">Precio/hora</span>
                                         <span className="rv-value">{f.precioHora != null ? `${f.precioHora.toFixed(2)} €` : '⚠️ No encontrado en el preciario'}</span>
