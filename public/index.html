@@ -4798,12 +4798,12 @@
             }, []);
 
             const getHistorial = (m) => { try { return JSON.parse(m.historial_json || '[]'); } catch { return []; } };
-            const getPrecioActual = (m) => { const h = getHistorial(m); return h.length ? h[h.length - 1].precio : null; };
+            const getPrecioActual = (m) => { const h = getHistorial(m); for (let i = h.length - 1; i >= 0; i--) { if (h[i].precio != null) return h[i].precio; } return null; };
+            const getCosteActual = (m) => { const h = getHistorial(m); for (let i = h.length - 1; i >= 0; i--) { if (h[i].costo != null) return h[i].costo; } return null; };
 
-            // Precio de la hora de mano de obra para un cliente: prioriza un material del preciario
-            // específico de ese cliente cuyo tipo/descripción mencione "mano de obra" u "hora"; si no
-            // existe, usa uno genérico (sin cliente asignado) que cumpla lo mismo.
-            const precioHoraParaCliente = (clienteId, contratoId) => {
+            // Material de mano de obra (precio, coste y si es facturable) para un cliente/contrato:
+            // prioriza uno específico del contrato, luego del cliente, y por último uno genérico.
+            const materialHoraParaCliente = (clienteId, contratoId) => {
                 const candidatos = materiales.filter(m => {
                     const texto = `${m.tipo || ''} ${m.descripcion || ''}`.toLowerCase();
                     return texto.includes('mano de obra') || texto.includes('hora');
@@ -4811,8 +4811,7 @@
                 const delContrato = contratoId ? candidatos.find(m => m.contrato_id === contratoId) : null;
                 const especifico = candidatos.find(m => m.cliente_id === clienteId && !m.contrato_id);
                 const generico = candidatos.find(m => !m.cliente_id);
-                const elegido = delContrato || especifico || generico;
-                return elegido ? getPrecioActual(elegido) : null;
+                return delContrato || especifico || generico || null;
             };
 
             const calcularHoras = (hi, hf) => {
@@ -4857,23 +4856,38 @@
                         });
                     });
 
-                    const precioHora = precioHoraParaCliente(o.cliente_id, o.contrato_id);
-                    const totalHoras = precioHora != null ? horasFacturables * precioHora : 0;
+                    const matHora = materialHoraParaCliente(o.cliente_id, o.contrato_id);
+                    const precioHora = matHora ? getPrecioActual(matHora) : null;
+                    const costeHora = matHora ? getCosteActual(matHora) : null;
+                    const horaFacturable = !matHora || matHora.facturable !== 0;
+
+                    const totalHoras = (precioHora != null && horaFacturable) ? horasFacturables * precioHora : 0;
+                    const costeHoras = costeHora != null ? horasFacturables * costeHora : 0;
 
                     let totalMateriales = 0;
+                    let costeMateriales = 0;
                     const listaConPrecio = Object.values(materialesAgregados).map(m => {
                         const mat = m.material_id ? materiales.find(x => String(x.id) === String(m.material_id)) : null;
                         const precio = mat ? getPrecioActual(mat) : null;
-                        const subtotal = precio != null ? precio * m.cantidad : null;
+                        const coste = mat ? getCosteActual(mat) : null;
+                        const esFacturable = !mat || mat.facturable !== 0;
+                        const subtotal = (precio != null && esFacturable) ? precio * m.cantidad : null;
+                        const subtotalCoste = coste != null ? coste * m.cantidad : null;
                         if (subtotal != null) totalMateriales += subtotal;
-                        return { ...m, precio, subtotal };
+                        if (subtotalCoste != null) costeMateriales += subtotalCoste;
+                        return { ...m, precio, coste, esFacturable, subtotal, subtotalCoste };
                     });
 
-                    return { ot: o, trabajadores, numTecnicos, horasTotales, horasFacturables, precioHora, totalHoras, listaConPrecio, totalMateriales, total: totalHoras + totalMateriales };
+                    return {
+                        ot: o, trabajadores, numTecnicos, horasTotales, horasFacturables, precioHora, horaFacturable, totalHoras, costeHoras,
+                        listaConPrecio, totalMateriales, costeMateriales,
+                        total: totalHoras + totalMateriales, coste: costeHoras + costeMateriales
+                    };
                 })
                 .filter(Boolean);
 
             const granTotal = filasOT.reduce((sum, f) => sum + f.total, 0);
+            const granCoste = filasOT.reduce((sum, f) => sum + f.coste, 0);
 
             const toggleSeleccion = (id) => {
                 setSeleccionadas(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
@@ -4908,15 +4922,19 @@
                                     horas_registradas: f.horasTotales.toFixed(2),
                                     horas_facturables: f.horasFacturables.toFixed(2),
                                     precio_hora: f.precioHora != null ? f.precioHora.toFixed(2) : '',
-                                    materiales: f.listaConPrecio.map(m => `${m.descripcion} x${m.cantidad}`).join(' | '),
-                                    total: f.total.toFixed(2),
+                                    mano_obra_no_facturable: f.precioHora != null && !f.horaFacturable ? 'Sí' : 'No',
+                                    materiales: f.listaConPrecio.map(m => `${m.descripcion} x${m.cantidad}${!m.esFacturable ? ' (no facturable)' : ''}`).join(' | '),
+                                    facturacion: f.total.toFixed(2),
+                                    coste: f.coste.toFixed(2),
+                                    margen: (f.total - f.coste).toFixed(2),
                                     facturada: f.ot.facturada ? 'Sí' : 'No',
                                     fecha_facturacion: f.ot.fecha_facturacion || ''
                                 })), 'resumen_facturacion', [
                                     { key: 'ot', label: 'OT' }, { key: 'cliente', label: 'Cliente' }, { key: 'trabajador', label: 'Trabajador' },
                                     { key: 'num_tecnicos', label: 'Nº Técnicos' }, { key: 'horas_registradas', label: 'Horas Registradas' },
                                     { key: 'horas_facturables', label: 'Horas Facturables' }, { key: 'precio_hora', label: 'Precio/hora' },
-                                    { key: 'materiales', label: 'Materiales' }, { key: 'total', label: 'Total' },
+                                    { key: 'mano_obra_no_facturable', label: 'Mano de obra no facturable' },
+                                    { key: 'materiales', label: 'Materiales' }, { key: 'facturacion', label: 'Facturación' }, { key: 'coste', label: 'Coste' }, { key: 'margen', label: 'Margen' },
                                     { key: 'facturada', label: 'Facturada' }, { key: 'fecha_facturacion', label: 'Fecha Facturación' }
                                 ]
                             )}>📤 Exportar</button>
@@ -4980,7 +4998,8 @@
                                         </div>
                                     </div>
                                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' }}>
-                                        <span className="badge" style={{ background: 'var(--bg-accent)', color: 'var(--fill-accent)' }}>{f.total.toFixed(2)} €</span>
+                                        <span className="badge" style={{ background: 'var(--bg-accent)', color: 'var(--fill-accent)' }}>Facturación: {f.total.toFixed(2)} €</span>
+                                        <span className="card-text" style={{ fontSize: '11px' }}>Coste: {f.coste.toFixed(2)} €</span>
                                         {(
                                             f.ot.facturada
                                                 ? <span className="badge" style={{ background: '#d1fae5', color: '#065f46' }}>💶 Facturada {f.ot.fecha_facturacion}</span>
@@ -5001,9 +5020,12 @@
                                     </div>
                                     <div className="rv-row">
                                         <span className="rv-label">Precio/hora</span>
-                                        <span className="rv-value">{f.precioHora != null ? `${f.precioHora.toFixed(2)} €` : '⚠️ No encontrado en el preciario'}</span>
+                                        <span className="rv-value">
+                                            {f.precioHora != null ? `${f.precioHora.toFixed(2)} €` : '⚠️ No encontrado en el preciario'}
+                                            {f.precioHora != null && !f.horaFacturable && <span className="badge" style={{ marginLeft: '6px', background: '#fee2e2', color: '#991b1b', fontSize: '10px' }}>No facturable</span>}
+                                        </span>
                                     </div>
-                                    <div className="rv-row"><span className="rv-label">Subtotal mano de obra</span><span className="rv-value">{f.totalHoras.toFixed(2)} €</span></div>
+                                    <div className="rv-row"><span className="rv-label">Mano de obra</span><span className="rv-value">Facturación: {f.totalHoras.toFixed(2)} € · Coste: {f.costeHoras.toFixed(2)} €</span></div>
                                 </div>
 
                                 {f.listaConPrecio.length > 0 && (
@@ -5011,11 +5033,16 @@
                                         <p className="card-text" style={{ fontWeight: 600 }}>Materiales</p>
                                         {f.listaConPrecio.map((m, i) => (
                                             <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', borderBottom: '1px dashed var(--border)', padding: '4px 0' }}>
-                                                <span>{m.descripcion} × {m.cantidad}</span>
-                                                <span>{m.precio != null ? `${m.subtotal.toFixed(2)} €` : '⚠️ Sin precio'}</span>
+                                                <span>{m.descripcion} × {m.cantidad} {!m.esFacturable && <span className="badge" style={{ background: '#fee2e2', color: '#991b1b', fontSize: '10px', marginLeft: '4px' }}>No facturable</span>}</span>
+                                                <span>
+                                                    {m.precio != null ? `${(m.subtotal ?? 0).toFixed(2)} €` : '⚠️ Sin precio'}
+                                                    {m.coste != null && <span className="card-text" style={{ fontSize: '11px', display: 'block' }}>Coste: {m.subtotalCoste.toFixed(2)} €</span>}
+                                                </span>
                                             </div>
                                         ))}
-                                        <p className="card-text" style={{ textAlign: 'right', fontWeight: 600, marginTop: '4px' }}>Subtotal materiales: {f.totalMateriales.toFixed(2)} €</p>
+                                        <p className="card-text" style={{ textAlign: 'right', fontWeight: 600, marginTop: '4px' }}>
+                                            Subtotal materiales — Facturación: {f.totalMateriales.toFixed(2)} € · Coste: {f.costeMateriales.toFixed(2)} €
+                                        </p>
                                     </div>
                                 )}
                             </div>
@@ -5024,7 +5051,8 @@
 
                     {filasOT.length > 0 && (
                         <div className="card" style={{ marginTop: '1rem', textAlign: 'right' }}>
-                            <p className="card-title">Total general: {granTotal.toFixed(2)} €</p>
+                            <p className="card-title">Total general — Facturación: {granTotal.toFixed(2)} € · Coste: {granCoste.toFixed(2)} €</p>
+                            <p className="card-text">Margen: {(granTotal - granCoste).toFixed(2)} €</p>
                         </div>
                     )}
                 </div>
@@ -5038,14 +5066,15 @@
             const [filtroCliente, setFiltroCliente] = useState('todos');
             const [verHistorialId, setVerHistorialId] = useState(null);
             const [precioNuevo, setPrecioNuevo] = useState({});
-            const [formData, setFormData] = useState({ cliente_id: '', contrato_id: '', tipo: '', descripcion: '', unidad: 'ud', precio: '' });
+            const [formData, setFormData] = useState({ cliente_id: '', contrato_id: '', tipo: '', descripcion: '', unidad: 'ud', precio: '', costo: '', facturable: true });
             const [importMsg, setImportMsg] = useState('');
             const [seleccionados, setSeleccionados] = useState([]);
             const [eliminando, setEliminando] = useState(false);
             const formRef = useAutoScrollForm(showForm);
 
             const getHistorial = (m) => { try { return JSON.parse(m.historial_json || '[]'); } catch { return []; } };
-            const getPrecioActual = (m) => { const h = getHistorial(m); return h.length ? h[h.length - 1].precio : null; };
+            const getPrecioActual = (m) => { const h = getHistorial(m); for (let i = h.length - 1; i >= 0; i--) { if (h[i].precio != null) return h[i].precio; } return null; };
+            const getCosteActual = (m) => { const h = getHistorial(m); for (let i = h.length - 1; i >= 0; i--) { if (h[i].costo != null) return h[i].costo; } return null; };
 
             const contratosDelFormulario = formData.cliente_id ? (contratos || []).filter(c => c.cliente_id === parseInt(formData.cliente_id)) : [];
 
@@ -5058,14 +5087,14 @@
                 try {
                     if (editingId) {
                         await fetch(`${API_URL}/api/materiales/${editingId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(formData) });
-                        // Si además se ha indicado un precio nuevo al editar, se añade al historial
-                        if (formData.precio !== '' && formData.precio !== undefined) {
-                            await fetch(`${API_URL}/api/materiales/${editingId}/precio`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ precio: formData.precio }) });
+                        // Si además se ha indicado un precio o coste nuevo al editar, se añade al historial
+                        if ((formData.precio !== '' && formData.precio !== undefined) || (formData.costo !== '' && formData.costo !== undefined)) {
+                            await fetch(`${API_URL}/api/materiales/${editingId}/precio`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ precio: formData.precio, costo: formData.costo }) });
                         }
                     } else {
                         await fetch(`${API_URL}/api/materiales`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(formData) });
                     }
-                    setFormData({ cliente_id: '', contrato_id: '', tipo: '', descripcion: '', unidad: 'ud', precio: '' });
+                    setFormData({ cliente_id: '', contrato_id: '', tipo: '', descripcion: '', unidad: 'ud', precio: '', costo: '', facturable: true });
                     setEditingId(null);
                     setShowForm(false);
                     onRefresh();
@@ -5073,7 +5102,7 @@
             };
 
             const handleEdit = (m) => {
-                setFormData({ cliente_id: m.cliente_id || '', contrato_id: m.contrato_id || '', tipo: m.tipo || '', descripcion: m.descripcion || '', unidad: m.unidad || 'ud', precio: '' });
+                setFormData({ cliente_id: m.cliente_id || '', contrato_id: m.contrato_id || '', tipo: m.tipo || '', descripcion: m.descripcion || '', unidad: m.unidad || 'ud', precio: '', costo: '', facturable: m.facturable !== 0 });
                 setEditingId(m.id);
                 setShowForm(true);
             };
@@ -5168,7 +5197,7 @@
                                 { key: 'unidad', label: 'Unidad' }, { key: 'precio_actual', label: 'Precio Actual' }
                             ])}>📤 Exportar</button>
                             <ExcelImportButton onRows={handleImportRows} />
-                            <button className="btn btn-crear" onClick={() => { setShowForm(!showForm); setEditingId(null); setFormData({ cliente_id: '', contrato_id: '', tipo: '', descripcion: '', unidad: 'ud', precio: '' }); }}>+ Nuevo</button>
+                            <button className="btn btn-crear" onClick={() => { setShowForm(!showForm); setEditingId(null); setFormData({ cliente_id: '', contrato_id: '', tipo: '', descripcion: '', unidad: 'ud', precio: '', costo: '', facturable: true }); }}>+ Nuevo</button>
                         </div>
                     </div>
 
@@ -5205,9 +5234,24 @@
                             <div className="form-group"><label>Tipo / Categoría</label><input type="text" placeholder="Ej: Accesorios Puertas" value={formData.tipo} onChange={(e) => setFormData({ ...formData, tipo: e.target.value })} /></div>
                             <div className="form-group"><label>Descripción</label><input type="text" placeholder="Descripción del material" value={formData.descripcion} onChange={(e) => setFormData({ ...formData, descripcion: e.target.value })} /></div>
                             <div className="form-group"><label>Unidad</label><input type="text" placeholder="ud, m, kg..." value={formData.unidad} onChange={(e) => setFormData({ ...formData, unidad: e.target.value })} /></div>
+                            <div className="ficha-grid">
+                                <div className="ficha-field">
+                                    <span className="ficha-field-label">{editingId ? 'Nuevo precio de venta (opcional)' : 'Precio de venta (€)'}</span>
+                                    <input type="number" step="0.01" placeholder="0.00" value={formData.precio} onChange={(e) => setFormData({ ...formData, precio: e.target.value })} />
+                                </div>
+                                <div className="ficha-field">
+                                    <span className="ficha-field-label">{editingId ? 'Nuevo precio de coste (opcional)' : 'Precio de coste (€)'}</span>
+                                    <input type="number" step="0.01" placeholder="0.00" value={formData.costo} onChange={(e) => setFormData({ ...formData, costo: e.target.value })} />
+                                </div>
+                            </div>
                             <div className="form-group">
-                                <label>{editingId ? 'Añadir nuevo precio (opcional)' : 'Precio inicial (€)'}</label>
-                                <input type="number" step="0.01" placeholder="0.00" value={formData.precio} onChange={(e) => setFormData({ ...formData, precio: e.target.value })} />
+                                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                                    <input type="checkbox" checked={formData.facturable} onChange={(e) => setFormData({ ...formData, facturable: e.target.checked })} />
+                                    Facturable al cliente
+                                </label>
+                                {!formData.facturable && (
+                                    <p className="lock-note">Este concepto (por ejemplo, mano de obra incluida en el contrato) se seguirá contando como coste interno, pero no se sumará al total a facturar en el Resumen Facturación.</p>
+                                )}
                             </div>
                             <div className="btn-group">
                                 <button className="btn btn-success" onClick={handleAdd}>{editingId ? 'Guardar cambios' : 'Crear'}</button>
@@ -5234,6 +5278,8 @@
                         {filtrados.length === 0 ? <div className="empty-state">No hay materiales</div> : filtrados.map(m => {
                             const historial = getHistorial(m);
                             const precioActual = getPrecioActual(m);
+                            const costeActual = getCosteActual(m);
+                            const esFacturable = m.facturable !== 0;
                             return (
                                 <div key={m.id} className="list-item">
                                     <div className="list-item-header">
@@ -5244,9 +5290,13 @@
                                                 <p className="card-text">{m.tipo} {m.cliente_nombre ? `· ${m.cliente_nombre}` : ''}{m.contrato_nombre ? ` › ${m.contrato_nombre}` : ''}</p>
                                             </div>
                                         </div>
-                                        <span className="badge" style={{ background: 'var(--bg-accent)', color: 'var(--fill-accent)' }}>
-                                            {precioActual !== null ? `${precioActual.toFixed(2)} €` : 'Sin precio'} / {m.unidad}
-                                        </span>
+                                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' }}>
+                                            <span className="badge" style={{ background: 'var(--bg-accent)', color: 'var(--fill-accent)' }}>
+                                                {precioActual !== null ? `${precioActual.toFixed(2)} €` : 'Sin precio'} / {m.unidad}
+                                            </span>
+                                            {costeActual !== null && <span className="card-text" style={{ fontSize: '11px' }}>Coste: {costeActual.toFixed(2)} €</span>}
+                                            {!esFacturable && <span className="badge" style={{ background: '#fee2e2', color: '#991b1b' }}>No facturable</span>}
+                                        </div>
                                     </div>
 
                                     <div style={{ marginTop: '8px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
@@ -5261,7 +5311,10 @@
                                         <div style={{ marginTop: '10px' }}>
                                             {historial.length === 0 ? <p className="card-text">Sin historial de precios.</p> : (
                                                 [...historial].reverse().map((h, i) => (
-                                                    <div key={i} className="price-history-row"><span>{h.fecha}</span><span>{parseFloat(h.precio).toFixed(2)} €</span></div>
+                                                    <div key={i} className="price-history-row">
+                                                        <span>{h.fecha}</span>
+                                                        <span>{h.precio != null ? `Venta: ${parseFloat(h.precio).toFixed(2)} €` : ''} {h.costo != null ? `· Coste: ${parseFloat(h.costo).toFixed(2)} €` : ''}</span>
+                                                    </div>
                                                 ))
                                             )}
                                             <div style={{ display: 'flex', gap: '6px', marginTop: '8px' }}>
