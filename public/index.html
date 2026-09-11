@@ -1319,7 +1319,7 @@
 
             const blankVisita = () => ({
                 fecha: new Date().toISOString().slice(0, 10), tecnico_id: user.id, hora_inicio: '', hora_fin: '',
-                id_mantis: '', proyecto: '', descripcion: '', trabajos_pendientes: '', checklist_json: {}, materiales_json: [], fotos_json: [], videos_json: [],
+                id_mantis: '', proyecto: '', descripcion: '', trabajos_pendientes: '', checklist_json: {}, materiales_json: [], materiales_pendientes_json: [], fotos_json: [], videos_json: [],
                 medio_ambiente_json: [], seguridad_json: {}, desplazamientos_json: [], firma: '', firma_nombre: '', finalizado: false
             });
             const [visitaForm, setVisitaForm] = useState(blankVisita());
@@ -1434,9 +1434,10 @@
             };
 
             const abrirEditarVisita = (v) => {
-                let checklist = {}, mats = [], fotos = [], videos = [], medio = [], seg = {}, desp = [];
+                let checklist = {}, mats = [], matsPend = [], fotos = [], videos = [], medio = [], seg = {}, desp = [];
                 try { checklist = v.checklist_json ? JSON.parse(v.checklist_json) : {}; } catch {}
                 try { mats = v.materiales_json ? JSON.parse(v.materiales_json) : []; } catch {}
+                try { matsPend = v.materiales_pendientes_json ? JSON.parse(v.materiales_pendientes_json) : []; } catch {}
                 try { fotos = v.fotos_json ? JSON.parse(v.fotos_json) : []; } catch {}
                 try { videos = v.videos_json ? JSON.parse(v.videos_json) : []; } catch {}
                 try { medio = v.medio_ambiente_json ? JSON.parse(v.medio_ambiente_json) : []; } catch {}
@@ -1445,7 +1446,7 @@
                 setVisitaForm({
                     fecha: v.fecha || '', tecnico_id: v.tecnico_id || user.id, hora_inicio: v.hora_inicio || '', hora_fin: v.hora_fin || '',
                     id_mantis: v.id_mantis || '', proyecto: v.proyecto || '', descripcion: v.descripcion || '', trabajos_pendientes: v.trabajos_pendientes || '',
-                    checklist_json: checklist, materiales_json: mats, fotos_json: fotos, videos_json: videos,
+                    checklist_json: checklist, materiales_json: mats, materiales_pendientes_json: matsPend, fotos_json: fotos, videos_json: videos,
                     medio_ambiente_json: medio, seguridad_json: seg, desplazamientos_json: desp,
                     firma: v.firma || '', firma_nombre: v.firma_nombre || '', finalizado: !!v.finalizado
                 });
@@ -1462,6 +1463,7 @@
                     checklist_tipo: otSeleccionada && otSeleccionada.activo_tipo ? otSeleccionada.activo_tipo : null,
                     checklist_json: JSON.stringify(visitaForm.checklist_json || {}),
                     materiales_json: JSON.stringify(visitaForm.materiales_json || []),
+                    materiales_pendientes_json: JSON.stringify(visitaForm.materiales_pendientes_json || []),
                     fotos_json: JSON.stringify(visitaForm.fotos_json || []),
                     videos_json: JSON.stringify(visitaForm.videos_json || []),
                     medio_ambiente_json: JSON.stringify(visitaForm.medio_ambiente_json || {}),
@@ -1548,6 +1550,20 @@
                                             {order.activo_nombre && <p className="card-text">⚙️ {order.activo_nombre}</p>}
                                             {order.fecha_programada && <p className="card-text">📅 Programada: {order.fecha_programada}</p>}
                                             <p className="card-text">✓ {order.estado} · 📋 Visitas: {order.num_visitas || 0}{order.ultima_visita ? ` (última ${order.ultima_visita})` : ''}</p>
+                                            {order.ultimo_trabajos_pendientes && (
+                                                <p className="card-text" style={{ color: 'var(--fill-accent)' }}>🔧 Pendiente: {order.ultimo_trabajos_pendientes}</p>
+                                            )}
+                                            {(() => {
+                                                let matsPendientes = [];
+                                                try { matsPendientes = order.ultimo_materiales_pendientes_json ? JSON.parse(order.ultimo_materiales_pendientes_json) : []; } catch { matsPendientes = []; }
+                                                matsPendientes = matsPendientes.filter(m => m.descripcion);
+                                                if (matsPendientes.length === 0) return null;
+                                                return (
+                                                    <p className="card-text" style={{ color: 'var(--fill-orange)' }}>
+                                                        📦 Material pendiente: {matsPendientes.map(m => `${m.descripcion} ×${m.cantidad}`).join(', ')}
+                                                    </p>
+                                                );
+                                            })()}
                                         </div>
                                     );
                                 })
@@ -2067,6 +2083,11 @@
                             </div>
 
                             <div className="checklist-section">
+                                <div className="checklist-section-title">⏳ Materiales Pendientes</div>
+                                <MaterialesPicker value={visitaForm.materiales_pendientes_json} onChange={(v) => setVisitaForm({ ...visitaForm, materiales_pendientes_json: v })} materiales={materiales} clienteId={otSeleccionada ? otSeleccionada.cliente_id : ''} contratoId={otSeleccionada ? otSeleccionada.contrato_id : ''} />
+                            </div>
+
+                            <div className="checklist-section">
                                 <div className="checklist-section-title">📷 Fotos</div>
                                 <PhotoCapture value={visitaForm.fotos_json} onChange={(v) => setVisitaForm({ ...visitaForm, fotos_json: v })} />
                             </div>
@@ -2096,9 +2117,10 @@
             // ============ RENDER: VIEW VISITA (solo lectura) ============
             if (mode === 'view-visita') {
                 if (!visitaViendo) return <div className="empty-state">Visita no encontrada</div>;
-                let checklist = {}, mats = [], fotos = [], videos = [], medio = [], seg = {}, desp = [];
+                let checklist = {}, mats = [], matsPend = [], fotos = [], videos = [], medio = [], seg = {}, desp = [];
                 try { checklist = visitaViendo.checklist_json ? JSON.parse(visitaViendo.checklist_json) : {}; } catch {}
                 try { mats = visitaViendo.materiales_json ? JSON.parse(visitaViendo.materiales_json) : []; } catch {}
+                try { matsPend = visitaViendo.materiales_pendientes_json ? JSON.parse(visitaViendo.materiales_pendientes_json) : []; } catch {}
                 try { fotos = visitaViendo.fotos_json ? JSON.parse(visitaViendo.fotos_json) : []; } catch {}
                 try { videos = visitaViendo.videos_json ? JSON.parse(visitaViendo.videos_json) : []; } catch {}
                 try { medio = visitaViendo.medio_ambiente_json ? JSON.parse(visitaViendo.medio_ambiente_json) : []; } catch {}
@@ -2158,6 +2180,11 @@
                             <div className="checklist-section">
                                 <div className="checklist-section-title">📦 Materiales Utilizados</div>
                                 <MaterialesPicker value={mats} onChange={() => {}} materiales={materiales} clienteId="" readOnly={true} />
+                            </div>
+
+                            <div className="checklist-section">
+                                <div className="checklist-section-title">⏳ Materiales Pendientes</div>
+                                <MaterialesPicker value={matsPend} onChange={() => {}} materiales={materiales} clienteId="" readOnly={true} />
                             </div>
 
                             <div className="checklist-section">
