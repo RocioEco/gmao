@@ -225,45 +225,45 @@ async function migrarCamposLegacyActivos() {
 
   try {
     for (const mapeo of MAPEOS) {
-      const campoAntiguo = await dbGet(`SELECT * FROM campos_config WHERE entidad = 'activo' AND etiqueta = ?`, [mapeo.etiquetaAntigua]);
-      if (!campoAntiguo || campoAntiguo.clave.startsWith('fabricante')) {
-        // Evita confundir el campo de sistema "Fabricante" consigo mismo cuando el mapeo apunta a 'fabricante'
-        if (!campoAntiguo) continue;
-      }
-      const claveAntigua = campoAntiguo.clave;
+      const camposAntiguos = await dbAll(`SELECT * FROM campos_config WHERE entidad = 'activo' AND LOWER(TRIM(etiqueta)) = ?`, [mapeo.etiquetaAntigua.toLowerCase()]);
+      for (const campoAntiguo of camposAntiguos) {
+        if (!campoAntiguo || (mapeo.esSistema && campoAntiguo.clave.startsWith('fabricante'))) continue;
+        const claveAntigua = campoAntiguo.clave;
 
-      const activosConDato = await dbAll(`SELECT id, tipo, campos_extra FROM activos WHERE campos_extra LIKE ?`, [`%"${claveAntigua}"%`]);
-      for (const a of activosConDato) {
-        let extra = {};
-        try { extra = a.campos_extra ? JSON.parse(a.campos_extra) : {}; } catch { extra = {}; }
-        const valorAntiguo = extra[claveAntigua];
-        if (valorAntiguo === undefined || valorAntiguo === null || valorAntiguo === '') continue;
+        const activosConDato = await dbAll(`SELECT id, tipo, campos_extra FROM activos WHERE campos_extra LIKE ?`, [`%"${claveAntigua}"%`]);
+        for (const a of activosConDato) {
+          let extra = {};
+          try { extra = a.campos_extra ? JSON.parse(a.campos_extra) : {}; } catch { extra = {}; }
+          const valorAntiguo = extra[claveAntigua];
+          if (valorAntiguo === undefined || valorAntiguo === null || valorAntiguo === '') continue;
 
-        const claveNueva = mapeo.claveNueva(a.tipo);
-        if (claveNueva === claveAntigua) continue;
+          const claveNueva = mapeo.claveNueva(a.tipo);
+          if (claveNueva === claveAntigua) continue;
 
-        let cambiado = false;
-        if (mapeo.esSistema) {
-          // El campo nuevo es de sistema (columna propia de la tabla activos), no de campos_extra
-          const activoActual = await dbGet(`SELECT ${claveNueva} as val FROM activos WHERE id = ?`, [a.id]);
-          if (!activoActual.val) {
-            await dbRun(`UPDATE activos SET ${claveNueva} = ? WHERE id = ?`, [valorAntiguo, a.id]);
+          let cambiado = false;
+          if (mapeo.esSistema) {
+            // El campo nuevo es de sistema (columna propia de la tabla activos), no de campos_extra
+            const activoActual = await dbGet(`SELECT ${claveNueva} as val FROM activos WHERE id = ?`, [a.id]);
+            if (!activoActual.val) {
+              await dbRun(`UPDATE activos SET ${claveNueva} = ? WHERE id = ?`, [valorAntiguo, a.id]);
+              cambiado = true;
+            }
+          } else if (!extra[claveNueva]) {
+            extra[claveNueva] = valorAntiguo;
             cambiado = true;
           }
-        } else if (!extra[claveNueva]) {
-          extra[claveNueva] = valorAntiguo;
-          cambiado = true;
+
+          if (cambiado) {
+            delete extra[claveAntigua];
+            await dbRun(`UPDATE activos SET campos_extra = ? WHERE id = ?`, [JSON.stringify(extra), a.id]);
+          }
         }
 
-        if (cambiado) {
-          delete extra[claveAntigua];
-          await dbRun(`UPDATE activos SET campos_extra = ? WHERE id = ?`, [JSON.stringify(extra), a.id]);
-        }
+        // Ocultamos el campo antiguo (no lo borramos, por si queda algún resto sin migrar que revisar).
+        // Se hace para CADA fila que tenga esa etiqueta, por si se hubiera vuelto a crear un duplicado.
+        await dbRun(`UPDATE campos_config SET visible = 0 WHERE id = ?`, [campoAntiguo.id]);
+        console.log(`✓ Migrados datos de campo antiguo "${mapeo.etiquetaAntigua}" (id ${campoAntiguo.id}, ${activosConDato.length} activos revisados)`);
       }
-
-      // Ocultamos el campo antiguo (no lo borramos, por si queda algún resto sin migrar que revisar)
-      await dbRun(`UPDATE campos_config SET visible = 0 WHERE id = ?`, [campoAntiguo.id]);
-      console.log(`✓ Migrados datos de campo antiguo "${mapeo.etiquetaAntigua}" (${activosConDato.length} activos revisados)`);
     }
   } catch (e) {
     console.error('Error migrando campos antiguos de activos:', e.message);
@@ -620,6 +620,23 @@ db.serialize(() => {
   )`);
   db.run(`ALTER TABLE materiales ADD COLUMN contrato_id INTEGER`, () => {});
   db.run(`ALTER TABLE materiales ADD COLUMN facturable INTEGER DEFAULT 1`, () => {});
+
+  // ===== ALBARANES (provisionales -> finales, pendientes de facturar) =====
+  db.run(`CREATE TABLE IF NOT EXISTS albaranes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    cliente_id INTEGER,
+    obra TEXT,
+    departamento TEXT,
+    estado TEXT DEFAULT 'provisional',
+    fecha TEXT,
+    importe REAL,
+    descripcion TEXT,
+    facturado INTEGER DEFAULT 0,
+    fecha_facturacion TEXT,
+    creado_por INTEGER,
+    creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(cliente_id) REFERENCES clientes(id)
+  )`);
 
   // ===== INVENTARIO DE SWITCHES (SPA) =====
   db.run(`CREATE TABLE IF NOT EXISTS switches (
@@ -1676,6 +1693,54 @@ app.post('/api/materiales/:id/precio', (req, res) => {
       if (err2) return res.status(500).json({ error: err2.message });
       res.json({ id: req.params.id, historial_json: JSON.stringify(historial) });
     });
+  });
+});
+
+// ===== ALBARANES =====
+app.get('/api/albaranes', (req, res) => {
+  db.all(`SELECT a.*, c.nombre as cliente_nombre, u.nombre as creado_por_nombre
+          FROM albaranes a
+          LEFT JOIN clientes c ON a.cliente_id = c.id
+          LEFT JOIN usuarios u ON a.creado_por = u.id
+          ORDER BY a.creado_en DESC`, (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows);
+  });
+});
+
+app.post('/api/albaranes', (req, res) => {
+  const { cliente_id, obra, departamento, creado_por } = req.body;
+  db.run(`INSERT INTO albaranes (cliente_id, obra, departamento, estado, creado_por) VALUES (?, ?, ?, 'provisional', ?)`,
+    [cliente_id || null, obra || '', departamento || '', creado_por || null], function (err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ id: this.lastID });
+    });
+});
+
+app.put('/api/albaranes/:id', (req, res) => {
+  const { cliente_id, obra, departamento, estado, fecha, importe, descripcion } = req.body;
+  db.run(`UPDATE albaranes SET cliente_id = ?, obra = ?, departamento = ?, estado = ?, fecha = ?, importe = ?, descripcion = ? WHERE id = ?`,
+    [cliente_id || null, obra || '', departamento || '', estado || 'provisional', fecha || null, importe !== undefined && importe !== '' ? parseFloat(importe) : null, descripcion || '', req.params.id],
+    (err) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ success: true });
+    });
+});
+
+app.delete('/api/albaranes/:id', (req, res) => {
+  db.run('DELETE FROM albaranes WHERE id = ?', [req.params.id], (err) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ success: true });
+  });
+});
+
+// Marca/desmarca un albarán como facturado. La fecha se fija en el servidor, en el momento exacto.
+app.put('/api/albaranes/:id/facturar', (req, res) => {
+  const { facturado } = req.body;
+  const fecha = facturado ? new Date().toISOString().slice(0, 10) : null;
+  db.run(`UPDATE albaranes SET facturado = ?, fecha_facturacion = ? WHERE id = ?`, [facturado ? 1 : 0, fecha, req.params.id], (err) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ success: true, facturado: !!facturado, fecha_facturacion: fecha });
   });
 });
 
