@@ -176,10 +176,16 @@ async function registrarCamposPuerta() {
     for (const nombreTipo of TIPOS_PUERTA) {
       await dbRun(`INSERT OR IGNORE INTO tipos_activo (nombre, checklist_json) VALUES (?, '[]')`, [nombreTipo]);
     }
-    await registrarItemTecnico('custom_cuadro_control', 'Cuadro de control', 70, TIPOS_PUERTA, false);
-    await registrarItemTecnico('custom_dispositivos_seguridad', 'Dispositivos de seguridad', 71, TIPOS_PUERTA, true);
-    await registrarItemTecnico('custom_telemando_puerta', 'Telemando', 72, TIPOS_PUERTA, false);
-    await registrarItemTecnico('custom_finales_carrera', 'Finales de carrera', 73, TIPOS_PUERTA, true);
+    await registrarItemTecnico('custom_dispositivos_seguridad', 'Dispositivos de seguridad', 70, TIPOS_PUERTA, true);
+    await registrarItemTecnico('custom_telemando_puerta', 'Telemando', 71, TIPOS_PUERTA, false);
+    // "Finales de carrera" se renombró a "Detectores de posición" (mismo campo, mismos datos, solo cambia la etiqueta)
+    await registrarItemTecnico('custom_finales_carrera', 'Detectores de posición', 72, TIPOS_PUERTA, true);
+    await dbRun(`UPDATE campos_config SET etiqueta = 'Detectores de posición (Sí/No)' WHERE clave = 'custom_finales_carrera_sn'`);
+    await dbRun(`UPDATE campos_config SET etiqueta = 'Detectores de posición - Tipo' WHERE clave = 'custom_finales_carrera_tipo'`);
+    await dbRun(`UPDATE campos_config SET etiqueta = 'Detectores de posición - Unidades' WHERE clave = 'custom_finales_carrera_uds'`);
+
+    // "Cuadro de control" se elimina del modelo: se oculta (no se borra, por si algún activo ya tenía datos)
+    await dbRun(`UPDATE campos_config SET visible = 0 WHERE clave IN ('custom_cuadro_control_sn', 'custom_cuadro_control_tipo')`);
   } catch (e) {
     console.error('Error registrando campos de Puerta:', e.message);
   }
