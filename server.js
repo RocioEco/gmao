@@ -1023,7 +1023,7 @@ app.post('/api/auth/login', (req, res) => {
   db.get('SELECT * FROM usuarios WHERE email = ? AND activo = 1', [email], (err, row) => {
     if (err) return res.status(500).json({ error: 'Error en servidor' });
     if (row && bcrypt.compareSync(password, row.password_hash)) {
-      res.json({ id: row.id, nombre: row.nombre, email: row.email, rol: row.rol });
+      res.json({ id: row.id, nombre: row.nombre, email: row.email, rol: row.rol, departamento: row.departamento });
     } else {
       res.status(401).json({ error: 'Email o contraseña inválida' });
     }
