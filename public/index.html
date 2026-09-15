@@ -668,14 +668,26 @@
                 );
             }
 
+            // El "Encargado" solo debe ver los datos de su propio departamento en el dashboard general
+            // (admin y Supervisor ven todo, como siempre).
+            const esEncargado = user.rol === 'encargado' && user.departamento;
+            const ordenesDept = esEncargado ? ordenes.filter(o => (o.departamento || 'Facilities') === user.departamento) : ordenes;
+            const clienteIdsDept = new Set(ordenesDept.map(o => o.cliente_id).filter(Boolean));
+            const contratoIdsDept = new Set(ordenesDept.map(o => o.contrato_id).filter(Boolean));
+            const activoIdsDept = new Set(ordenesDept.map(o => o.activo_id).filter(Boolean));
+            const clientesDept = esEncargado ? clientes.filter(c => clienteIdsDept.has(c.id)) : clientes;
+            const contratosDept = esEncargado ? contratos.filter(c => contratoIdsDept.has(c.id)) : contratos;
+            const activosDept = esEncargado ? activos.filter(a => activoIdsDept.has(a.id)) : activos;
+
             const stats = [
-                { label: 'Órdenes Totales', value: ordenes.length },
-                { label: 'Clientes', value: clientes.length },
-                { label: 'Activos', value: activos.length },
-                { label: 'Contratos', value: contratos.length }
+                { label: 'Órdenes Totales', value: ordenesDept.length },
+                { label: 'Clientes', value: clientesDept.length },
+                { label: 'Activos', value: activosDept.length },
+                { label: 'Contratos', value: contratosDept.length }
             ];
-            const datosTipoGlobal = contarPorTipo(ordenes);
-            const tecnicos = usuarios.filter(u => u.activo);
+            const datosTipoGlobal = contarPorTipo(ordenesDept);
+            const tecnicosIdsDept = new Set(ordenesDept.map(o => o.asignado_a).filter(Boolean));
+            const tecnicos = usuarios.filter(u => u.activo && (!esEncargado || u.departamento === user.departamento || tecnicosIdsDept.has(u.id)));
 
             return (
                 <div>
@@ -704,7 +716,7 @@
                         <h4 className="card-title">Órdenes por Técnico</h4>
                         <div className="list">
                             {tecnicos.length === 0 ? <p className="card-text">No hay usuarios activos</p> : tecnicos.map(t => {
-                                const suyas = ordenes.filter(o => o.asignado_a === t.id);
+                                const suyas = ordenesDept.filter(o => o.asignado_a === t.id);
                                 const datosT = contarPorTipo(suyas);
                                 return (
                                     <div key={t.id} className="tecnico-dash-card">
@@ -721,10 +733,10 @@
 
                     <div className="card">
                         <h4 className="card-title">📋 Últimas Órdenes</h4>
-                        {ordenes.slice(0, 3).length === 0 ? (
+                        {ordenesDept.slice(0, 3).length === 0 ? (
                             <p className="card-text">No hay órdenes</p>
                         ) : (
-                            ordenes.slice(0, 3).map(order => (
+                            ordenesDept.slice(0, 3).map(order => (
                                 <div key={order.id} style={{ paddingBottom: '8px', borderBottom: '1px solid var(--border)' }}>
                                     <p style={{ margin: '0', fontSize: '13px', fontWeight: '600' }}>{order.id}</p>
                                     <p className="card-text">{order.titulo}</p>
@@ -4360,7 +4372,11 @@
             for (let i = 0; i < startWeekday; i++) cells.push(null);
             for (let d = 1; d <= daysInMonth; d++) cells.push(d);
 
-            let planificables = ordenes.filter(o => o.tipo !== 'guardia' && o.fecha_programada);
+            // El "Encargado" solo ve en el calendario las OT de su propio departamento
+            const ordenesCalendario = (user.rol === 'encargado' && user.departamento)
+                ? ordenes.filter(o => (o.departamento || 'Facilities') === user.departamento)
+                : ordenes;
+            let planificables = ordenesCalendario.filter(o => o.tipo !== 'guardia' && o.fecha_programada);
             if (filtroTecnico !== 'todos') {
                 planificables = planificables.filter(o => o.asignado_a === parseInt(filtroTecnico) || (() => {
                     try { return JSON.parse(o.tecnicos_apoyo || '[]').includes(parseInt(filtroTecnico)); } catch { return false; }
