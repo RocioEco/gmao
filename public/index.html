@@ -515,6 +515,7 @@
                         { id: 'calendario', label: 'Calendario' },
                         { id: 'inventario', label: 'Inventario' },
                         { id: 'preciario', label: 'Preciario' },
+                        { id: 'albaranes', label: 'Albaranes' },
                         { id: 'facturacion', label: 'Resumen Facturación' },
                         { id: 'alta-campo', label: 'Alta en Campo' },
                         { id: 'usuarios', label: 'Usuarios' }
@@ -582,6 +583,7 @@
                         {activeTab === 'calendario' && (user.rol === 'admin' || user.rol === 'supervisor') && <CalendarView user={user} ordenes={ordenes} usuarios={usuarios} activos={activos} onRefresh={cargarDatos} />}
                         {activeTab === 'inventario' && <InventarioView user={user} activos={activos} emplazamientos={emplazamientos} zonas={zonas} clientes={clientes} contratos={contratos} tiposActivo={tiposActivo} camposConfig={camposConfig} onRefresh={cargarDatos} />}
                         {activeTab === 'preciario' && (user.rol === 'admin' || user.rol === 'supervisor') && <PreciarioView user={user} materiales={materiales} clientes={clientes} contratos={contratos} onRefresh={cargarDatos} />}
+                        {activeTab === 'albaranes' && (user.rol === 'admin' || user.rol === 'supervisor') && <AlbaranesView user={user} clientes={clientes} onRefresh={cargarDatos} />}
                         {activeTab === 'facturacion' && (user.rol === 'admin' || user.rol === 'supervisor') && <FacturacionView user={user} ordenes={ordenes} clientes={clientes} materiales={materiales} usuarios={usuarios} onRefresh={cargarDatos} />}
                         {activeTab === 'alta-campo' && <AltaCampoView user={user} clientes={clientes} contratos={contratos} zonas={zonas} emplazamientos={emplazamientos} tiposActivo={tiposActivo} camposConfig={camposConfig} onRefresh={cargarDatos} />}
                         {activeTab === 'usuarios' && (user.rol === 'admin' || user.rol === 'supervisor') && <UsuariosView user={user} usuarios={usuarios} onRefresh={cargarDatos} />}
@@ -1086,10 +1088,12 @@
         function MaterialesPicker({ value, onChange, materiales, clienteId, contratoId, readOnly }) {
             const filas = value && value.length ? value : [{ material_id: '', descripcion: '', cantidad: 1 }];
 
-            const materialesCliente = !clienteId ? materiales : (() => {
+            // Si no hay cliente en contexto (p. ej. una Guardia sin cliente asignado todavía), solo se
+            // muestran los materiales genéricos (sin cliente propio) — nunca los de otros clientes.
+            const materialesCliente = (() => {
                 const candidatos = materiales.filter(m =>
                     !m.cliente_id ||
-                    (m.cliente_id === parseInt(clienteId) && (!m.contrato_id || (contratoId && m.contrato_id === parseInt(contratoId))))
+                    (clienteId && m.cliente_id === parseInt(clienteId) && (!m.contrato_id || (contratoId && m.contrato_id === parseInt(contratoId))))
                 );
                 const puntuar = (m) => (m.contrato_id ? 2 : m.cliente_id ? 1 : 0);
                 const mejores = {};
@@ -1292,6 +1296,9 @@
             const [mode, setMode] = useState('list'); // list | form-ot | detail | form-visita | view-visita
             const [filtroTipo, setFiltroTipo] = useState(filtroInicialTipo || 'todas');
             const [filtroEstado, setFiltroEstado] = useState('todas');
+            const [buscarNombre, setBuscarNombre] = useState('');
+            const [filtroClienteOt, setFiltroClienteOt] = useState('todos');
+            const [filtroContratoOt, setFiltroContratoOt] = useState('todos');
             const [selectedOtId, setSelectedOtId] = useState(null);
             const [visitas, setVisitas] = useState([]);
             const [editingOtId, setEditingOtId] = useState(null);
@@ -1497,6 +1504,14 @@
             const ordenesBase = soloAsignadas ? ordenes.filter(o => o.asignado_a === user.id) : ordenes;
             let ordenesFiltradas = filtroTipo === 'todas' ? ordenesBase : ordenesBase.filter(o => o.tipo === filtroTipo);
             if (filtroEstado !== 'todas') ordenesFiltradas = ordenesFiltradas.filter(o => o.estado === filtroEstado);
+            if (buscarNombre.trim()) {
+                const q = buscarNombre.trim().toLowerCase();
+                ordenesFiltradas = ordenesFiltradas.filter(o => (o.titulo || '').toLowerCase().includes(q) || (o.id || '').toLowerCase().includes(q));
+            }
+            if (filtroClienteOt !== 'todos') ordenesFiltradas = ordenesFiltradas.filter(o => String(o.cliente_id) === filtroClienteOt);
+            if (filtroContratoOt !== 'todos') ordenesFiltradas = ordenesFiltradas.filter(o => String(o.contrato_id) === filtroContratoOt);
+
+            const contratosDelFiltro = filtroClienteOt !== 'todos' ? contratos.filter(c => String(c.cliente_id) === filtroClienteOt) : contratos;
 
             // ============ RENDER: LIST ============
             if (mode === 'list') {
@@ -1510,6 +1525,26 @@
                         {!esGestor && !soloAsignadas && (
                             <p className="lock-note">Aquí ves todas las órdenes. Solo puedes gestionar las que estén sin asignar (pulsando "Asignarme para Gestionar") o las que ya sean tuyas — las demás son de solo consulta.</p>
                         )}
+
+                        <div className="form-group">
+                            <input type="text" placeholder="🔍 Buscar por nombre o Nº OT..." value={buscarNombre} onChange={(e) => setBuscarNombre(e.target.value)} />
+                        </div>
+                        <div className="ficha-grid">
+                            <div className="ficha-field">
+                                <span className="ficha-field-label">Cliente</span>
+                                <select value={filtroClienteOt} onChange={(e) => { setFiltroClienteOt(e.target.value); setFiltroContratoOt('todos'); }}>
+                                    <option value="todos">Todos</option>
+                                    {clientes.map(c => <option key={c.id} value={String(c.id)}>{c.nombre}</option>)}
+                                </select>
+                            </div>
+                            <div className="ficha-field">
+                                <span className="ficha-field-label">Contrato</span>
+                                <select value={filtroContratoOt} onChange={(e) => setFiltroContratoOt(e.target.value)}>
+                                    <option value="todos">Todos</option>
+                                    {contratosDelFiltro.map(c => <option key={c.id} value={String(c.id)}>{c.nombre}</option>)}
+                                </select>
+                            </div>
+                        </div>
 
                         <div className="tipo-filter-bar">
                             {['todas', 'correctivo', 'preventivo', 'obra', 'guardia'].map(t => (
@@ -1551,6 +1586,13 @@
                                                 </div>
                                             </div>
                                             {order.cliente_nombre && <p className="card-text">👤 {order.cliente_nombre}</p>}
+                                            {(order.ticket || order.id_cliente) && (
+                                                <p className="card-text">
+                                                    {order.ticket && <>🎫 Ticket: {order.ticket}</>}
+                                                    {order.ticket && order.id_cliente && ' · '}
+                                                    {order.id_cliente && <>🆔 ID Cliente: {order.id_cliente}</>}
+                                                </p>
+                                            )}
                                             {order.activo_nombre && <p className="card-text">⚙️ {order.activo_nombre}</p>}
                                             {order.fecha_programada && <p className="card-text">📅 Programada: {order.fecha_programada}</p>}
                                             <p className="card-text">✓ {order.estado} · 📋 Visitas: {order.num_visitas || 0}{order.ultima_visita ? ` (última ${order.ultima_visita})` : ''}</p>
@@ -4827,6 +4869,7 @@
             };
 
             const filasOT = ordenes
+                .filter(o => o.estado === 'resuelta')
                 .filter(o => filtroCliente === 'todos' || String(o.cliente_id) === filtroCliente)
                 .filter(o => filtroFacturada === 'todas' || (filtroFacturada === 'facturadas' ? !!o.facturada : !o.facturada))
                 .map(o => {
@@ -4973,6 +5016,8 @@
                             )}>📤 Exportar</button>
                         </div>
                     </div>
+
+                    <p className="lock-note">Solo se muestran aquí las OT ya finalizadas (estado "Resuelta"). Las que están pendientes o en curso no aparecen todavía.</p>
 
                     <div className="ficha-grid">
                         <div className="ficha-field">
@@ -5124,6 +5169,153 @@
                         <div className="card" style={{ marginTop: '1rem', textAlign: 'right' }}>
                             <p className="card-title">Total general — Facturación: {granTotal.toFixed(2)} € · Coste: {granCoste.toFixed(2)} €</p>
                             <p className="card-text">Margen: {(granTotal - granCoste).toFixed(2)} €</p>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        // ===== ALBARANES: provisionales (mínimos, sin fecha/importe) -> finales (completos, pendientes de facturar) =====
+        function AlbaranesView({ user, clientes, onRefresh }) {
+            const [albaranes, setAlbaranes] = useState([]);
+            const [cargando, setCargando] = useState(true);
+            const [showForm, setShowForm] = useState(false);
+            const [completandoId, setCompletandoId] = useState(null);
+            const [filtroEstado, setFiltroEstado] = useState('provisionales');
+            const [formNuevo, setFormNuevo] = useState({ cliente_id: '', obra: '', departamento: '' });
+            const [formCompletar, setFormCompletar] = useState({ fecha: '', importe: '', descripcion: '' });
+
+            const cargar = () => {
+                setCargando(true);
+                fetch(`${API_URL}/api/albaranes`).then(r => r.json()).then(data => { setAlbaranes(data); setCargando(false); }).catch(() => setCargando(false));
+            };
+            useEffect(() => { cargar(); }, []);
+
+            const crearProvisional = async () => {
+                if (!formNuevo.cliente_id) { alert('Selecciona un cliente'); return; }
+                await fetch(`${API_URL}/api/albaranes`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...formNuevo, creado_por: user.id }) });
+                setFormNuevo({ cliente_id: '', obra: '', departamento: '' });
+                setShowForm(false);
+                cargar();
+            };
+
+            const abrirCompletar = (a) => {
+                setFormCompletar({ fecha: a.fecha || new Date().toISOString().slice(0, 10), importe: a.importe ?? '', descripcion: a.descripcion || '' });
+                setCompletandoId(a.id);
+            };
+
+            const guardarComoFinal = async (a) => {
+                if (!formCompletar.fecha) { alert('Indica la fecha del albarán'); return; }
+                await fetch(`${API_URL}/api/albaranes/${a.id}`, {
+                    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ cliente_id: a.cliente_id, obra: a.obra, departamento: a.departamento, estado: 'final', ...formCompletar })
+                });
+                setCompletandoId(null);
+                cargar();
+            };
+
+            const eliminar = async (id) => {
+                if (!confirm('¿Eliminar este albarán?')) return;
+                await fetch(`${API_URL}/api/albaranes/${id}`, { method: 'DELETE' });
+                cargar();
+            };
+
+            const toggleFacturado = async (a, valor) => {
+                await fetch(`${API_URL}/api/albaranes/${a.id}/facturar`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ facturado: valor }) });
+                cargar();
+            };
+
+            const visibles = albaranes.filter(a => {
+                if (filtroEstado === 'provisionales') return a.estado === 'provisional';
+                if (filtroEstado === 'pendientes_facturar') return a.estado === 'final' && !a.facturado;
+                if (filtroEstado === 'facturados') return a.estado === 'final' && !!a.facturado;
+                return true;
+            });
+
+            return (
+                <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '8px' }}>
+                        <h3 className="section-title" style={{ margin: 0 }}>📄 Albaranes</h3>
+                        <button className="btn btn-crear" onClick={() => setShowForm(!showForm)}>{showForm ? 'Cancelar' : '+ Nuevo Provisional'}</button>
+                    </div>
+
+                    <p className="lock-note">Crea un albarán provisional con solo Cliente, Obra y Departamento para no olvidar lo que tienes pendiente de albaranar. Cuando tengas fecha e importe, complétalo para pasarlo a "pendiente de facturar".</p>
+
+                    {showForm && (
+                        <div className="card" style={{ marginBottom: '1rem' }}>
+                            <div className="form-group">
+                                <label>Cliente</label>
+                                <select value={formNuevo.cliente_id} onChange={(e) => setFormNuevo({ ...formNuevo, cliente_id: e.target.value })}>
+                                    <option value="">-- Selecciona --</option>
+                                    {clientes.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                                </select>
+                            </div>
+                            <div className="form-group"><label>Obra</label><input type="text" placeholder="Ej: Estación Avilés" value={formNuevo.obra} onChange={(e) => setFormNuevo({ ...formNuevo, obra: e.target.value })} /></div>
+                            <div className="form-group"><label>Departamento</label><input type="text" placeholder="Ej: Mantenimiento" value={formNuevo.departamento} onChange={(e) => setFormNuevo({ ...formNuevo, departamento: e.target.value })} /></div>
+                            <div className="btn-group">
+                                <button className="btn btn-success" onClick={crearProvisional}>Crear provisional</button>
+                                <button className="btn btn-secondary" onClick={() => setShowForm(false)}>Cancelar</button>
+                            </div>
+                        </div>
+                    )}
+
+                    <div className="tipo-filter-bar">
+                        {[
+                            { id: 'provisionales', label: 'Provisionales' },
+                            { id: 'pendientes_facturar', label: 'Pendientes de facturar' },
+                            { id: 'facturados', label: 'Facturados' },
+                            { id: 'todos', label: 'Todos' }
+                        ].map(f => (
+                            <button key={f.id} className={`tipo-filter-btn ${filtroEstado === f.id ? 'active' : ''}`} onClick={() => setFiltroEstado(f.id)}>{f.label}</button>
+                        ))}
+                    </div>
+
+                    {cargando ? <div className="empty-state">Cargando...</div> : (
+                        <div className="list">
+                            {visibles.length === 0 ? <div className="empty-state">No hay albaranes en este filtro.</div> : visibles.map(a => (
+                                <div key={a.id} className="list-item" style={{ borderLeft: `4px solid ${a.estado === 'provisional' ? 'var(--fill-orange)' : a.facturado ? 'var(--fill-success)' : 'var(--fill-accent)'}` }}>
+                                    <div className="list-item-header">
+                                        <div>
+                                            <p className="card-title">{a.cliente_nombre || 'Sin cliente'}</p>
+                                            <p className="card-text">{a.obra || '—'} {a.departamento ? `· ${a.departamento}` : ''}</p>
+                                        </div>
+                                        <span className="badge" style={{ background: a.estado === 'provisional' ? '#fff8e1' : (a.facturado ? '#d1fae5' : 'var(--bg-accent)'), color: a.estado === 'provisional' ? '#b8860b' : (a.facturado ? '#065f46' : 'var(--fill-accent)') }}>
+                                            {a.estado === 'provisional' ? 'Provisional' : (a.facturado ? 'Facturado' : 'Pendiente de facturar')}
+                                        </span>
+                                    </div>
+
+                                    {a.estado === 'final' && (
+                                        <div className="readonly-view" style={{ marginTop: '8px' }}>
+                                            <div className="rv-row"><span className="rv-label">Fecha</span><span className="rv-value">{a.fecha || '—'}</span></div>
+                                            <div className="rv-row"><span className="rv-label">Importe</span><span className="rv-value">{a.importe != null ? `${parseFloat(a.importe).toFixed(2)} €` : '—'}</span></div>
+                                            {a.descripcion && <div className="rv-row"><span className="rv-label">Descripción</span><span className="rv-value">{a.descripcion}</span></div>}
+                                        </div>
+                                    )}
+
+                                    <div style={{ marginTop: '8px', display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                                        {a.estado === 'provisional' && <button className="btn btn-primary" onClick={() => abrirCompletar(a)}>{completandoId === a.id ? 'Cerrar' : 'Completar albarán'}</button>}
+                                        {a.estado === 'final' && (
+                                            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
+                                                <input type="checkbox" checked={!!a.facturado} onChange={(e) => toggleFacturado(a, e.target.checked)} />
+                                                Facturado {a.fecha_facturacion ? `(${a.fecha_facturacion})` : ''}
+                                            </label>
+                                        )}
+                                        <button className="btn btn-danger" onClick={() => eliminar(a.id)}>Eliminar</button>
+                                    </div>
+
+                                    {completandoId === a.id && (
+                                        <div className="quickadd-box" style={{ marginTop: '10px' }}>
+                                            <div className="form-group"><label>Fecha</label><input type="date" value={formCompletar.fecha} onChange={(e) => setFormCompletar({ ...formCompletar, fecha: e.target.value })} /></div>
+                                            <div className="form-group"><label>Importe (€)</label><input type="number" step="0.01" placeholder="0.00" value={formCompletar.importe} onChange={(e) => setFormCompletar({ ...formCompletar, importe: e.target.value })} /></div>
+                                            <div className="form-group"><label>Descripción (opcional)</label><textarea rows="3" value={formCompletar.descripcion} onChange={(e) => setFormCompletar({ ...formCompletar, descripcion: e.target.value })}></textarea></div>
+                                            <div className="btn-group">
+                                                <button className="btn btn-success" onClick={() => guardarComoFinal(a)}>Pasar a Final (pendiente de facturar)</button>
+                                                <button className="btn btn-secondary" onClick={() => setCompletandoId(null)}>Cancelar</button>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            ))}
                         </div>
                     )}
                 </div>
