@@ -134,6 +134,18 @@
         .badge.supervisor { background: #e8f0ff; color: #0052a3; }
         .badge.encargado { background: #fff0e6; color: #b35900; }
         .badge.tecnico { background: #f0f0f0; color: #666; }
+
+        .planning-table { border-collapse: collapse; width: 100%; min-width: 700px; font-size: 13px; }
+        .planning-table th { background: var(--surface-1); border: 1px solid var(--border); padding: 8px 10px; text-align: center; font-weight: 600; }
+        .planning-table th:first-child { text-align: left; min-width: 140px; }
+        .planning-table td { border: 1px solid var(--border); padding: 4px; vertical-align: top; }
+        .planning-depto-header { background: var(--surface-2); font-weight: 700; padding: 8px 10px !important; letter-spacing: 0.3px; color: var(--text-secondary); }
+        .planning-tecnico-nombre { font-weight: 600; padding: 10px !important; white-space: nowrap; }
+        .planning-celda { min-width: 130px; text-align: center; }
+        .planning-vacio { color: var(--text-muted); font-size: 18px; line-height: 40px; }
+        .planning-bloque { border-radius: 6px; overflow: hidden; margin: 3px 0; box-shadow: 0 1px 2px rgba(0,0,0,0.1); }
+        .planning-bloque-cat { font-size: 10px; font-weight: 700; text-align: center; padding: 2px 4px; background: rgba(255,255,255,0.55); color: #1a1a2e; letter-spacing: 0.4px; }
+        .planning-bloque-desc { font-size: 12px; font-weight: 600; text-align: center; padding: 5px 6px; color: #1a1a2e; }
         @media (max-width: 768px) { .metrics-grid { grid-template-columns: repeat(2, 1fr); } }
         .toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
         .btn-excel { background: var(--surface-1); border: 1px solid var(--border); color: var(--text-primary); display: inline-flex; align-items: center; gap: 4px; }
@@ -514,6 +526,7 @@
                         { id: 'ordenes', label: 'Órdenes' },
                         { id: 'guardias', label: 'Guardias', badge: guardiasPendientes },
                         { id: 'calendario', label: 'Calendario' },
+                        { id: 'planning', label: 'Planning Semanal' },
                         { id: 'inventario', label: 'Inventario' },
                         { id: 'preciario', label: 'Preciario' },
                         { id: 'albaranes', label: 'Albaranes' },
@@ -582,6 +595,7 @@
                         {activeTab === 'ordenes' && <OrdenesView user={user} ordenes={ordenes} clientes={clientes} contratos={contratos} activos={activos} zonas={zonas} emplazamientos={emplazamientos} tiposActivo={tiposActivo} usuarios={usuarios} materiales={materiales} onRefresh={cargarDatos} />}
                         {activeTab === 'guardias' && (user.rol === 'admin' || user.rol === 'supervisor' || user.rol === 'encargado') && <OrdenesView user={user} ordenes={ordenes} clientes={clientes} contratos={contratos} activos={activos} zonas={zonas} emplazamientos={emplazamientos} tiposActivo={tiposActivo} usuarios={usuarios} materiales={materiales} onRefresh={cargarDatos} filtroInicialTipo="guardia" />}
                         {activeTab === 'calendario' && (user.rol === 'admin' || user.rol === 'supervisor' || user.rol === 'encargado') && <CalendarView user={user} ordenes={ordenes} usuarios={usuarios} activos={activos} onRefresh={cargarDatos} />}
+                        {activeTab === 'planning' && (user.rol === 'admin' || user.rol === 'supervisor' || user.rol === 'encargado') && <PlanningSemanalView user={user} ordenes={ordenes} usuarios={usuarios} />}
                         {activeTab === 'inventario' && <InventarioView user={user} activos={activos} emplazamientos={emplazamientos} zonas={zonas} clientes={clientes} contratos={contratos} tiposActivo={tiposActivo} camposConfig={camposConfig} onRefresh={cargarDatos} />}
                         {activeTab === 'preciario' && (user.rol === 'admin' || user.rol === 'supervisor' || user.rol === 'encargado') && <PreciarioView user={user} materiales={materiales} clientes={clientes} contratos={contratos} onRefresh={cargarDatos} />}
                         {activeTab === 'albaranes' && (user.rol === 'admin' || user.rol === 'supervisor' || user.rol === 'encargado') && <AlbaranesView user={user} clientes={clientes} onRefresh={cargarDatos} />}
@@ -620,7 +634,9 @@
             { key: 'correctivo', label: 'Correctivo', color: 'var(--fill-danger)' },
             { key: 'preventivo', label: 'Preventivo', color: 'var(--fill-success)' },
             { key: 'obra', label: 'Obra', color: 'var(--fill-accent)' },
-            { key: 'guardia', label: 'Guardia', color: 'var(--fill-orange)' }
+            { key: 'guardia', label: 'Guardia', color: 'var(--fill-orange)' },
+            { key: 'vacaciones', label: 'Vacaciones', color: '#14b8a6' },
+            { key: 'formacion', label: 'Formación', color: '#8b5cf6' }
         ];
         const ESTADOS_ABIERTOS_DASHBOARD = ['pendiente', 'abierta', 'en_curso'];
 
@@ -1675,6 +1691,8 @@
                                         <option value="preventivo">Preventiva</option>
                                         <option value="obra">Obra</option>
                                         <option value="guardia">Guardia</option>
+                                        <option value="vacaciones">Vacaciones</option>
+                                        <option value="formacion">Formación</option>
                                     </select>
                                 </div>
                             ) : otForm.tipo === 'guardia' ? (
@@ -4356,6 +4374,127 @@
         // ===== CALENDARIO DE PLANIFICACIÓN =====
         const WEEKDAY_LABELS = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
         const MONTH_LABELS = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+
+        // ===== PLANNING SEMANAL: panel visual por técnico/día, agrupado por departamento =====
+        const NOMBRES_DEPARTAMENTO_PLANNING = {
+            'Facilities': 'ECOCOMPUTER S.L. ASTURIAS',
+            'Corvelec': 'CORVELEC S.L.'
+        };
+        const CATEGORIA_PLANNING_POR_TIPO = {
+            obra: 'OBRA',
+            preventivo: 'MANTENIMIENTO',
+            correctivo: 'MANTENIMIENTO',
+            vacaciones: 'OTROS',
+            formacion: 'OTROS'
+        };
+        const PALETA_PLANNING = ['#f472b6', '#4ade80', '#facc15', '#60a5fa', '#a78bfa', '#fb923c', '#2dd4bf', '#f87171', '#c084fc', '#34d399'];
+        function colorParaClavePlanning(clave) {
+            let hash = 0;
+            const str = String(clave);
+            for (let i = 0; i < str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash);
+            return PALETA_PLANNING[Math.abs(hash) % PALETA_PLANNING.length];
+        }
+
+        function PlanningSemanalView({ user, ordenes, usuarios }) {
+            const lunesDe = (fecha) => {
+                const d = new Date(fecha);
+                const dia = (d.getDay() + 6) % 7; // 0 = lunes
+                d.setDate(d.getDate() - dia);
+                d.setHours(0, 0, 0, 0);
+                return d;
+            };
+            const [inicioSemana, setInicioSemana] = useState(() => lunesDe(new Date()));
+
+            const diasSemana = Array.from({ length: 5 }, (_, i) => {
+                const d = new Date(inicioSemana);
+                d.setDate(d.getDate() + i);
+                return d;
+            });
+            const fmt = (d) => d.toISOString().slice(0, 10);
+            const fmtCorto = (d) => `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`;
+            const NOMBRES_DIA = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes'];
+
+            const cambiarSemana = (delta) => {
+                const d = new Date(inicioSemana);
+                d.setDate(d.getDate() + delta * 7);
+                setInicioSemana(d);
+            };
+
+            // El Encargado solo ve el planning de su propio departamento. Admin y Supervisor ven ambos.
+            const departamentosVisibles = (user.rol === 'encargado' && user.departamento)
+                ? [user.departamento]
+                : ['Facilities', 'Corvelec'];
+
+            const tecnicosPorDepto = {};
+            departamentosVisibles.forEach(dep => {
+                tecnicosPorDepto[dep] = usuarios.filter(u => u.activo && u.rol === 'tecnico' && (u.departamento || 'Facilities') === dep);
+            });
+
+            const ordenesDe = (tecnicoId, fechaStr) => {
+                return ordenes.filter(o => {
+                    if (o.tipo === 'guardia' || !o.fecha_programada) return false;
+                    if (String(o.fecha_programada).slice(0, 10) !== fechaStr) return false;
+                    if (o.asignado_a === tecnicoId) return true;
+                    try { return JSON.parse(o.tecnicos_apoyo || '[]').includes(tecnicoId); } catch { return false; }
+                });
+            };
+
+            return (
+                <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
+                        <button className="btn btn-secondary" onClick={() => cambiarSemana(-1)}>←</button>
+                        <span style={{ fontWeight: 600, fontSize: '15px' }}>{fmtCorto(diasSemana[0])} – {fmtCorto(diasSemana[4])}</span>
+                        <button className="btn btn-secondary" onClick={() => cambiarSemana(1)}>→</button>
+                    </div>
+                    <p className="lock-note">Cada celda muestra en su franja superior si se trata de una <strong>Obra</strong>, un <strong>Mantenimiento</strong> u <strong>Otros</strong> (vacaciones, formación, etc.).</p>
+
+                    <div style={{ overflowX: 'auto' }}>
+                        <table className="planning-table">
+                            <thead>
+                                <tr>
+                                    <th>Técnico</th>
+                                    {diasSemana.map((d, i) => (
+                                        <th key={i}>{NOMBRES_DIA[i]}<br /><span style={{ fontWeight: 400, fontSize: '12px' }}>{fmtCorto(d)}</span></th>
+                                    ))}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {departamentosVisibles.map(dep => (
+                                    <React.Fragment key={dep}>
+                                        <tr><td colSpan={6} className="planning-depto-header">{NOMBRES_DEPARTAMENTO_PLANNING[dep] || dep.toUpperCase()}</td></tr>
+                                        {tecnicosPorDepto[dep].length === 0 ? (
+                                            <tr><td colSpan={6} className="card-text" style={{ padding: '10px' }}>No hay técnicos en este departamento</td></tr>
+                                        ) : tecnicosPorDepto[dep].map(t => (
+                                            <tr key={t.id}>
+                                                <td className="planning-tecnico-nombre">{t.nombre}</td>
+                                                {diasSemana.map((d, i) => {
+                                                    const fechaStr = fmt(d);
+                                                    const ots = ordenesDe(t.id, fechaStr);
+                                                    return (
+                                                        <td key={i} className="planning-celda">
+                                                            {ots.length === 0 ? <span className="planning-vacio">·</span> : ots.map(o => {
+                                                                const color = colorParaClavePlanning(o.id);
+                                                                const categoria = CATEGORIA_PLANNING_POR_TIPO[o.tipo] || 'OTROS';
+                                                                return (
+                                                                    <div key={o.id} className="planning-bloque" style={{ background: color }}>
+                                                                        <div className="planning-bloque-cat">{categoria}</div>
+                                                                        <div className="planning-bloque-desc">{o.titulo}</div>
+                                                                    </div>
+                                                                );
+                                                            })}
+                                                        </td>
+                                                    );
+                                                })}
+                                            </tr>
+                                        ))}
+                                    </React.Fragment>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            );
+        }
 
         function CalendarView({ user, ordenes, usuarios, activos, onRefresh }) {
             const [year, setYear] = useState(new Date().getFullYear());
