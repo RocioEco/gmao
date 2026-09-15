@@ -132,6 +132,7 @@
         .badge.obra { background: var(--bg-warning); color: #b8860b; }
         .badge.admin { background: var(--bg-accent); color: var(--fill-accent); }
         .badge.supervisor { background: #e8f0ff; color: #0052a3; }
+        .badge.encargado { background: #fff0e6; color: #b35900; }
         .badge.tecnico { background: #f0f0f0; color: #666; }
         @media (max-width: 768px) { .metrics-grid { grid-template-columns: repeat(2, 1fr); } }
         .toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
@@ -404,7 +405,7 @@
             const [notifPermission, setNotifPermission] = useState(typeof Notification !== 'undefined' ? Notification.permission : 'unsupported');
             const [toasts, setToasts] = useState([]);
             const seenGuardiaIds = React.useRef(null);
-            const esGestorGlobal = user.rol === 'admin' || user.rol === 'supervisor';
+            const esGestorGlobal = user.rol === 'admin' || user.rol === 'supervisor' || user.rol === 'encargado';
 
             useEffect(() => {
                 cargarDatos();
@@ -507,7 +508,7 @@
                 const common = [{ id: 'dashboard', label: 'Dashboard' }];
                 const guardiasPendientes = ordenes.filter(o => o.tipo === 'guardia').length;
 
-                if (user.rol === 'admin' || user.rol === 'supervisor') {
+                if (user.rol === 'admin' || user.rol === 'supervisor' || user.rol === 'encargado') {
                     return [
                         ...common,
                         { id: 'ordenes', label: 'Órdenes' },
@@ -579,14 +580,14 @@
                         {activeTab === 'dashboard' && <DashboardView user={user} usuarios={usuarios} ordenes={ordenes} clientes={clientes} activos={activos} contratos={contratos} />}
                         {activeTab === 'mis-ots' && <OrdenesView user={user} ordenes={ordenes} clientes={clientes} contratos={contratos} activos={activos} zonas={zonas} emplazamientos={emplazamientos} tiposActivo={tiposActivo} usuarios={usuarios} materiales={materiales} onRefresh={cargarDatos} soloAsignadas={true} />}
                         {activeTab === 'ordenes' && <OrdenesView user={user} ordenes={ordenes} clientes={clientes} contratos={contratos} activos={activos} zonas={zonas} emplazamientos={emplazamientos} tiposActivo={tiposActivo} usuarios={usuarios} materiales={materiales} onRefresh={cargarDatos} />}
-                        {activeTab === 'guardias' && (user.rol === 'admin' || user.rol === 'supervisor') && <OrdenesView user={user} ordenes={ordenes} clientes={clientes} contratos={contratos} activos={activos} zonas={zonas} emplazamientos={emplazamientos} tiposActivo={tiposActivo} usuarios={usuarios} materiales={materiales} onRefresh={cargarDatos} filtroInicialTipo="guardia" />}
-                        {activeTab === 'calendario' && (user.rol === 'admin' || user.rol === 'supervisor') && <CalendarView user={user} ordenes={ordenes} usuarios={usuarios} activos={activos} onRefresh={cargarDatos} />}
+                        {activeTab === 'guardias' && (user.rol === 'admin' || user.rol === 'supervisor' || user.rol === 'encargado') && <OrdenesView user={user} ordenes={ordenes} clientes={clientes} contratos={contratos} activos={activos} zonas={zonas} emplazamientos={emplazamientos} tiposActivo={tiposActivo} usuarios={usuarios} materiales={materiales} onRefresh={cargarDatos} filtroInicialTipo="guardia" />}
+                        {activeTab === 'calendario' && (user.rol === 'admin' || user.rol === 'supervisor' || user.rol === 'encargado') && <CalendarView user={user} ordenes={ordenes} usuarios={usuarios} activos={activos} onRefresh={cargarDatos} />}
                         {activeTab === 'inventario' && <InventarioView user={user} activos={activos} emplazamientos={emplazamientos} zonas={zonas} clientes={clientes} contratos={contratos} tiposActivo={tiposActivo} camposConfig={camposConfig} onRefresh={cargarDatos} />}
-                        {activeTab === 'preciario' && (user.rol === 'admin' || user.rol === 'supervisor') && <PreciarioView user={user} materiales={materiales} clientes={clientes} contratos={contratos} onRefresh={cargarDatos} />}
-                        {activeTab === 'albaranes' && (user.rol === 'admin' || user.rol === 'supervisor') && <AlbaranesView user={user} clientes={clientes} onRefresh={cargarDatos} />}
-                        {activeTab === 'facturacion' && (user.rol === 'admin' || user.rol === 'supervisor') && <FacturacionView user={user} ordenes={ordenes} clientes={clientes} materiales={materiales} usuarios={usuarios} onRefresh={cargarDatos} />}
+                        {activeTab === 'preciario' && (user.rol === 'admin' || user.rol === 'supervisor' || user.rol === 'encargado') && <PreciarioView user={user} materiales={materiales} clientes={clientes} contratos={contratos} onRefresh={cargarDatos} />}
+                        {activeTab === 'albaranes' && (user.rol === 'admin' || user.rol === 'supervisor' || user.rol === 'encargado') && <AlbaranesView user={user} clientes={clientes} onRefresh={cargarDatos} />}
+                        {activeTab === 'facturacion' && (user.rol === 'admin' || user.rol === 'supervisor' || user.rol === 'encargado') && <FacturacionView user={user} ordenes={ordenes} clientes={clientes} materiales={materiales} usuarios={usuarios} onRefresh={cargarDatos} />}
                         {activeTab === 'alta-campo' && <AltaCampoView user={user} clientes={clientes} contratos={contratos} zonas={zonas} emplazamientos={emplazamientos} tiposActivo={tiposActivo} camposConfig={camposConfig} onRefresh={cargarDatos} />}
-                        {activeTab === 'usuarios' && (user.rol === 'admin' || user.rol === 'supervisor') && <UsuariosView user={user} usuarios={usuarios} onRefresh={cargarDatos} />}
+                        {activeTab === 'usuarios' && (user.rol === 'admin' || user.rol === 'supervisor' || user.rol === 'encargado') && <UsuariosView user={user} usuarios={usuarios} onRefresh={cargarDatos} />}
                     </div>
                 </div>
             );
@@ -624,7 +625,7 @@
         const ESTADOS_ABIERTOS_DASHBOARD = ['pendiente', 'abierta', 'en_curso'];
 
         function DashboardView({ user, usuarios, ordenes, clientes, activos, contratos }) {
-            const esGestor = user.rol === 'admin' || user.rol === 'supervisor';
+            const esGestor = user.rol === 'admin' || user.rol === 'supervisor' || user.rol === 'encargado';
             const [vistaPersonal, setVistaPersonal] = useState(false);
             const contarPorTipo = (lista) => TIPOS_OT_DASHBOARD.map(t => ({ label: t.label, color: t.color, value: lista.filter(o => o.tipo === t.key).length }));
 
@@ -1292,7 +1293,7 @@
         }
 
         function OrdenesView({ user, ordenes, clientes, contratos, activos, zonas, emplazamientos, tiposActivo, usuarios, materiales, onRefresh, filtroInicialTipo, soloAsignadas }) {
-            const esGestor = user.rol === 'admin' || user.rol === 'supervisor';
+            const esGestor = user.rol === 'admin' || user.rol === 'supervisor' || user.rol === 'encargado';
             const [mode, setMode] = useState('list'); // list | form-ot | detail | form-visita | view-visita
             const [filtroTipo, setFiltroTipo] = useState(filtroInicialTipo || 'todas');
             const [filtroEstado, setFiltroEstado] = useState('todas');
@@ -1320,7 +1321,8 @@
                 titulo: '', tipo: esGestor ? 'correctivo' : 'guardia', ticket: '', id_cliente: '',
                 cliente_id: '', contrato_id: '', emplazamiento_id: '', id_mantis: '', proyecto: '', procedencia_aviso: '',
                 activo_id: '', prioridad: 'media', fecha_programada: '',
-                responsable_id: user.id, asignado_a: null, tecnicos_apoyo: [], notas: '', estado: esGestor ? 'pendiente' : 'pendiente'
+                responsable_id: user.id, asignado_a: null, tecnicos_apoyo: [], notas: '', estado: esGestor ? 'pendiente' : 'pendiente',
+                departamento: user.departamento || 'Facilities'
             };
             const [otForm, setOtForm] = useState(initialOtForm);
             const [selectedZonaOt, setSelectedZonaOt] = useState('');
@@ -1378,7 +1380,7 @@
                     id_mantis: o.id_mantis || '', proyecto: o.proyecto || '', procedencia_aviso: o.procedencia_aviso || '',
                     activo_id: o.activo_id || '', prioridad: o.prioridad || 'media',
                     fecha_programada: o.fecha_programada || '', responsable_id: o.responsable_id || user.id, asignado_a: o.asignado_a ?? null,
-                    tecnicos_apoyo: tecApoyo, notas: o.notas || '', estado: o.estado
+                    tecnicos_apoyo: tecApoyo, notas: o.notas || '', estado: o.estado, departamento: o.departamento || 'Facilities'
                 });
                 if (o.cliente_id) setSelectedCliente(String(o.cliente_id));
                 const emp = o.emplazamiento_id ? (emplazamientos || []).find(e => e.id === o.emplazamiento_id) : null;
@@ -1501,7 +1503,13 @@
             };
 
             // El técnico puede VER todas las órdenes (la edición se restringe aparte, según asignación)
-            const ordenesBase = soloAsignadas ? ordenes.filter(o => o.asignado_a === user.id) : ordenes;
+            // El "Encargado" solo ve las OT de su propio departamento. El admin y el Supervisor
+            // (rol global, como siempre) ven todas. El técnico también las ve todas (puede trabajar
+            // puntualmente para el otro departamento).
+            const ordenesVisiblesPorDepartamento = (user.rol === 'encargado' && user.departamento)
+                ? ordenes.filter(o => (o.departamento || 'Facilities') === user.departamento)
+                : ordenes;
+            const ordenesBase = soloAsignadas ? ordenesVisiblesPorDepartamento.filter(o => o.asignado_a === user.id) : ordenesVisiblesPorDepartamento;
             let ordenesFiltradas = filtroTipo === 'todas' ? ordenesBase : ordenesBase.filter(o => o.tipo === filtroTipo);
             if (filtroEstado !== 'todas') ordenesFiltradas = ordenesFiltradas.filter(o => o.estado === filtroEstado);
             if (buscarNombre.trim()) {
@@ -1582,6 +1590,7 @@
                                                 </div>
                                                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' }}>
                                                     <span className={`badge ${order.tipo}`}>{order.tipo}</span>
+                                                    <span className="card-text" style={{ fontSize: '11px', whiteSpace: 'nowrap' }}>🏢 {order.departamento || 'Facilities'}</span>
                                                     <span className="card-text" style={{ fontSize: '11px', whiteSpace: 'nowrap' }}>👷 {order.tecnico_nombre || 'Sin asignar'}</span>
                                                 </div>
                                             </div>
@@ -1796,6 +1805,15 @@
                                     <option value="">-- Sin asignar --</option>
                                     {tecnicosDisponibles.map(u => <option key={u.id} value={u.id}>{u.nombre} ({u.rol})</option>)}
                                 </select>
+                            </div>
+
+                            <div className={`form-group ${!esGestor ? 'field-locked' : ''}`}>
+                                <label>Departamento</label>
+                                <select value={otForm.departamento || 'Facilities'} disabled={!esGestor} onChange={(e) => setOtForm({ ...otForm, departamento: e.target.value })}>
+                                    <option value="Facilities">Facilities</option>
+                                    <option value="Corvelec">Corvelec</option>
+                                </select>
+                                {esGestor && <p className="lock-note">Puedes asignar esta OT al otro departamento aunque el técnico sea del suyo propio.</p>}
                             </div>
 
                             {esGestor && (
@@ -2317,7 +2335,7 @@
 
         // ===== ZONAS =====
         function ZonasView({ user, zonas, onRefresh }) {
-            const esGestor = user.rol === 'admin' || user.rol === 'supervisor';
+            const esGestor = user.rol === 'admin' || user.rol === 'supervisor' || user.rol === 'encargado';
             const [showForm, setShowForm] = useState(false);
             const [editingId, setEditingId] = useState(null);
             const [formData, setFormData] = useState({ nombre: '' });
@@ -2806,7 +2824,7 @@
 
         // ===== EMPLAZAMIENTOS =====
         function EmplazamientosView({ user, emplazamientos, zonas, activos, clientes, contratos, tiposActivo, camposConfig, onRefresh }) {
-            const esGestor = user.rol === 'admin' || user.rol === 'supervisor';
+            const esGestor = user.rol === 'admin' || user.rol === 'supervisor' || user.rol === 'encargado';
             const [showForm, setShowForm] = useState(false);
             const [editingId, setEditingId] = useState(null);
             const [formData, setFormData] = useState({ zona_id: '', nombre: '', direccion: '', lat: '', lon: '' });
@@ -3312,7 +3330,7 @@
         }
 
         function ActivosView({ user, activos, emplazamientos, zonas, clientes, contratos, tiposActivo, camposConfig, onRefresh }) {
-            const esGestor = user.rol === 'admin' || user.rol === 'supervisor';
+            const esGestor = user.rol === 'admin' || user.rol === 'supervisor' || user.rol === 'encargado';
             const [showForm, setShowForm] = useState(false);
             const [editingId, setEditingId] = useState(null);
             const [importMsg, setImportMsg] = useState('');
@@ -3483,7 +3501,7 @@
         }
 
         function ContratosView({ user, contratos, clientes, activos, zonas, emplazamientos, tiposActivo, camposConfig, onRefresh }) {
-            const esGestor = user.rol === 'admin' || user.rol === 'supervisor';
+            const esGestor = user.rol === 'admin' || user.rol === 'supervisor' || user.rol === 'encargado';
             const [showForm, setShowForm] = useState(false);
             const [editingId, setEditingId] = useState(null);
             const [showCamposManager, setShowCamposManager] = useState(false);
@@ -3919,7 +3937,7 @@
         }
 
         function ClientesView({ user, clientes, contratos, activos, zonas, emplazamientos, tiposActivo, camposConfig, onRefresh }) {
-            const esGestor = user.rol === 'admin' || user.rol === 'supervisor';
+            const esGestor = user.rol === 'admin' || user.rol === 'supervisor' || user.rol === 'encargado';
             const [showForm, setShowForm] = useState(false);
             const [editingId, setEditingId] = useState(null);
             const [showCamposManager, setShowCamposManager] = useState(false);
@@ -4132,7 +4150,8 @@
                 email: '',
                 password: '',
                 rol: 'tecnico',
-                activo: 1
+                activo: 1,
+                departamento: 'Facilities'
             });
             const [error, setError] = useState('');
             const formRef = useAutoScrollForm(showForm);
@@ -4155,9 +4174,9 @@
                     return;
                 }
 
-                // Supervisor no puede crear admin
-                if (user.rol === 'supervisor' && formData.rol === 'admin') {
-                    setError('Supervisor no puede crear administradores');
+                // Ni Supervisor ni Encargado pueden crear administradores
+                if ((user.rol === 'supervisor' || user.rol === 'encargado') && formData.rol === 'admin') {
+                    setError('Este rol no puede crear administradores');
                     return;
                 }
 
@@ -4172,7 +4191,7 @@
                     });
 
                     if (response.ok) {
-                        setFormData({ nombre: '', email: '', password: '', rol: 'tecnico', activo: 1 });
+                        setFormData({ nombre: '', email: '', password: '', rol: 'tecnico', activo: 1, departamento: 'Facilities' });
                         setEditingId(null);
                         setShowForm(false);
                         onRefresh();
@@ -4268,9 +4287,22 @@
                                 <select value={formData.rol} onChange={(e) => setFormData({ ...formData, rol: e.target.value })}>
                                     {user.rol === 'admin' && <option value="admin">Administrador</option>}
                                     <option value="supervisor">Supervisor</option>
+                                    <option value="encargado">Encargado</option>
                                     <option value="tecnico">Técnico</option>
                                 </select>
+                                {formData.rol === 'supervisor' && <p className="lock-note">El Supervisor tiene acceso a todas las OT, de ambos departamentos.</p>}
+                                {formData.rol === 'encargado' && <p className="lock-note">El Encargado solo tiene acceso a las OT de su propio departamento.</p>}
                             </div>
+
+                            {formData.rol !== 'admin' && (
+                                <div className="form-group">
+                                    <label>Departamento</label>
+                                    <select value={formData.departamento || 'Facilities'} onChange={(e) => setFormData({ ...formData, departamento: e.target.value })}>
+                                        <option value="Facilities">Facilities</option>
+                                        <option value="Corvelec">Corvelec</option>
+                                    </select>
+                                </div>
+                            )}
 
                             {error && <p style={{ color: 'var(--fill-danger)', fontSize: '12px', marginBottom: '12px' }}>❌ {error}</p>}
 
@@ -4294,7 +4326,7 @@
                                         </div>
                                         <span className={`badge ${u.rol}`}>{u.rol}</span>
                                     </div>
-                                    <p className="card-text">✓ Estado: {u.activo ? 'Activo' : 'Inactivo'}</p>
+                                    <p className="card-text">✓ Estado: {u.activo ? 'Activo' : 'Inactivo'} {u.rol !== 'admin' && u.departamento ? `· 🏢 ${u.departamento}` : ''}</p>
                                     <div style={{ marginTop: '8px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                                         <button className="btn btn-primary" onClick={() => handleEdit(u)}>Editar</button>
                                         {u.activo && <button className="btn btn-secondary" onClick={() => handleDisable(u.id)}>Inhabilitar</button>}
@@ -4481,7 +4513,7 @@
         // pendientes de revisión. Admin/Supervisor los revisa, edita si hace falta, y los
         // aprueba (se crea el Activo real) o los rechaza.
         function AltaCampoView({ user, clientes, contratos, zonas, emplazamientos, tiposActivo, camposConfig, onRefresh }) {
-            const esGestor = user.rol === 'admin' || user.rol === 'supervisor';
+            const esGestor = user.rol === 'admin' || user.rol === 'supervisor' || user.rol === 'encargado';
             const [pendientes, setPendientes] = useState([]);
             const [cargando, setCargando] = useState(true);
             const [showForm, setShowForm] = useState(false);
@@ -4870,6 +4902,7 @@
 
             const filasOT = ordenes
                 .filter(o => o.estado === 'resuelta')
+                .filter(o => user.rol !== 'encargado' || !user.departamento || (o.departamento || 'Facilities') === user.departamento)
                 .filter(o => filtroCliente === 'todos' || String(o.cliente_id) === filtroCliente)
                 .filter(o => filtroFacturada === 'todas' || (filtroFacturada === 'facturadas' ? !!o.facturada : !o.facturada))
                 .map(o => {
