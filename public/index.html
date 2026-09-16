@@ -1334,7 +1334,7 @@
             const [editingVisitId, setEditingVisitId] = useState(null);
             const [viewingVisitId, setViewingVisitId] = useState(null);
 
-            const tecnicosDisponibles = usuarios.filter(u => u.activo);
+            const tecnicosDisponibles = usuarios.filter(u => u.activo).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
             const responsablesDisponibles = usuarios.filter(u => u.activo && (u.rol === 'admin' || u.rol === 'supervisor'));
 
             const getSeccionesTipo = (nombreTipo) => {
@@ -1348,7 +1348,7 @@
                 cliente_id: '', contrato_id: '', emplazamiento_id: '', id_mantis: '', proyecto: '', procedencia_aviso: '',
                 activo_id: '', prioridad: 'media', fecha_programada: '', fecha_fin_programada: '',
                 responsable_id: user.id, asignado_a: null, tecnicos_apoyo: [], notas: '', estado: esGestor ? 'pendiente' : 'pendiente',
-                departamento: user.departamento || 'Facilities'
+                departamento: user.departamento || 'Facilities', encargado_id: user.rol === 'encargado' ? user.id : null
             };
             const [otForm, setOtForm] = useState(initialOtForm);
             const [selectedZonaOt, setSelectedZonaOt] = useState('');
@@ -1406,7 +1406,8 @@
                     id_mantis: o.id_mantis || '', proyecto: o.proyecto || '', procedencia_aviso: o.procedencia_aviso || '',
                     activo_id: o.activo_id || '', prioridad: o.prioridad || 'media',
                     fecha_programada: o.fecha_programada || '', fecha_fin_programada: o.fecha_fin_programada || '', responsable_id: o.responsable_id || user.id, asignado_a: o.asignado_a ?? null,
-                    tecnicos_apoyo: tecApoyo, notas: o.notas || '', estado: o.estado, departamento: o.departamento || 'Facilities'
+                    tecnicos_apoyo: tecApoyo, notas: o.notas || '', estado: o.estado, departamento: o.departamento || 'Facilities',
+                    encargado_id: o.encargado_id ?? null
                 });
                 if (o.cliente_id) setSelectedCliente(String(o.cliente_id));
                 const emp = o.emplazamiento_id ? (emplazamientos || []).find(e => e.id === o.emplazamiento_id) : null;
@@ -1528,14 +1529,14 @@
                 onRefresh();
             };
 
-            // El técnico puede VER todas las órdenes (la edición se restringe aparte, según asignación)
-            // El "Encargado" solo ve las OT de su propio departamento. El admin y el Supervisor
-            // (rol global, como siempre) ven todas. El técnico también las ve todas (puede trabajar
-            // puntualmente para el otro departamento).
-            const ordenesVisiblesPorDepartamento = (user.rol === 'encargado' && user.departamento)
-                ? ordenes.filter(o => (o.departamento || 'Facilities') === user.departamento)
-                : ordenes;
-            const ordenesBase = soloAsignadas ? ordenesVisiblesPorDepartamento.filter(o => o.asignado_a === user.id) : ordenesVisiblesPorDepartamento;
+            // "Mis OT" siempre muestra lo asignado a mí, sin importar el departamento (así se ven
+            // también los trabajos interempresas que me hayan asignado puntualmente).
+            // La pestaña "OT" (listado general) sí se restringe por departamento para Técnico y
+            // Encargado — cada departamento solo ve sus propias órdenes ahí. Admin y Supervisor ven todas.
+            const restringidoPorDepartamento = (user.rol === 'encargado' || user.rol === 'tecnico') && user.departamento;
+            const ordenesBase = soloAsignadas
+                ? ordenes.filter(o => o.asignado_a === user.id)
+                : (restringidoPorDepartamento ? ordenes.filter(o => (o.departamento || 'Facilities') === user.departamento) : ordenes);
             let ordenesFiltradas = filtroTipo === 'todas' ? ordenesBase : ordenesBase.filter(o => o.tipo === filtroTipo);
             if (filtroEstado !== 'todas') ordenesFiltradas = ordenesFiltradas.filter(o => o.estado === filtroEstado);
             if (buscarNombre.trim()) {
@@ -1557,7 +1558,7 @@
                         </div>
 
                         {!esGestor && !soloAsignadas && (
-                            <p className="lock-note">Aquí ves todas las órdenes. Solo puedes gestionar las que estén sin asignar (pulsando "Asignarme para Gestionar") o las que ya sean tuyas — las demás son de solo consulta.</p>
+                            <p className="lock-note">{restringidoPorDepartamento ? `Aquí ves las órdenes de tu departamento (${user.departamento}).` : 'Aquí ves todas las órdenes.'} Solo puedes gestionar las que estén sin asignar (pulsando "Asignarme para Gestionar") o las que ya sean tuyas — las demás son de solo consulta.</p>
                         )}
 
                         <div className="form-group">
@@ -1618,6 +1619,7 @@
                                                     <span className={`badge ${order.tipo}`}>{order.tipo}</span>
                                                     <span className="card-text" style={{ fontSize: '11px', whiteSpace: 'nowrap' }}>🏢 {order.departamento || 'Facilities'}</span>
                                                     <span className="card-text" style={{ fontSize: '11px', whiteSpace: 'nowrap' }}>👷 {order.tecnico_nombre || 'Sin asignar'}</span>
+                                                    {order.encargado_nombre && <span className="card-text" style={{ fontSize: '11px', whiteSpace: 'nowrap' }}>🧑‍💼 {order.encargado_nombre}</span>}
                                                 </div>
                                             </div>
                                             {order.cliente_nombre && <p className="card-text">👤 {order.cliente_nombre}</p>}
@@ -1870,6 +1872,17 @@
                                 {esGestor && <p className="lock-note">Puedes asignar esta OT al otro departamento aunque el técnico sea del suyo propio.</p>}
                             </div>
 
+                            <div className={`form-group ${!esGestor ? 'field-locked' : ''}`}>
+                                <label>Encargado</label>
+                                <select value={otForm.encargado_id || ''} disabled={!esGestor} onChange={(e) => setOtForm({ ...otForm, encargado_id: e.target.value ? parseInt(e.target.value) : null })}>
+                                    <option value="">-- Sin encargado --</option>
+                                    {usuarios.filter(u => u.activo && (u.rol === 'encargado' || u.rol === 'supervisor')).map(u => (
+                                        <option key={u.id} value={u.id}>{u.nombre}{u.departamento ? ` (${u.departamento})` : ''}</option>
+                                    ))}
+                                </select>
+                                {esGestor && <p className="lock-note">Se usa para trabajos interempresas: indica qué encargado responde de esta OT, aunque sea de otro departamento.</p>}
+                            </div>
+
                             {esGestor && (
                                 <div className="form-group">
                                     <label>Técnicos de Apoyo</label>
@@ -1946,6 +1959,8 @@
                                 <div className="ficha-field"><span className="ficha-field-label">Emplazamiento</span><span className="ficha-field-value">{otSeleccionada.emplazamiento_nombre || '—'}</span></div>
                                 <div className="ficha-field"><span className="ficha-field-label">Activo</span><span className="ficha-field-value">{otSeleccionada.activo_nombre || '—'}</span></div>
                                 <div className="ficha-field"><span className="ficha-field-label">Estado</span><span className="ficha-field-value">{otSeleccionada.estado}</span></div>
+                                <div className="ficha-field"><span className="ficha-field-label">Departamento</span><span className="ficha-field-value">{otSeleccionada.departamento || 'Facilities'}</span></div>
+                                <div className="ficha-field"><span className="ficha-field-label">Encargado</span><span className="ficha-field-value">{otSeleccionada.encargado_nombre || '—'}</span></div>
 
                                 <div className="ficha-field"><span className="ficha-field-label">Fecha Programada</span><span className="ficha-field-value">{otSeleccionada.fecha_programada || '—'}</span></div>
                                 <div className="ficha-field"><span className="ficha-field-label">Coordenadas</span><span className="ficha-field-value">{otSeleccionada.emplazamiento_lat != null ? `${otSeleccionada.emplazamiento_lat}, ${otSeleccionada.emplazamiento_lon}` : '—'}</span></div>
@@ -4376,7 +4391,7 @@
                         {usuarios.length === 0 ? (
                             <div className="empty-state">No hay usuarios</div>
                         ) : (
-                            usuarios.map(u => (
+                            [...usuarios].sort((a, b) => a.nombre.localeCompare(b.nombre, 'es')).map(u => (
                                 <div key={u.id} className="list-item" style={{ opacity: u.activo ? 1 : 0.5 }}>
                                     <div className="list-item-header">
                                         <div>
