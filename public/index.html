@@ -1346,7 +1346,7 @@
             const initialOtForm = {
                 titulo: '', tipo: esGestor ? 'correctivo' : 'guardia', ticket: '', id_cliente: '',
                 cliente_id: '', contrato_id: '', emplazamiento_id: '', id_mantis: '', proyecto: '', procedencia_aviso: '',
-                activo_id: '', prioridad: 'media', fecha_programada: '',
+                activo_id: '', prioridad: 'media', fecha_programada: '', fecha_fin_programada: '',
                 responsable_id: user.id, asignado_a: null, tecnicos_apoyo: [], notas: '', estado: esGestor ? 'pendiente' : 'pendiente',
                 departamento: user.departamento || 'Facilities'
             };
@@ -1405,7 +1405,7 @@
                     cliente_id: o.cliente_id || '', contrato_id: o.contrato_id || '', emplazamiento_id: o.emplazamiento_id || '',
                     id_mantis: o.id_mantis || '', proyecto: o.proyecto || '', procedencia_aviso: o.procedencia_aviso || '',
                     activo_id: o.activo_id || '', prioridad: o.prioridad || 'media',
-                    fecha_programada: o.fecha_programada || '', responsable_id: o.responsable_id || user.id, asignado_a: o.asignado_a ?? null,
+                    fecha_programada: o.fecha_programada || '', fecha_fin_programada: o.fecha_fin_programada || '', responsable_id: o.responsable_id || user.id, asignado_a: o.asignado_a ?? null,
                     tecnicos_apoyo: tecApoyo, notas: o.notas || '', estado: o.estado, departamento: o.departamento || 'Facilities'
                 });
                 if (o.cliente_id) setSelectedCliente(String(o.cliente_id));
@@ -1784,6 +1784,16 @@
                                         <span className="ficha-field-value">{otForm.fecha_programada || '—'}</span>
                                     )}
                                 </div>
+                                {otForm.tipo === 'obra' && (
+                                    <div className="ficha-field">
+                                        <span className="ficha-field-label">Fecha Fin (si dura varios días)</span>
+                                        {esGestor ? (
+                                            <input type="date" value={otForm.fecha_fin_programada || ''} min={otForm.fecha_programada || ''} onChange={(e) => setOtForm({ ...otForm, fecha_fin_programada: e.target.value })} />
+                                        ) : (
+                                            <span className="ficha-field-value">{otForm.fecha_fin_programada || '—'}</span>
+                                        )}
+                                    </div>
+                                )}
                                 {(() => {
                                     const empSel = otForm.emplazamiento_id ? (emplazamientos || []).find(e => String(e.id) === String(otForm.emplazamiento_id)) : null;
                                     const tieneCoords = empSel && empSel.lat != null;
@@ -4429,7 +4439,8 @@
                 d.setDate(d.getDate() + i);
                 return d;
             });
-            const fmt = (d) => d.toISOString().slice(0, 10);
+            // OJO: nunca usar toISOString() aquí — convierte a UTC y desplaza el día según la zona horaria.
+            const fmt = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
             const fmtCorto = (d) => `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`;
             const NOMBRES_DIA = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes'];
 
@@ -4446,13 +4457,16 @@
 
             const tecnicosPorDepto = {};
             departamentosVisibles.forEach(dep => {
-                tecnicosPorDepto[dep] = usuarios.filter(u => u.activo && u.rol === 'tecnico' && (u.departamento || 'Facilities') === dep);
+                tecnicosPorDepto[dep] = usuarios.filter(u => u.activo && (u.rol === 'tecnico' || u.rol === 'encargado') && (u.departamento || 'Facilities') === dep);
             });
 
             const ordenesDe = (tecnicoId, fechaStr) => {
                 return ordenes.filter(o => {
                     if (o.tipo === 'guardia' || !o.fecha_programada) return false;
-                    if (String(o.fecha_programada).slice(0, 10) !== fechaStr) return false;
+                    const inicio = String(o.fecha_programada).slice(0, 10);
+                    const fin = o.fecha_fin_programada ? String(o.fecha_fin_programada).slice(0, 10) : inicio;
+                    // Una obra puede durar varios días: se muestra en cada día dentro de [inicio, fin]
+                    if (fechaStr < inicio || fechaStr > fin) return false;
                     if (o.asignado_a === tecnicoId) return true;
                     try { return JSON.parse(o.tecnicos_apoyo || '[]').includes(tecnicoId); } catch { return false; }
                 });
@@ -4485,7 +4499,7 @@
                                             <tr><td colSpan={6} className="card-text" style={{ padding: '10px' }}>No hay técnicos en este departamento</td></tr>
                                         ) : tecnicosPorDepto[dep].map(t => (
                                             <tr key={t.id}>
-                                                <td className="planning-tecnico-nombre">{t.nombre}</td>
+                                                <td className="planning-tecnico-nombre">{t.nombre}{t.rol === 'encargado' && <span className="badge encargado" style={{ marginLeft: '6px', fontSize: '10px' }}>Encargado</span>}</td>
                                                 {diasSemana.map((d, i) => {
                                                     const fechaStr = fmt(d);
                                                     const ots = ordenesDe(t.id, fechaStr);
