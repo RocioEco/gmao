@@ -3434,15 +3434,86 @@
             };
 
             const handleImportRows = async (rows) => {
-                let ok = 0, fail = 0;
+                let ok = 0, fail = 0, creados = { clientes: 0, contratos: 0, zonas: 0, emplazamientos: 0 };
+
+                // Normaliza un nombre para comparar (sin espacios extra, sin mayúsculas) y así no crear
+                // "Renfe" y "renfe " como si fueran clientes distintos.
+                const norm = (s) => (s || '').toString().trim().toLowerCase();
+
+                // Caché local sembrada con lo que ya existe. Es IMPRESCINDIBLE actualizarla según se van
+                // creando cosas nuevas durante el propio bucle: si no, dos filas seguidas que necesiten el
+                // mismo cliente/contrato/zona/emplazamiento nuevo lo crearían cada una por su lado, duplicado.
+                const clienteMap = new Map(clientes.map(c => [norm(c.nombre), c]));
+                const contratoMap = new Map(contratos.map(c => [`${c.cliente_id}::${norm(c.nombre)}`, c]));
+                const zonaMap = new Map(zonas.map(z => [norm(z.nombre), z]));
+                const emplazamientoMap = new Map(emplazamientos.map(e => [`${e.zona_id}::${norm(e.nombre)}`, e]));
+
+                const obtenerOCrearCliente = async (nombre) => {
+                    const key = norm(nombre);
+                    if (clienteMap.has(key)) return clienteMap.get(key);
+                    const r = await fetch(`${API_URL}/api/clientes`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nombre }) });
+                    const nuevo = await r.json();
+                    clienteMap.set(key, nuevo);
+                    creados.clientes++;
+                    return nuevo;
+                };
+                const obtenerOCrearContrato = async (clienteId, nombre) => {
+                    const key = `${clienteId}::${norm(nombre)}`;
+                    if (contratoMap.has(key)) return contratoMap.get(key);
+                    const r = await fetch(`${API_URL}/api/contratos`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cliente_id: clienteId, nombre }) });
+                    const nuevo = await r.json();
+                    contratoMap.set(key, nuevo);
+                    creados.contratos++;
+                    return nuevo;
+                };
+                const obtenerOCrearZona = async (nombre) => {
+                    const key = norm(nombre);
+                    if (zonaMap.has(key)) return zonaMap.get(key);
+                    const r = await fetch(`${API_URL}/api/zonas`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nombre }) });
+                    const nuevo = await r.json();
+                    zonaMap.set(key, nuevo);
+                    creados.zonas++;
+                    return nuevo;
+                };
+                const obtenerOCrearEmplazamiento = async (zonaId, nombre) => {
+                    const key = `${zonaId}::${norm(nombre)}`;
+                    if (emplazamientoMap.has(key)) return emplazamientoMap.get(key);
+                    const r = await fetch(`${API_URL}/api/emplazamientos`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ zona_id: zonaId, nombre }) });
+                    const nuevo = await r.json();
+                    emplazamientoMap.set(key, nuevo);
+                    creados.emplazamientos++;
+                    return nuevo;
+                };
+
                 for (const row of rows) {
-                    const emplazamientoNombre = row['Emplazamiento'] || row['emplazamiento'];
+                    const clienteNombre = row['Cliente'] || row['cliente'];
                     const contratoNombre = row['Contrato'] || row['contrato'];
+                    const zonaNombre = row['Zona'] || row['zona'];
+                    const emplazamientoNombre = row['Emplazamiento'] || row['emplazamiento'];
                     const nombre = row['Activo'] || row['nombre'] || row['Nombre'];
-                    const emplazamiento = emplazamientos.find(e => e.nombre === emplazamientoNombre);
-                    const contrato = contratos.find(c => c.nombre === contratoNombre);
-                    if (!emplazamiento || !contrato || !nombre) { fail++; continue; }
+                    if (!nombre || !emplazamientoNombre) { fail++; continue; }
+
                     try {
+                        let contrato = null;
+                        if (clienteNombre && contratoNombre) {
+                            const cliente = await obtenerOCrearCliente(clienteNombre);
+                            contrato = await obtenerOCrearContrato(cliente.id, contratoNombre);
+                        } else {
+                            // Sin cliente/contrato en la fila: intenta usar uno ya existente con ese nombre de contrato
+                            contrato = contratoNombre ? contratos.find(c => norm(c.nombre) === norm(contratoNombre)) : null;
+                        }
+                        if (!contrato) { fail++; continue; }
+
+                        let zona = zonaNombre ? await obtenerOCrearZona(zonaNombre) : null;
+                        let emplazamiento;
+                        if (zona) {
+                            emplazamiento = await obtenerOCrearEmplazamiento(zona.id, emplazamientoNombre);
+                        } else {
+                            // Sin zona en la fila: busca el emplazamiento ya existente solo por nombre
+                            emplazamiento = [...emplazamientoMap.values()].find(e => norm(e.nombre) === norm(emplazamientoNombre));
+                        }
+                        if (!emplazamiento) { fail++; continue; }
+
                         await fetch(`${API_URL}/api/activos`, {
                             method: 'POST', headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({
@@ -3457,7 +3528,7 @@
                         ok++;
                     } catch { fail++; }
                 }
-                setImportMsg(`✅ Importados: ${ok} | ❌ Fallidos: ${fail}`);
+                setImportMsg(`✅ Importados: ${ok} | ❌ Fallidos: ${fail} | Creados de nuevo → Clientes: ${creados.clientes}, Contratos: ${creados.contratos}, Zonas: ${creados.zonas}, Emplazamientos: ${creados.emplazamientos}`);
                 onRefresh();
             };
 
