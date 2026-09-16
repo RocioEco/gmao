@@ -519,6 +519,7 @@
             const getTabs = () => {
                 const common = [{ id: 'dashboard', label: 'Dashboard' }];
                 const guardiasPendientes = ordenes.filter(o => o.tipo === 'guardia').length;
+                const esCorvelecOnly = user.rol === 'encargado' && user.departamento === 'Corvelec';
 
                 if (user.rol === 'admin' || user.rol === 'supervisor' || user.rol === 'encargado') {
                     return [
@@ -526,10 +527,9 @@
                         { id: 'ordenes', label: 'Órdenes' },
                         { id: 'guardias', label: 'Guardias', badge: guardiasPendientes },
                         { id: 'planning', label: 'Calendario' },
-                        { id: 'inventario', label: 'Inventario' },
-                        { id: 'preciario', label: 'Preciario' },
-                        { id: 'albaranes', label: 'Albaranes' },
-                        { id: 'facturacion', label: 'Resumen Facturación' },
+                        { id: 'inventario', label: esCorvelecOnly ? 'Clientes' : 'Inventario' },
+                        ...(esCorvelecOnly ? [] : [{ id: 'preciario', label: 'Preciario' }, { id: 'albaranes', label: 'Albaranes' }]),
+                        ...(esCorvelecOnly ? [{ id: 'resumen-obras', label: 'Resumen de Obras' }] : [{ id: 'facturacion', label: 'Resumen Facturación' }, { id: 'resumen-obras', label: 'Resumen de Obras' }]),
                         { id: 'alta-campo', label: 'Alta en Campo' },
                         { id: 'usuarios', label: 'Usuarios' }
                     ];
@@ -598,6 +598,7 @@
                         {activeTab === 'preciario' && (user.rol === 'admin' || user.rol === 'supervisor' || user.rol === 'encargado') && <PreciarioView user={user} materiales={materiales} clientes={clientes} contratos={contratos} onRefresh={cargarDatos} />}
                         {activeTab === 'albaranes' && (user.rol === 'admin' || user.rol === 'supervisor' || user.rol === 'encargado') && <AlbaranesView user={user} clientes={clientes} onRefresh={cargarDatos} />}
                         {activeTab === 'facturacion' && (user.rol === 'admin' || user.rol === 'supervisor' || user.rol === 'encargado') && <FacturacionView user={user} ordenes={ordenes} clientes={clientes} materiales={materiales} usuarios={usuarios} onRefresh={cargarDatos} />}
+                        {activeTab === 'resumen-obras' && (user.rol === 'admin' || user.rol === 'supervisor' || user.rol === 'encargado') && <ResumenObrasView user={user} ordenes={ordenes} clientes={clientes} usuarios={usuarios} />}
                         {activeTab === 'alta-campo' && <AltaCampoView user={user} clientes={clientes} contratos={contratos} zonas={zonas} emplazamientos={emplazamientos} tiposActivo={tiposActivo} camposConfig={camposConfig} onRefresh={cargarDatos} />}
                         {activeTab === 'usuarios' && (user.rol === 'admin' || user.rol === 'supervisor' || user.rol === 'encargado') && <UsuariosView user={user} usuarios={usuarios} onRefresh={cargarDatos} />}
                     </div>
@@ -685,7 +686,13 @@
             // El "Encargado" solo debe ver los datos de su propio departamento en el dashboard general
             // (admin y Supervisor ven todo, como siempre).
             const esEncargado = user.rol === 'encargado' && user.departamento;
-            const ordenesDept = esEncargado ? ordenes.filter(o => (o.departamento || 'Facilities') === user.departamento) : ordenes;
+            const ordenesDeptCompleto = esEncargado ? ordenes.filter(o => (o.departamento || 'Facilities') === user.departamento) : ordenes;
+
+            // El dashboard se carga por defecto mostrando solo las OT activas (todas menos las finalizadas).
+            const [filtroEstadoDash, setFiltroEstadoDash] = useState('activas');
+            const ordenesDept = filtroEstadoDash === 'activas'
+                ? ordenesDeptCompleto.filter(o => ESTADOS_ABIERTOS_DASHBOARD.includes(o.estado))
+                : ordenesDeptCompleto;
             const clienteIdsDept = new Set(ordenesDept.map(o => o.cliente_id).filter(Boolean));
             const contratoIdsDept = new Set(ordenesDept.map(o => o.contrato_id).filter(Boolean));
             const activoIdsDept = new Set(ordenesDept.map(o => o.activo_id).filter(Boolean));
@@ -694,7 +701,7 @@
             const activosDept = esEncargado ? activos.filter(a => activoIdsDept.has(a.id)) : activos;
 
             const stats = [
-                { label: 'Órdenes Totales', value: ordenesDept.length },
+                { label: filtroEstadoDash === 'activas' ? 'OT Activas' : 'Órdenes Totales', value: ordenesDept.length },
                 { label: 'Clientes', value: clientesDept.length },
                 { label: 'Activos', value: activosDept.length },
                 { label: 'Contratos', value: contratosDept.length }
@@ -708,6 +715,10 @@
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
                         <h3 className="section-title" style={{ margin: 0 }}>Dashboard</h3>
                         <button className="btn btn-secondary" onClick={() => setVistaPersonal(true)}>👤 Mi Dashboard</button>
+                    </div>
+                    <div className="tipo-filter-bar">
+                        <button className={`tipo-filter-btn ${filtroEstadoDash === 'activas' ? 'active' : ''}`} onClick={() => setFiltroEstadoDash('activas')}>OT activas</button>
+                        <button className={`tipo-filter-btn ${filtroEstadoDash === 'todas' ? 'active' : ''}`} onClick={() => setFiltroEstadoDash('todas')}>Todas</button>
                     </div>
                     <div className="metrics-grid">
                         {stats.map((stat, i) => (
@@ -4021,10 +4032,16 @@
                 nombre: '',
                 contacto: '',
                 telefono: '',
-                campos_extra: {}
+                campos_extra: {},
+                departamento: user.departamento || 'Facilities'
             });
             const formRef = useAutoScrollForm(showForm);
             const [search, setSearch] = useState('');
+
+            // Cada departamento solo ve (y gestiona) sus propios clientes. Admin y Supervisor ven todos.
+            const clientesVisibles = (user.rol === 'encargado' && user.departamento)
+                ? clientes.filter(c => (c.departamento || 'Facilities') === user.departamento)
+                : clientes;
 
             // Árbol de dependencias: Cliente → Contratos → Activos, todo en línea
             const [clienteExpandido, setClienteExpandido] = useState(null);
@@ -4048,7 +4065,7 @@
                         body: JSON.stringify({ ...formData, campos_extra: JSON.stringify(formData.campos_extra || {}) })
                     });
 
-                    setFormData({ nombre: '', contacto: '', telefono: '', campos_extra: {} });
+                    setFormData({ nombre: '', contacto: '', telefono: '', campos_extra: {}, departamento: user.departamento || 'Facilities' });
                     setEditingId(null);
                     setShowForm(false);
                     onRefresh();
@@ -4132,6 +4149,13 @@
                                 <label>Nombre</label>
                                 <input type="text" placeholder="Nombre" value={formData.nombre} onChange={(e) => setFormData({ ...formData, nombre: e.target.value })} />
                             </div>
+                            <div className={`form-group ${user.rol === 'encargado' ? 'field-locked' : ''}`}>
+                                <label>Departamento</label>
+                                <select value={formData.departamento || 'Facilities'} disabled={user.rol === 'encargado'} onChange={(e) => setFormData({ ...formData, departamento: e.target.value })}>
+                                    <option value="Facilities">Facilities</option>
+                                    <option value="Corvelec">Corvelec</option>
+                                </select>
+                            </div>
                             <DynamicExtraFields entidad="cliente" camposConfig={camposConfig} formData={formData} setFormData={setFormData} />
                             <div className="btn-group">
                                 <button className="btn btn-success" onClick={handleAdd}>{editingId ? 'Guardar' : 'Agregar'}</button>
@@ -4147,8 +4171,8 @@
                     <div className="list">
                         {(() => {
                             const clientesFiltradosBusqueda = search
-                                ? clientes.filter(c => (c.nombre || '').toLowerCase().includes(search.toLowerCase()))
-                                : clientes;
+                                ? clientesVisibles.filter(c => (c.nombre || '').toLowerCase().includes(search.toLowerCase()))
+                                : clientesVisibles;
                             if (clientesFiltradosBusqueda.length === 0) return <div className="empty-state">No hay clientes</div>;
                             return clientesFiltradosBusqueda.map(cliente => {
                                 const contratosDelCliente = contratos.filter(c => c.cliente_id === cliente.id);
@@ -5053,6 +5077,146 @@
                         <button className="btn btn-success" onClick={guardar}>{propuestaExistente ? 'Guardar cambios' : 'Enviar propuesta'}</button>
                         <button className="btn btn-secondary" onClick={onCancel}>Cancelar</button>
                     </div>
+                </div>
+            );
+        }
+
+        // ===== RESUMEN DE OBRAS (Corvelec): igual que Facturación pero sin importes — solo horas, km y materiales =====
+        function ResumenObrasView({ user, ordenes, clientes, usuarios }) {
+            const [visitas, setVisitas] = useState([]);
+            const [cargando, setCargando] = useState(true);
+            const [filtroCliente, setFiltroCliente] = useState('todos');
+            const [filtroDesde, setFiltroDesde] = useState('');
+            const [filtroHasta, setFiltroHasta] = useState('');
+
+            useEffect(() => {
+                fetch(`${API_URL}/api/visitas`)
+                    .then(r => r.json())
+                    .then(data => { setVisitas(data); setCargando(false); })
+                    .catch(() => setCargando(false));
+            }, []);
+
+            const calcularHoras = (hi, hf) => {
+                if (!hi || !hf) return 0;
+                const [h1, m1] = hi.split(':').map(Number);
+                const [h2, m2] = hf.split(':').map(Number);
+                if (isNaN(h1) || isNaN(h2)) return 0;
+                let mins = (h2 * 60 + m2) - (h1 * 60 + m1);
+                if (mins < 0) mins += 24 * 60;
+                return mins / 60;
+            };
+
+            // Solo clientes con Obras/Reparaciones de Corvelec (coherente con el resto del módulo)
+            const clientesCorvelec = (user.rol === 'encargado' && user.departamento)
+                ? clientes.filter(c => (c.departamento || 'Facilities') === user.departamento)
+                : clientes.filter(c => (c.departamento || 'Facilities') === 'Corvelec');
+
+            const filasOT = ordenes
+                .filter(o => o.departamento === 'Corvelec' && o.estado === 'resuelta')
+                .filter(o => filtroCliente === 'todos' || String(o.cliente_id) === filtroCliente)
+                .map(o => {
+                    let visitasOT = visitas.filter(v => v.orden_id === o.id);
+                    if (filtroDesde) visitasOT = visitasOT.filter(v => v.fecha >= filtroDesde);
+                    if (filtroHasta) visitasOT = visitasOT.filter(v => v.fecha <= filtroHasta);
+                    if ((filtroDesde || filtroHasta) && visitasOT.length === 0) return null;
+
+                    const trabajadores = [...new Set(visitasOT.map(v => v.tecnico_nombre).filter(Boolean))];
+                    const horasTotales = visitasOT.reduce((sum, v) => sum + calcularHoras(v.hora_inicio, v.hora_fin), 0);
+
+                    let tecnicosApoyo = [];
+                    try { tecnicosApoyo = o.tecnicos_apoyo ? JSON.parse(o.tecnicos_apoyo) : []; } catch { tecnicosApoyo = []; }
+                    const numTecnicos = 1 + (Array.isArray(tecnicosApoyo) ? tecnicosApoyo.length : 0);
+
+                    const kmTotales = visitasOT.reduce((sum, v) => {
+                        let desp = [];
+                        try { desp = v.desplazamientos_json ? JSON.parse(v.desplazamientos_json) : []; } catch { desp = []; }
+                        return sum + desp.reduce((s2, d) => s2 + (parseFloat(d.kilometros) || 0), 0);
+                    }, 0);
+
+                    const materialesAgregados = {};
+                    visitasOT.forEach(v => {
+                        let mats = [];
+                        try { mats = v.materiales_json ? JSON.parse(v.materiales_json) : []; } catch { mats = []; }
+                        mats.forEach(m => {
+                            if (!m.descripcion) return;
+                            const key = m.material_id || m.descripcion;
+                            if (!materialesAgregados[key]) materialesAgregados[key] = { descripcion: m.descripcion, cantidad: 0 };
+                            materialesAgregados[key].cantidad += parseFloat(m.cantidad) || 0;
+                        });
+                    });
+
+                    return { ot: o, trabajadores, numTecnicos, horasTotales, kmTotales, materiales: Object.values(materialesAgregados) };
+                })
+                .filter(Boolean);
+
+            const granHoras = filasOT.reduce((s, f) => s + f.horasTotales, 0);
+            const granKm = filasOT.reduce((s, f) => s + f.kmTotales, 0);
+
+            return (
+                <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '8px' }}>
+                        <h3 className="section-title" style={{ margin: 0 }}>🛠️ Resumen de Obras</h3>
+                    </div>
+
+                    <p className="lock-note">Solo se muestran aquí las Obras y Reparaciones de Corvelec ya finalizadas (estado "Resuelta"). No incluye importes — solo horas, kilómetros y materiales utilizados.</p>
+
+                    <div className="ficha-grid">
+                        <div className="ficha-field">
+                            <span className="ficha-field-label">Cliente</span>
+                            <select value={filtroCliente} onChange={(e) => setFiltroCliente(e.target.value)}>
+                                <option value="todos">Todos</option>
+                                {clientesCorvelec.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                            </select>
+                        </div>
+                        <div className="ficha-field">
+                            <span className="ficha-field-label">Desde</span>
+                            <input type="date" value={filtroDesde} onChange={(e) => setFiltroDesde(e.target.value)} />
+                        </div>
+                        <div className="ficha-field">
+                            <span className="ficha-field-label">Hasta</span>
+                            <input type="date" value={filtroHasta} onChange={(e) => setFiltroHasta(e.target.value)} />
+                        </div>
+                    </div>
+
+                    {cargando ? <div className="empty-state">Cargando...</div> : (
+                        <div className="list">
+                            {filasOT.length === 0 ? <div className="empty-state">No hay obras/reparaciones que coincidan con el filtro.</div> : filasOT.map(f => (
+                                <div key={f.ot.id} className="list-item">
+                                    <div className="list-item-header">
+                                        <div>
+                                            <p className="card-title">{f.ot.id} <span className={`badge ${f.ot.tipo}`}>{f.ot.tipo}</span></p>
+                                            <p className="card-text">{f.ot.titulo}</p>
+                                            <p className="card-text">👤 {f.ot.cliente_nombre || '—'}</p>
+                                        </div>
+                                    </div>
+
+                                    <div className="readonly-view" style={{ marginTop: '8px' }}>
+                                        <div className="rv-row"><span className="rv-label">Trabajador</span><span className="rv-value">{f.trabajadores.join(', ') || '—'}</span></div>
+                                        <div className="rv-row">
+                                            <span className="rv-label">Horas</span>
+                                            <span className="rv-value">{f.numTecnicos > 1 ? `${f.horasTotales.toFixed(2)} h × ${f.numTecnicos} técnicos` : `${f.horasTotales.toFixed(2)} h`}</span>
+                                        </div>
+                                        <div className="rv-row"><span className="rv-label">Kilómetros</span><span className="rv-value">{f.kmTotales.toFixed(1)} km</span></div>
+                                    </div>
+
+                                    {f.materiales.length > 0 && (
+                                        <div style={{ marginTop: '8px' }}>
+                                            <p className="card-text" style={{ fontWeight: 600 }}>Materiales</p>
+                                            {f.materiales.map((m, i) => (
+                                                <p key={i} className="card-text" style={{ fontSize: '13px', borderBottom: '1px dashed var(--border)', padding: '4px 0' }}>{m.descripcion} × {m.cantidad}</p>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    {filasOT.length > 0 && (
+                        <div className="card" style={{ marginTop: '1rem', textAlign: 'right' }}>
+                            <p className="card-title">Total — {granHoras.toFixed(2)} h · {granKm.toFixed(1)} km</p>
+                        </div>
+                    )}
                 </div>
             );
         }
