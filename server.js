@@ -555,6 +555,7 @@ db.serialize(() => {
     facturada INTEGER DEFAULT 0,
     fecha_facturacion TEXT,
     departamento TEXT DEFAULT 'Facilities',
+    fecha_fin_programada TEXT,
     tipo TEXT NOT NULL,
     estado TEXT NOT NULL,
     prioridad TEXT DEFAULT 'media',
@@ -593,6 +594,7 @@ db.serialize(() => {
   db.run(`ALTER TABLE ordenes_trabajo ADD COLUMN facturada INTEGER DEFAULT 0`, () => {});
   db.run(`ALTER TABLE ordenes_trabajo ADD COLUMN fecha_facturacion TEXT`, () => {});
   db.run(`ALTER TABLE ordenes_trabajo ADD COLUMN departamento TEXT DEFAULT 'Facilities'`, () => {});
+  db.run(`ALTER TABLE ordenes_trabajo ADD COLUMN fecha_fin_programada TEXT`, () => {});
 
   db.run(`CREATE TABLE IF NOT EXISTS visitas (
     id TEXT PRIMARY KEY,
@@ -1548,33 +1550,33 @@ app.get('/api/ordenes', (req, res) => {
 
 app.post('/api/ordenes', (req, res) => {
   const { ticket, id_cliente, cliente_id, contrato_id, emplazamiento_id, id_mantis, proyecto, procedencia_aviso, tipo, estado, prioridad,
-          responsable_id, asignado_a, tecnicos_apoyo, titulo, notas, activo_id, datos_json, fecha_programada, fecha_cierre, departamento } = req.body;
+          responsable_id, asignado_a, tecnicos_apoyo, titulo, notas, activo_id, datos_json, fecha_programada, fecha_fin_programada, fecha_cierre, departamento } = req.body;
   const id = `OT-${Date.now()}`;
   db.run(`INSERT INTO ordenes_trabajo (id, ticket, id_cliente, cliente_id, contrato_id, emplazamiento_id, id_mantis, proyecto, procedencia_aviso,
-          tipo, estado, prioridad, responsable_id, asignado_a, tecnicos_apoyo, titulo, notas, activo_id, datos_json, fecha_programada, fecha_cierre, departamento) 
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          tipo, estado, prioridad, responsable_id, asignado_a, tecnicos_apoyo, titulo, notas, activo_id, datos_json, fecha_programada, fecha_fin_programada, fecha_cierre, departamento) 
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [id, ticket, id_cliente, cliente_id || null, contrato_id || null, emplazamiento_id || null, id_mantis || null, proyecto || null, procedencia_aviso || null,
      tipo, estado, prioridad || 'media', responsable_id || null, asignado_a,
-     tecnicos_apoyo || null, titulo, notas, activo_id || null, datos_json || null, fecha_programada || null, fecha_cierre || null, departamento || 'Facilities'],
+     tecnicos_apoyo || null, titulo, notas, activo_id || null, datos_json || null, fecha_programada || null, fecha_fin_programada || null, fecha_cierre || null, departamento || 'Facilities'],
     function(err) {
       if (err) return res.status(500).json({ error: err.message });
-      res.json({ id, ticket, id_cliente, cliente_id, contrato_id, emplazamiento_id, id_mantis, proyecto, procedencia_aviso, tipo, estado, prioridad, responsable_id, asignado_a, tecnicos_apoyo, titulo, notas, activo_id, datos_json, fecha_programada, fecha_cierre, departamento: departamento || 'Facilities' });
+      res.json({ id, ticket, id_cliente, cliente_id, contrato_id, emplazamiento_id, id_mantis, proyecto, procedencia_aviso, tipo, estado, prioridad, responsable_id, asignado_a, tecnicos_apoyo, titulo, notas, activo_id, datos_json, fecha_programada, fecha_fin_programada, fecha_cierre, departamento: departamento || 'Facilities' });
     });
 });
 
 app.put('/api/ordenes/:id', (req, res) => {
   const { ticket, id_cliente, cliente_id, contrato_id, emplazamiento_id, id_mantis, proyecto, procedencia_aviso, tipo, estado, prioridad,
-          responsable_id, asignado_a, tecnicos_apoyo, titulo, notas, activo_id, datos_json, fecha_programada, fecha_cierre, departamento } = req.body;
+          responsable_id, asignado_a, tecnicos_apoyo, titulo, notas, activo_id, datos_json, fecha_programada, fecha_fin_programada, fecha_cierre, departamento } = req.body;
   db.run(`UPDATE ordenes_trabajo SET ticket = ?, id_cliente = ?, cliente_id = ?, contrato_id = ?, emplazamiento_id = ?, 
           id_mantis = ?, proyecto = ?, procedencia_aviso = ?, tipo = ?, estado = ?, prioridad = ?, 
           responsable_id = ?, asignado_a = ?, tecnicos_apoyo = ?, titulo = ?, notas = ?, activo_id = ?, datos_json = ?, 
-          fecha_programada = ?, fecha_cierre = ?, departamento = ? WHERE id = ?`,
+          fecha_programada = ?, fecha_fin_programada = ?, fecha_cierre = ?, departamento = ? WHERE id = ?`,
     [ticket, id_cliente, cliente_id || null, contrato_id || null, emplazamiento_id || null, id_mantis || null, proyecto || null, procedencia_aviso || null,
      tipo, estado, prioridad || 'media', responsable_id || null, asignado_a, tecnicos_apoyo || null,
-     titulo, notas, activo_id || null, datos_json || null, fecha_programada || null, fecha_cierre || null, departamento || 'Facilities', req.params.id],
+     titulo, notas, activo_id || null, datos_json || null, fecha_programada || null, fecha_fin_programada || null, fecha_cierre || null, departamento || 'Facilities', req.params.id],
     (err) => {
       if (err) return res.status(500).json({ error: err.message });
-      res.json({ id: req.params.id, ticket, id_cliente, cliente_id, contrato_id, emplazamiento_id, id_mantis, proyecto, procedencia_aviso, tipo, estado, prioridad, responsable_id, asignado_a, tecnicos_apoyo, titulo, notas, activo_id, datos_json, fecha_programada, fecha_cierre, departamento });
+      res.json({ id: req.params.id, ticket, id_cliente, cliente_id, contrato_id, emplazamiento_id, id_mantis, proyecto, procedencia_aviso, tipo, estado, prioridad, responsable_id, asignado_a, tecnicos_apoyo, titulo, notas, activo_id, datos_json, fecha_programada, fecha_fin_programada, fecha_cierre, departamento });
     });
 });
 
