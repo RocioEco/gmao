@@ -525,8 +525,7 @@
                         ...common,
                         { id: 'ordenes', label: 'Órdenes' },
                         { id: 'guardias', label: 'Guardias', badge: guardiasPendientes },
-                        { id: 'calendario', label: 'Calendario' },
-                        { id: 'planning', label: 'Planning Semanal' },
+                        { id: 'planning', label: 'Calendario' },
                         { id: 'inventario', label: 'Inventario' },
                         { id: 'preciario', label: 'Preciario' },
                         { id: 'albaranes', label: 'Albaranes' },
@@ -594,7 +593,6 @@
                         {activeTab === 'mis-ots' && <OrdenesView user={user} ordenes={ordenes} clientes={clientes} contratos={contratos} activos={activos} zonas={zonas} emplazamientos={emplazamientos} tiposActivo={tiposActivo} usuarios={usuarios} materiales={materiales} onRefresh={cargarDatos} soloAsignadas={true} />}
                         {activeTab === 'ordenes' && <OrdenesView user={user} ordenes={ordenes} clientes={clientes} contratos={contratos} activos={activos} zonas={zonas} emplazamientos={emplazamientos} tiposActivo={tiposActivo} usuarios={usuarios} materiales={materiales} onRefresh={cargarDatos} />}
                         {activeTab === 'guardias' && (user.rol === 'admin' || user.rol === 'supervisor' || user.rol === 'encargado') && <OrdenesView user={user} ordenes={ordenes} clientes={clientes} contratos={contratos} activos={activos} zonas={zonas} emplazamientos={emplazamientos} tiposActivo={tiposActivo} usuarios={usuarios} materiales={materiales} onRefresh={cargarDatos} filtroInicialTipo="guardia" />}
-                        {activeTab === 'calendario' && (user.rol === 'admin' || user.rol === 'supervisor' || user.rol === 'encargado') && <CalendarView user={user} ordenes={ordenes} usuarios={usuarios} activos={activos} onRefresh={cargarDatos} />}
                         {activeTab === 'planning' && (user.rol === 'admin' || user.rol === 'supervisor' || user.rol === 'encargado') && <PlanningSemanalView user={user} ordenes={ordenes} usuarios={usuarios} />}
                         {activeTab === 'inventario' && <InventarioView user={user} activos={activos} emplazamientos={emplazamientos} zonas={zonas} clientes={clientes} contratos={contratos} tiposActivo={tiposActivo} camposConfig={camposConfig} onRefresh={cargarDatos} />}
                         {activeTab === 'preciario' && (user.rol === 'admin' || user.rol === 'supervisor' || user.rol === 'encargado') && <PreciarioView user={user} materiales={materiales} clientes={clientes} contratos={contratos} onRefresh={cargarDatos} />}
@@ -1687,13 +1685,25 @@
                                 <div className={`form-group ${!puedeEditarTodo ? 'field-locked' : ''}`}>
                                     <label>Tipo</label>
                                     <select value={otForm.tipo} disabled={!puedeEditarTodo} onChange={(e) => setOtForm({ ...otForm, tipo: e.target.value, activo_id: '' })}>
-                                        <option value="correctivo">Correctiva</option>
-                                        <option value="preventivo">Preventiva</option>
-                                        <option value="obra">Obra</option>
-                                        <option value="guardia">Guardia</option>
-                                        <option value="vacaciones">Vacaciones</option>
-                                        <option value="formacion">Formación</option>
+                                        {otForm.departamento === 'Corvelec' ? (
+                                            <>
+                                                <option value="correctivo">Correctiva</option>
+                                                <option value="obra">Obra</option>
+                                                <option value="vacaciones">Vacaciones</option>
+                                                <option value="formacion">Formación</option>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <option value="correctivo">Correctiva</option>
+                                                <option value="preventivo">Preventiva</option>
+                                                <option value="obra">Obra</option>
+                                                <option value="guardia">Guardia</option>
+                                                <option value="vacaciones">Vacaciones</option>
+                                                <option value="formacion">Formación</option>
+                                            </>
+                                        )}
                                     </select>
+                                    {otForm.departamento === 'Corvelec' && <p className="lock-note">Corvelec solo trabaja con Obra y Correctivo.</p>}
                                 </div>
                             ) : otForm.tipo === 'guardia' ? (
                                 <p className="card-text">🔔 Como técnico, tus órdenes se crean como <strong>Guardia</strong>. Un supervisor las revisará y convertirá en Correctivo si procede.</p>
@@ -1722,35 +1732,39 @@
                                         {clientes.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
                                     </select>
                                 </div>
-                                <div className={`ficha-field ${!puedeEditarTodo ? 'field-locked' : ''}`}>
-                                    <span className="ficha-field-label">Contrato</span>
-                                    <select value={otForm.contrato_id} disabled={!puedeEditarTodo || !otForm.cliente_id} onChange={(e) => setOtForm({ ...otForm, contrato_id: e.target.value })}>
-                                        <option value="">-- Selecciona --</option>
-                                        {contratosFiltrados.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-                                    </select>
-                                </div>
-                                <div className={`ficha-field ${!puedeEditarTodo ? 'field-locked' : ''}`}>
-                                    <span className="ficha-field-label">Zona</span>
-                                    <select value={selectedZonaOt} disabled={!puedeEditarTodo} onChange={(e) => { setSelectedZonaOt(e.target.value); setOtForm({ ...otForm, emplazamiento_id: '', activo_id: '' }); }}>
-                                        <option value="">-- Selecciona --</option>
-                                        {(zonas || []).map(z => <option key={z.id} value={z.id}>{z.nombre}</option>)}
-                                    </select>
-                                </div>
+                                {otForm.departamento !== 'Corvelec' && (
+                                    <>
+                                        <div className={`ficha-field ${!puedeEditarTodo ? 'field-locked' : ''}`}>
+                                            <span className="ficha-field-label">Contrato</span>
+                                            <select value={otForm.contrato_id} disabled={!puedeEditarTodo || !otForm.cliente_id} onChange={(e) => setOtForm({ ...otForm, contrato_id: e.target.value })}>
+                                                <option value="">-- Selecciona --</option>
+                                                {contratosFiltrados.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                                            </select>
+                                        </div>
+                                        <div className={`ficha-field ${!puedeEditarTodo ? 'field-locked' : ''}`}>
+                                            <span className="ficha-field-label">Zona</span>
+                                            <select value={selectedZonaOt} disabled={!puedeEditarTodo} onChange={(e) => { setSelectedZonaOt(e.target.value); setOtForm({ ...otForm, emplazamiento_id: '', activo_id: '' }); }}>
+                                                <option value="">-- Selecciona --</option>
+                                                {(zonas || []).map(z => <option key={z.id} value={z.id}>{z.nombre}</option>)}
+                                            </select>
+                                        </div>
 
-                                <div className={`ficha-field ${!puedeEditarTodo ? 'field-locked' : ''}`}>
-                                    <span className="ficha-field-label">Emplazamiento</span>
-                                    <select value={otForm.emplazamiento_id} disabled={!puedeEditarTodo} onChange={(e) => setOtForm({ ...otForm, emplazamiento_id: e.target.value, activo_id: '' })}>
-                                        <option value="">-- Selecciona --</option>
-                                        {emplazamientosFiltradosOt.map(e => <option key={e.id} value={e.id}>{e.nombre}</option>)}
-                                    </select>
-                                </div>
-                                <div className={`ficha-field ${!puedeEditarTodo ? 'field-locked' : ''}`}>
-                                    <span className="ficha-field-label">Activo{otForm.tipo !== 'preventivo' ? ' (opcional)' : ''}</span>
-                                    <select value={otForm.activo_id} disabled={!puedeEditarTodo} onChange={(e) => setOtForm({ ...otForm, activo_id: e.target.value })}>
-                                        <option value="">-- Selecciona --</option>
-                                        {activosFiltrados.map(a => <option key={a.id} value={a.id}>{a.nombre} · {a.tipo}</option>)}
-                                    </select>
-                                </div>
+                                        <div className={`ficha-field ${!puedeEditarTodo ? 'field-locked' : ''}`}>
+                                            <span className="ficha-field-label">Emplazamiento</span>
+                                            <select value={otForm.emplazamiento_id} disabled={!puedeEditarTodo} onChange={(e) => setOtForm({ ...otForm, emplazamiento_id: e.target.value, activo_id: '' })}>
+                                                <option value="">-- Selecciona --</option>
+                                                {emplazamientosFiltradosOt.map(e => <option key={e.id} value={e.id}>{e.nombre}</option>)}
+                                            </select>
+                                        </div>
+                                        <div className={`ficha-field ${!puedeEditarTodo ? 'field-locked' : ''}`}>
+                                            <span className="ficha-field-label">Activo{otForm.tipo !== 'preventivo' ? ' (opcional)' : ''}</span>
+                                            <select value={otForm.activo_id} disabled={!puedeEditarTodo} onChange={(e) => setOtForm({ ...otForm, activo_id: e.target.value })}>
+                                                <option value="">-- Selecciona --</option>
+                                                {activosFiltrados.map(a => <option key={a.id} value={a.id}>{a.nombre} · {a.tipo}</option>)}
+                                            </select>
+                                        </div>
+                                    </>
+                                )}
                                 <div className="ficha-field">
                                     <span className="ficha-field-label">Estado</span>
                                     <select value={otForm.estado} onChange={(e) => setOtForm({ ...otForm, estado: e.target.value })}>
@@ -2155,7 +2169,7 @@
                                 </div>
                             )}
 
-                            {otSeleccionada && otSeleccionada.tipo === 'obra' && (
+                            {otSeleccionada && (otSeleccionada.tipo === 'obra' || (otSeleccionada.departamento === 'Corvelec' && otSeleccionada.tipo === 'correctivo')) && (
                                 <div className="checklist-section">
                                     <div className="checklist-section-title">📝 Parte de Trabajo</div>
                                     <ParteTrabajoForm
@@ -2258,7 +2272,7 @@
                                 </div>
                             )}
 
-                            {otSeleccionada && otSeleccionada.tipo === 'obra' && (
+                            {otSeleccionada && (otSeleccionada.tipo === 'obra' || (otSeleccionada.departamento === 'Corvelec' && otSeleccionada.tipo === 'correctivo')) && (
                                 <div className="checklist-section">
                                     <div className="checklist-section-title">📝 Parte de Trabajo</div>
                                     <ParteTrabajoForm value={{ medioAmbiente: medio, seguridad: seg }} onChange={() => {}} readOnly={true} />
@@ -3097,8 +3111,9 @@
         // ===== ACTIVOS =====
         // ===== INVENTARIO (envoltorio con submenús: Zonas / Emplazamientos / Activos) =====
         function InventarioView(props) {
+            const esCorvelecOnly = props.user.rol === 'encargado' && props.user.departamento === 'Corvelec';
             const [subTab, setSubTab] = useState('clientes');
-            const subTabs = [
+            const subTabs = esCorvelecOnly ? [{ id: 'clientes', label: 'Clientes' }] : [
                 { id: 'clientes', label: 'Clientes' },
                 { id: 'contratos', label: 'Contratos' },
                 { id: 'zonas', label: 'Zonas' },
@@ -3107,18 +3122,22 @@
             ];
             return (
                 <div>
-                    <div className="tipo-filter-bar">
-                        {subTabs.map(t => (
-                            <button key={t.id} className={`tipo-filter-btn ${subTab === t.id ? 'active' : ''}`} onClick={() => setSubTab(t.id)}>
-                                {t.label}
-                            </button>
-                        ))}
-                    </div>
+                    {esCorvelecOnly ? (
+                        <p className="lock-note">Corvelec no gestiona inventario de activos: aquí solo se administran los Clientes que tienen Obras o Reparaciones.</p>
+                    ) : (
+                        <div className="tipo-filter-bar">
+                            {subTabs.map(t => (
+                                <button key={t.id} className={`tipo-filter-btn ${subTab === t.id ? 'active' : ''}`} onClick={() => setSubTab(t.id)}>
+                                    {t.label}
+                                </button>
+                            ))}
+                        </div>
+                    )}
                     {subTab === 'clientes' && <ClientesView {...props} />}
-                    {subTab === 'contratos' && <ContratosView {...props} />}
-                    {subTab === 'zonas' && <ZonasView {...props} />}
-                    {subTab === 'emplazamientos' && <EmplazamientosView {...props} />}
-                    {subTab === 'activos' && <ActivosView {...props} />}
+                    {!esCorvelecOnly && subTab === 'contratos' && <ContratosView {...props} />}
+                    {!esCorvelecOnly && subTab === 'zonas' && <ZonasView {...props} />}
+                    {!esCorvelecOnly && subTab === 'emplazamientos' && <EmplazamientosView {...props} />}
+                    {!esCorvelecOnly && subTab === 'activos' && <ActivosView {...props} />}
                 </div>
             );
         }
