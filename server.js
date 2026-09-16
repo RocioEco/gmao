@@ -492,9 +492,11 @@ db.serialize(() => {
     nombre TEXT NOT NULL,
     contacto TEXT,
     telefono TEXT,
-    campos_extra TEXT DEFAULT '{}'
+    campos_extra TEXT DEFAULT '{}',
+    departamento TEXT DEFAULT 'Facilities'
   )`);
   db.run(`ALTER TABLE clientes ADD COLUMN campos_extra TEXT DEFAULT '{}'`, () => {});
+  db.run(`ALTER TABLE clientes ADD COLUMN departamento TEXT DEFAULT 'Facilities'`, () => {});
 
   // ===== CAMPOS PERSONALIZABLES (Cliente / Contrato / Activo) =====
   db.run(`CREATE TABLE IF NOT EXISTS campos_config (
@@ -1106,20 +1108,20 @@ app.get('/api/clientes', (req, res) => {
 });
 
 app.post('/api/clientes', (req, res) => {
-  const { nombre, contacto, telefono, campos_extra } = req.body;
-  db.run('INSERT INTO clientes (nombre, contacto, telefono, campos_extra) VALUES (?, ?, ?, ?)',
-    [nombre, contacto, telefono, campos_extra || '{}'], function(err) {
+  const { nombre, contacto, telefono, campos_extra, departamento } = req.body;
+  db.run('INSERT INTO clientes (nombre, contacto, telefono, campos_extra, departamento) VALUES (?, ?, ?, ?, ?)',
+    [nombre, contacto, telefono, campos_extra || '{}', departamento || 'Facilities'], function(err) {
       if (err) return res.status(500).json({ error: err.message });
-      res.json({ id: this.lastID, nombre, contacto, telefono, campos_extra: campos_extra || '{}' });
+      res.json({ id: this.lastID, nombre, contacto, telefono, campos_extra: campos_extra || '{}', departamento: departamento || 'Facilities' });
     });
 });
 
 app.put('/api/clientes/:id', (req, res) => {
-  const { nombre, contacto, telefono, campos_extra } = req.body;
-  db.run('UPDATE clientes SET nombre = ?, contacto = ?, telefono = ?, campos_extra = ? WHERE id = ?',
-    [nombre, contacto, telefono, campos_extra || '{}', req.params.id], (err) => {
+  const { nombre, contacto, telefono, campos_extra, departamento } = req.body;
+  db.run('UPDATE clientes SET nombre = ?, contacto = ?, telefono = ?, campos_extra = ?, departamento = ? WHERE id = ?',
+    [nombre, contacto, telefono, campos_extra || '{}', departamento || 'Facilities', req.params.id], (err) => {
       if (err) return res.status(500).json({ error: err.message });
-      res.json({ id: req.params.id, nombre, contacto, telefono, campos_extra: campos_extra || '{}' });
+      res.json({ id: req.params.id, nombre, contacto, telefono, campos_extra: campos_extra || '{}', departamento });
     });
 });
 
