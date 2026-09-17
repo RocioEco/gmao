@@ -1809,6 +1809,194 @@ app.put('/api/guardia/:id', (req, res) => {
     });
 });
 
+// ===== BACKUP COMPLETO: exportar/importar todos los datos =====
+// Tablas incluidas, en orden de dependencia (las que no dependen de otras primero).
+const TABLAS_BACKUP = ['usuarios', 'clientes', 'zonas', 'tipos_activo', 'contratos', 'campos_config', 'emplazamientos', 'activos', 'materiales', 'ordenes_trabajo', 'visitas', 'albaranes'];
+
+app.get('/api/backup/export', async (req, res) => {
+  try {
+    const resultado = { version: 1, exportado_en: new Date().toISOString() };
+    for (const tabla of TABLAS_BACKUP) {
+      resultado[tabla] = await dbAll(`SELECT * FROM ${tabla}`);
+    }
+    res.json(resultado);
+  } catch (e) {
+    res.status(500).json({ error: 'Error generando el backup: ' + e.message });
+  }
+});
+
+// Fusiona una lista de filas en una tabla, sin duplicar ni borrar nada de lo que ya existe.
+// - matchCols: columnas (ya con los valores remapeados) que identifican una fila como "la misma"
+//   que una ya existente; si coincide, no se crea de nuevo.
+// - fkRemap: { columna: mapaDeIdsAntiguoANuevo } — las columnas de clave foránea se traducen antes
+//   de comparar/insertar, para que apunten a las filas correctas ya fusionadas en esta misma importación.
+// - mapaSalida: si se indica, guarda aquí la traducción id_antiguo -> id_nuevo de esta tabla, para que
+//   las tablas que dependen de ella (importadas después) puedan remapear sus propias claves foráneas.
+async function fusionarTabla(tabla, filas, { matchCols = [], fkRemap = {}, mapaSalida = null, matchNormalizado = [] } = {}) {
+  let creados = 0, existentes = 0;
+  if (!Array.isArray(filas)) return { creados, existentes };
+
+  for (const filaOriginal of filas) {
+    const fila = { ...filaOriginal };
+    const idAntiguo = fila.id;
+
+    for (const [col, mapa] of Object.entries(fkRemap)) {
+      if (fila[col] != null && mapa[fila[col]] != null) fila[col] = mapa[fila[col]];
+    }
+
+    let existente = null;
+    if (matchCols.length > 0) {
+      const condiciones = matchCols.map(c =>
+        matchNormalizado.includes(c) ? `LOWER(TRIM(${c})) = LOWER(TRIM(?))` : `${c} IS ?`
+      ).join(' AND ');
+      const valores = matchCols.map(c => fila[c]);
+      existente = await dbGet(`SELECT id FROM ${tabla} WHERE ${condiciones}`, valores);
+    }
+
+    if (existente) {
+      if (mapaSalida) mapaSalida[idAntiguo] = existente.id;
+      existentes++;
+      continue;
+    }
+
+    delete fila.id;
+    const columnas = Object.keys(fila);
+    if (columnas.length === 0) continue;
+    const marcadores = columnas.map(() => '?').join(', ');
+    const valores = columnas.map(c => fila[c]);
+    const r = await dbRun(`INSERT INTO ${tabla} (${columnas.join(', ')}) VALUES (${marcadores})`, valores);
+    if (mapaSalida) mapaSalida[idAntiguo] = r.lastID;
+    creados++;
+  }
+  return { creados, existentes };
+}
+
+app.post('/api/backup/import', async (req, res) => {
+  const data = req.body;
+  if (!data || typeof data !== 'object') return res.status(400).json({ error: 'Archivo de backup no válido' });
+
+  const stats = {};
+  const mapUsuarios = {}, mapClientes = {}, mapZonas = {}, mapTiposActivo = {},
+        mapContratos = {}, mapEmplazamientos = {}, mapActivos = {};
+  // Marca qué OT eran NUEVAS en esta importación, para solo traer sus visitas
+  // (si la OT ya existía, se asume que sus visitas también, y no se duplican).
+  const otsNuevasEnEstaImportacion = new Set();
+
+  try {
+    stats.usuarios = await fusionarTabla('usuarios', data.usuarios, {
+      matchCols: ['email'], matchNormalizado: ['email'], mapaSalida: mapUsuarios
+    });
+
+    stats.clientes = await fusionarTabla('clientes', data.clientes, {
+      matchCols: ['nombre'], matchNormalizado: ['nombre'], mapaSalida: mapClientes
+    });
+
+    stats.zonas = await fusionarTabla('zonas', data.zonas, {
+      matchCols: ['nombre'], matchNormalizado: ['nombre'], mapaSalida: mapZonas
+    });
+
+    stats.tipos_activo = await fusionarTabla('tipos_activo', data.tipos_activo, {
+      matchCols: ['nombre'], matchNormalizado: ['nombre'], mapaSalida: mapTiposActivo
+    });
+
+    stats.contratos = await fusionarTabla('contratos', data.contratos, {
+      fkRemap: { cliente_id: mapClientes },
+      matchCols: ['cliente_id', 'nombre'], matchNormalizado: ['nombre'], mapaSalida: mapContratos
+    });
+
+    stats.campos_config = await fusionarTabla('campos_config', data.campos_config, {
+      matchCols: ['entidad', 'clave']
+    });
+
+    stats.emplazamientos = await fusionarTabla('emplazamientos', data.emplazamientos, {
+      fkRemap: { zona_id: mapZonas },
+      matchCols: ['zona_id', 'nombre'], matchNormalizado: ['nombre'], mapaSalida: mapEmplazamientos
+    });
+
+    stats.activos = await fusionarTabla('activos', data.activos, {
+      fkRemap: { emplazamiento_id: mapEmplazamientos, contrato_id: mapContratos },
+      matchCols: ['emplazamiento_id', 'nombre'], matchNormalizado: ['nombre'], mapaSalida: mapActivos
+    });
+
+    stats.materiales = await fusionarTabla('materiales', data.materiales, {
+      fkRemap: { cliente_id: mapClientes, contrato_id: mapContratos },
+      matchCols: ['cliente_id', 'contrato_id', 'descripcion'], matchNormalizado: ['descripcion']
+    });
+
+    // Órdenes de trabajo: id propio (texto único, tipo "OT-..."), no se remapea el id en sí,
+    // solo sus claves foráneas. tecnicos_apoyo es un array JSON de ids de usuario: se remapea aparte.
+    if (Array.isArray(data.ordenes_trabajo)) {
+      let creados = 0, existentes = 0;
+      for (const otOriginal of data.ordenes_trabajo) {
+        const ot = { ...otOriginal };
+        const existente = await dbGet('SELECT id FROM ordenes_trabajo WHERE id = ?', [ot.id]);
+        if (existente) { existentes++; continue; }
+
+        if (ot.cliente_id != null && mapClientes[ot.cliente_id] != null) ot.cliente_id = mapClientes[ot.cliente_id];
+        if (ot.contrato_id != null && mapContratos[ot.contrato_id] != null) ot.contrato_id = mapContratos[ot.contrato_id];
+        if (ot.emplazamiento_id != null && mapEmplazamientos[ot.emplazamiento_id] != null) ot.emplazamiento_id = mapEmplazamientos[ot.emplazamiento_id];
+        if (ot.activo_id != null && mapActivos[ot.activo_id] != null) ot.activo_id = mapActivos[ot.activo_id];
+        if (ot.asignado_a != null && mapUsuarios[ot.asignado_a] != null) ot.asignado_a = mapUsuarios[ot.asignado_a];
+        if (ot.responsable_id != null && mapUsuarios[ot.responsable_id] != null) ot.responsable_id = mapUsuarios[ot.responsable_id];
+        if (ot.encargado_id != null && mapUsuarios[ot.encargado_id] != null) ot.encargado_id = mapUsuarios[ot.encargado_id];
+        if (ot.tecnicos_apoyo) {
+          try {
+            const lista = JSON.parse(ot.tecnicos_apoyo);
+            if (Array.isArray(lista)) ot.tecnicos_apoyo = JSON.stringify(lista.map(id => mapUsuarios[id] != null ? mapUsuarios[id] : id));
+          } catch { /* deja el valor original si no es JSON válido */ }
+        }
+
+        const columnas = Object.keys(ot);
+        const marcadores = columnas.map(() => '?').join(', ');
+        const valores = columnas.map(c => ot[c]);
+        await dbRun(`INSERT INTO ordenes_trabajo (${columnas.join(', ')}) VALUES (${marcadores})`, valores);
+        otsNuevasEnEstaImportacion.add(ot.id);
+        creados++;
+      }
+      stats.ordenes_trabajo = { creados, existentes };
+    }
+
+    // Visitas: solo se importan las de una OT que era nueva en esta misma importación
+    // (si la OT ya existía, se asume que sus visitas ya estaban también, para no duplicarlas).
+    if (Array.isArray(data.visitas)) {
+      let creados = 0, existentes = 0, omitidas = 0;
+      for (const visitaOriginal of data.visitas) {
+        const v = { ...visitaOriginal };
+        if (!otsNuevasEnEstaImportacion.has(v.orden_id)) { omitidas++; continue; }
+        if (v.tecnico_id != null && mapUsuarios[v.tecnico_id] != null) v.tecnico_id = mapUsuarios[v.tecnico_id];
+        delete v.id;
+        const columnas = Object.keys(v);
+        const marcadores = columnas.map(() => '?').join(', ');
+        const valores = columnas.map(c => v[c]);
+        await dbRun(`INSERT INTO visitas (${columnas.join(', ')}) VALUES (${marcadores})`, valores);
+        creados++;
+      }
+      stats.visitas = { creados, existentes, omitidas_por_ot_ya_existente: omitidas };
+    }
+
+    // Albaranes: no tienen una clave natural fiable, se importan siempre como nuevos.
+    if (Array.isArray(data.albaranes)) {
+      let creados = 0;
+      for (const albOriginal of data.albaranes) {
+        const alb = { ...albOriginal };
+        if (alb.cliente_id != null && mapClientes[alb.cliente_id] != null) alb.cliente_id = mapClientes[alb.cliente_id];
+        if (alb.creado_por != null && mapUsuarios[alb.creado_por] != null) alb.creado_por = mapUsuarios[alb.creado_por];
+        delete alb.id;
+        const columnas = Object.keys(alb);
+        const marcadores = columnas.map(() => '?').join(', ');
+        const valores = columnas.map(c => alb[c]);
+        await dbRun(`INSERT INTO albaranes (${columnas.join(', ')}) VALUES (${marcadores})`, valores);
+        creados++;
+      }
+      stats.albaranes = { creados, existentes: 0 };
+    }
+
+    res.json({ success: true, stats });
+  } catch (e) {
+    res.status(500).json({ error: 'Error importando el backup: ' + e.message, stats });
+  }
+});
+
 // Servir archivos estáticos
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
