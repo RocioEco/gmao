@@ -3448,6 +3448,7 @@
             const viewRef = useAutoScrollForm(!!viendoActivo);
             const [seleccionados, setSeleccionados] = useState([]);
             const [eliminandoLote, setEliminandoLote] = useState(false);
+            const [modoSeleccion, setModoSeleccion] = useState(false);
 
             const handleDelete = async (id) => {
                 if (!confirm('¿Eliminar este activo?')) return;
@@ -3631,8 +3632,15 @@
                         </div>
                     )}
 
-                    <div className="form-group">
-                        <input type="text" placeholder="🔍 Buscar por nombre..." value={search} onChange={(e) => setSearch(e.target.value)} />
+                    <div className="form-group" style={{ display: 'flex', gap: '8px', alignItems: 'flex-end' }}>
+                        <div style={{ flex: 1 }}>
+                            <input type="text" placeholder="🔍 Buscar por nombre..." value={search} onChange={(e) => setSearch(e.target.value)} />
+                        </div>
+                        {esGestor && (
+                            <button className="btn btn-secondary" onClick={() => { setModoSeleccion(!modoSeleccion); setSeleccionados([]); }}>
+                                {modoSeleccion ? 'Cancelar' : '☑️ Seleccionar varios'}
+                            </button>
+                        )}
                     </div>
 
                     <div className="list">
@@ -3643,7 +3651,7 @@
                             if (activosFiltrados.length === 0) return <div className="empty-state">No hay activos</div>;
                             return (
                                 <>
-                                    {esGestor && (
+                                    {modoSeleccion && (
                                         <div className="finalizar-banner" style={{ marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
                                             <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
                                                 <input type="checkbox" checked={seleccionados.length === activosFiltrados.length} onChange={() => setSeleccionados(seleccionados.length === activosFiltrados.length ? [] : activosFiltrados.map(a => a.id))} />
@@ -3666,7 +3674,7 @@
                                                 <div className="list-item" style={{ cursor: 'pointer' }} onClick={() => { setViendoActivo(viendoEste ? null : a); setShowForm(false); setEditingId(null); }}>
                                                     <div className="list-item-header">
                                                         <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
-                                                            {esGestor && <input type="checkbox" checked={seleccionados.includes(a.id)} onClick={(e) => e.stopPropagation()} onChange={() => toggleSeleccionado(a.id)} style={{ marginTop: '4px' }} />}
+                                                            {modoSeleccion && <input type="checkbox" checked={seleccionados.includes(a.id)} onClick={(e) => e.stopPropagation()} onChange={() => toggleSeleccionado(a.id)} style={{ marginTop: '4px' }} />}
                                                             <div>
                                                                 <p className="card-title">⚙️ {a.emplazamiento_nombre ? `${a.emplazamiento_nombre} - ${a.nombre}` : a.nombre}</p>
                                                                 <p className="breadcrumb-path">{a.cliente_nombre} › {a.contrato_nombre} › {a.zona_nombre} › {a.emplazamiento_nombre}</p>
@@ -3738,6 +3746,7 @@
             const [contratoExpandido, setContratoExpandido] = useState(null);
             const [seleccionados, setSeleccionados] = useState([]);
             const [eliminandoLote, setEliminandoLote] = useState(false);
+            const [modoSeleccion, setModoSeleccion] = useState(false);
 
             const toggleSeleccionado = (id) => {
                 setSeleccionados(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
@@ -3885,8 +3894,15 @@
                         </div>
                     )}
 
-                    <div className="form-group">
-                        <input type="text" placeholder="🔍 Buscar por nombre..." value={search} onChange={(e) => setSearch(e.target.value)} />
+                    <div className="form-group" style={{ display: 'flex', gap: '8px', alignItems: 'flex-end' }}>
+                        <div style={{ flex: 1 }}>
+                            <input type="text" placeholder="🔍 Buscar por nombre..." value={search} onChange={(e) => setSearch(e.target.value)} />
+                        </div>
+                        {esGestor && (
+                            <button className="btn btn-secondary" onClick={() => { setModoSeleccion(!modoSeleccion); setSeleccionados([]); }}>
+                                {modoSeleccion ? 'Cancelar' : '☑️ Seleccionar varios'}
+                            </button>
+                        )}
                     </div>
 
                     <div className="list">
@@ -3897,7 +3913,7 @@
                             if (contratosFiltradosBusqueda.length === 0) return <div className="empty-state">No hay contratos</div>;
                             return (
                                 <>
-                                    {esGestor && (
+                                    {modoSeleccion && (
                                         <div className="finalizar-banner" style={{ marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
                                             <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
                                                 <input type="checkbox" checked={seleccionados.length === contratosFiltradosBusqueda.length} onChange={() => setSeleccionados(seleccionados.length === contratosFiltradosBusqueda.length ? [] : contratosFiltradosBusqueda.map(c => c.id))} />
@@ -3917,7 +3933,7 @@
                                     <div key={contrato.id} className="list-item">
                                         <div className="list-item-header">
                                             <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
-                                                {esGestor && <input type="checkbox" checked={seleccionados.includes(contrato.id)} onChange={() => toggleSeleccionado(contrato.id)} style={{ marginTop: '4px' }} />}
+                                                {modoSeleccion && <input type="checkbox" checked={seleccionados.includes(contrato.id)} onChange={() => toggleSeleccionado(contrato.id)} style={{ marginTop: '4px' }} />}
                                                 <div>
                                                     <p className="card-title">📄 {contrato.nombre}</p>
                                                     <p className="card-text">🏢 {contrato.cliente_nombre}</p>
@@ -4226,6 +4242,7 @@
             const [contratoExpandido, setContratoExpandido] = useState(null);
             const [seleccionados, setSeleccionados] = useState([]);
             const [eliminandoLote, setEliminandoLote] = useState(false);
+            const [modoSeleccion, setModoSeleccion] = useState(false);
 
             const toggleSeleccionado = (id) => {
                 setSeleccionados(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
@@ -4366,8 +4383,15 @@
                         </div>
                     )}
 
-                    <div className="form-group">
-                        <input type="text" placeholder="🔍 Buscar por nombre..." value={search} onChange={(e) => setSearch(e.target.value)} />
+                    <div className="form-group" style={{ display: 'flex', gap: '8px', alignItems: 'flex-end' }}>
+                        <div style={{ flex: 1 }}>
+                            <input type="text" placeholder="🔍 Buscar por nombre..." value={search} onChange={(e) => setSearch(e.target.value)} />
+                        </div>
+                        {esGestor && (
+                            <button className="btn btn-secondary" onClick={() => { setModoSeleccion(!modoSeleccion); setSeleccionados([]); }}>
+                                {modoSeleccion ? 'Cancelar' : '☑️ Seleccionar varios'}
+                            </button>
+                        )}
                     </div>
 
                     <div className="list">
@@ -4378,7 +4402,7 @@
                             if (clientesFiltradosBusqueda.length === 0) return <div className="empty-state">No hay clientes</div>;
                             return (
                                 <>
-                                    {esGestor && (
+                                    {modoSeleccion && (
                                         <div className="finalizar-banner" style={{ marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
                                             <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
                                                 <input type="checkbox" checked={seleccionados.length === clientesFiltradosBusqueda.length} onChange={() => setSeleccionados(seleccionados.length === clientesFiltradosBusqueda.length ? [] : clientesFiltradosBusqueda.map(c => c.id))} />
@@ -4397,7 +4421,7 @@
                                 return (
                                     <div key={cliente.id} className="list-item">
                                         <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
-                                            {esGestor && <input type="checkbox" checked={seleccionados.includes(cliente.id)} onChange={() => toggleSeleccionado(cliente.id)} style={{ marginTop: '4px' }} />}
+                                            {modoSeleccion && <input type="checkbox" checked={seleccionados.includes(cliente.id)} onChange={() => toggleSeleccionado(cliente.id)} style={{ marginTop: '4px' }} />}
                                             <div>
                                                 <p className="card-title">🏢 {cliente.nombre}</p>
                                                 <p className="card-text">📧 {cliente.contacto}</p>
