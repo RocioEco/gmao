@@ -4501,6 +4501,58 @@
             });
             const [error, setError] = useState('');
             const formRef = useAutoScrollForm(showForm);
+            const [exportando, setExportando] = useState(false);
+            const [importandoBackup, setImportandoBackup] = useState(false);
+            const [resultadoImport, setResultadoImport] = useState(null);
+            const backupFileRef = React.useRef(null);
+
+            const exportarBackup = async () => {
+                setExportando(true);
+                try {
+                    const r = await fetch(`${API_URL}/api/backup/export`);
+                    const data = await r.json();
+                    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `backup_gmao_${new Date().toISOString().slice(0, 10)}.json`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                } catch {
+                    alert('Error al generar el backup');
+                }
+                setExportando(false);
+            };
+
+            const importarBackup = (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = async (evt) => {
+                    setImportandoBackup(true);
+                    setResultadoImport(null);
+                    try {
+                        const data = JSON.parse(evt.target.result);
+                        const r = await fetch(`${API_URL}/api/backup/import`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+                        const resultado = await r.json();
+                        setResultadoImport(resultado);
+                        onRefresh();
+                    } catch (err) {
+                        setResultadoImport({ error: 'El archivo no es un backup válido, o hubo un error al importarlo.' });
+                    }
+                    setImportandoBackup(false);
+                };
+                reader.readAsText(file);
+                e.target.value = '';
+            };
+
+            const NOMBRES_TABLA_BACKUP = {
+                usuarios: 'Usuarios', clientes: 'Clientes', zonas: 'Zonas', tipos_activo: 'Tipos de Activo',
+                contratos: 'Contratos', campos_config: 'Campos personalizados', emplazamientos: 'Emplazamientos',
+                activos: 'Activos', materiales: 'Preciario', ordenes_trabajo: 'Órdenes de Trabajo', visitas: 'Visitas', albaranes: 'Albaranes'
+            };
 
             const handleAdd = async () => {
                 setError('');
@@ -4601,6 +4653,51 @@
                             + Nuevo
                         </button>
                     </div>
+
+                    {user.rol === 'admin' && (
+                        <div className="card" style={{ marginBottom: '1.5rem' }}>
+                            <p className="card-title" style={{ marginBottom: '4px' }}>💾 Backup completo</p>
+                            <p className="lock-note" style={{ marginBottom: '10px' }}>
+                                Exporta todos los datos de la aplicación (usuarios, clientes, contratos, activos, tipos de activo, campos personalizados, OT, preciario...) en un único archivo.
+                                Al importar, se fusiona con lo que ya haya: nunca se borra ni se duplica nada existente.
+                            </p>
+                            <div className="btn-group">
+                                <button className="btn btn-secondary" disabled={exportando} onClick={exportarBackup}>
+                                    {exportando ? 'Generando...' : '📤 Exportar backup completo'}
+                                </button>
+                                <label className="btn btn-import" style={{ cursor: 'pointer' }}>
+                                    {importandoBackup ? 'Importando...' : '📥 Importar backup'}
+                                    <input ref={backupFileRef} type="file" accept=".json" className="file-input-hidden" onChange={importarBackup} disabled={importandoBackup} />
+                                </label>
+                            </div>
+
+                            {importandoBackup && (
+                                <div className="import-progress-banner">
+                                    <span className="import-spinner"></span>
+                                    Importando y fusionando el backup... no cierres ni recargues esta pantalla.
+                                </div>
+                            )}
+
+                            {resultadoImport && !importandoBackup && (
+                                resultadoImport.error ? (
+                                    <div className="import-summary" style={{ background: '#fee2e2', borderColor: 'var(--fill-danger)' }}>❌ {resultadoImport.error}</div>
+                                ) : (
+                                    <div className="import-summary">
+                                        ✅ Backup importado y fusionado correctamente:
+                                        <ul style={{ margin: '6px 0 0 18px', padding: 0 }}>
+                                            {Object.entries(resultadoImport.stats || {}).map(([tabla, s]) => (
+                                                <li key={tabla}>
+                                                    {NOMBRES_TABLA_BACKUP[tabla] || tabla}: {s.creados} nuevo{s.creados === 1 ? '' : 's'}
+                                                    {s.existentes != null ? `, ${s.existentes} ya existía${s.existentes === 1 ? '' : 'n'}` : ''}
+                                                    {s.omitidas_por_ot_ya_existente ? `, ${s.omitidas_por_ot_ya_existente} omitida(s) por pertenecer a una OT ya existente` : ''}
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    </div>
+                                )
+                            )}
+                        </div>
+                    )}
 
                     {showForm && (
                         <div className="card" ref={formRef} style={{ marginBottom: '1rem' }}>
