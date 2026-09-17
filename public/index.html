@@ -154,7 +154,10 @@
         .file-input-hidden { display: none; }
         .breadcrumb-path { font-size: 11px; color: var(--text-muted); margin: 2px 0; }
         .select-disabled { opacity: 0.5; cursor: not-allowed; }
-        .import-summary { background: var(--bg-accent); border-radius: 8px; padding: 10px; font-size: 12px; margin-top: 8px; color: var(--text-primary); }
+        .import-summary { background: var(--bg-accent); border-radius: 8px; padding: 12px 14px; font-size: 13px; font-weight: 600; margin-top: 8px; color: var(--text-primary); border: 1px solid var(--fill-accent); }
+        .import-progress-banner { background: #fff8e1; border: 1px solid #f5820a; border-radius: 8px; padding: 12px 14px; margin-top: 8px; margin-bottom: 8px; font-size: 13px; font-weight: 600; color: #b8860b; display: flex; align-items: center; gap: 10px; }
+        .import-spinner { width: 16px; height: 16px; border: 3px solid #f5820a; border-top-color: transparent; border-radius: 50%; animation: import-spin 0.8s linear infinite; flex-shrink: 0; }
+        @keyframes import-spin { to { transform: rotate(360deg); } }
         .checklist-section { margin-bottom: 1.25rem; }
         .checklist-section-title { font-size: 13px; font-weight: 700; color: var(--fill-accent); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; padding-bottom: 4px; border-bottom: 2px solid var(--border); }
         .insp-table { width: 100%; border-collapse: collapse; font-size: 12px; }
@@ -2423,6 +2426,7 @@
             const [formData, setFormData] = useState({ nombre: '' });
             const formRef = useAutoScrollForm(showForm);
             const [importMsg, setImportMsg] = useState('');
+            const [importando, setImportando] = useState(false);
 
             const handleAdd = async () => {
                 if (!formData.nombre.trim()) { alert('Escribe un nombre para la zona'); return; }
@@ -2471,12 +2475,18 @@
                             <button className="btn btn-excel" onClick={() => exportToExcel(zonas, 'zonas', [
                                 { key: 'nombre', label: 'Zona' }
                             ])}>📤 Exportar</button>
-                            {esGestor && <ExcelImportButton onRows={handleImportRows} />}
+                            {esGestor && <ExcelImportButton onRows={async (rows) => { setImportando(true); try { await handleImportRows(rows); } finally { setImportando(false); } }} />}
                             {esGestor && <button className="btn btn-crear" onClick={() => { setShowForm(!showForm); setEditingId(null); }}>+ Nueva</button>}
                         </div>
                     </div>
 
-                    {importMsg && <div className="import-summary">{importMsg}</div>}
+                    {importando && (
+                        <div className="import-progress-banner">
+                            <span className="import-spinner"></span>
+                            Importando... esto puede tardar varios minutos con archivos grandes. No cierres ni recargues esta pantalla.
+                        </div>
+                    )}
+                    {!importando && importMsg && <div className="import-summary">✅ Importación terminada — {importMsg}</div>}
                     <p className="lock-note">Una zona es un lugar físico (ej: "Asturias"). Puede contener activos de cualquier cliente o contrato.</p>
 
                     {showForm && (
@@ -2911,6 +2921,7 @@
             const [editingId, setEditingId] = useState(null);
             const [formData, setFormData] = useState({ zona_id: '', nombre: '', direccion: '', lat: '', lon: '' });
             const [importMsg, setImportMsg] = useState('');
+            const [importando, setImportando] = useState(false);
             const formRef = useAutoScrollForm(showForm);
             const [search, setSearch] = useState('');
 
@@ -2978,12 +2989,18 @@
                                 { key: 'nombre', label: 'Emplazamiento' },
                                 { key: 'direccion', label: 'Dirección' }
                             ])}>📤 Exportar</button>
-                            {esGestor && <ExcelImportButton onRows={handleImportRows} />}
+                            {esGestor && <ExcelImportButton onRows={async (rows) => { setImportando(true); try { await handleImportRows(rows); } finally { setImportando(false); } }} />}
                             {esGestor && <button className="btn btn-crear" onClick={() => { setShowForm(!showForm); setEditingId(null); }}>+ Nuevo</button>}
                         </div>
                     </div>
 
-                    {importMsg && <div className="import-summary">{importMsg}</div>}
+                    {importando && (
+                        <div className="import-progress-banner">
+                            <span className="import-spinner"></span>
+                            Importando... esto puede tardar varios minutos con archivos grandes. No cierres ni recargues esta pantalla.
+                        </div>
+                    )}
+                    {!importando && importMsg && <div className="import-summary">✅ Importación terminada — {importMsg}</div>}
                     <p className="lock-note">Un emplazamiento (ej: "Estación Avilés") es un lugar físico dentro de una zona. Puede contener activos de cualquier cliente o contrato.</p>
 
                     {showForm && !editingId && (
@@ -3421,6 +3438,7 @@
             const [showForm, setShowForm] = useState(false);
             const [editingId, setEditingId] = useState(null);
             const [importMsg, setImportMsg] = useState('');
+            const [importando, setImportando] = useState(false);
             const formRef = useAutoScrollForm(showForm);
 
             const [showTiposManager, setShowTiposManager] = useState(false);
@@ -3428,10 +3446,27 @@
             const [viendoActivo, setViendoActivo] = useState(null);
             const [search, setSearch] = useState('');
             const viewRef = useAutoScrollForm(!!viendoActivo);
+            const [seleccionados, setSeleccionados] = useState([]);
+            const [eliminandoLote, setEliminandoLote] = useState(false);
 
             const handleDelete = async (id) => {
                 if (!confirm('¿Eliminar este activo?')) return;
                 await fetch(`${API_URL}/api/activos/${id}`, { method: 'DELETE' });
+                onRefresh();
+            };
+
+            const toggleSeleccionado = (id) => {
+                setSeleccionados(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+            };
+            const eliminarSeleccionados = async (listaVisible) => {
+                if (seleccionados.length === 0) return;
+                if (!confirm(`¿Eliminar ${seleccionados.length} activo(s)? Esta acción no se puede deshacer.`)) return;
+                setEliminandoLote(true);
+                for (const id of seleccionados) {
+                    await fetch(`${API_URL}/api/activos/${id}`, { method: 'DELETE' });
+                }
+                setEliminandoLote(false);
+                setSeleccionados([]);
                 onRefresh();
             };
 
@@ -3556,7 +3591,7 @@
                                 });
                                 exportToExcel(activosAplanados, 'activos', [...columnasFijas, ...columnasCampos]);
                             }}>📤 Exportar</button>
-                            {esGestor && <ExcelImportButton onRows={handleImportRows} />}
+                            {esGestor && <ExcelImportButton onRows={async (rows) => { setImportando(true); try { await handleImportRows(rows); } finally { setImportando(false); } }} />}
                             {esGestor && <button className="btn btn-secondary" onClick={() => setShowTiposManager(!showTiposManager)}>⚙️ Tipos de Activo</button>}
                             {esGestor && <button className="btn btn-secondary" onClick={() => setShowCamposManager(!showCamposManager)}>⚙️ Campos</button>}
                             {esGestor && (
@@ -3570,7 +3605,13 @@
                     {esGestor && showTiposManager && <TiposActivoManager tiposActivo={tiposActivo} onRefresh={onRefresh} onClose={() => setShowTiposManager(false)} />}
                     {esGestor && showCamposManager && <CamposConfigManager entidad="activo" camposConfig={camposConfig} tiposActivo={tiposActivo} onRefresh={onRefresh} onClose={() => setShowCamposManager(false)} />}
 
-                    {importMsg && <div className="import-summary">{importMsg}</div>}
+                    {importando && (
+                        <div className="import-progress-banner">
+                            <span className="import-spinner"></span>
+                            Importando... esto puede tardar varios minutos con archivos grandes. No cierres ni recargues esta pantalla.
+                        </div>
+                    )}
+                    {!importando && importMsg && <div className="import-summary">✅ Importación terminada — {importMsg}</div>}
 
                     {esGestor && showForm && !editingId && (
                         <div ref={formRef}>
@@ -3600,27 +3641,45 @@
                                 ? activos.filter(a => ((a.nombre || '') + (a.emplazamiento_nombre || '')).toLowerCase().includes(search.toLowerCase()))
                                 : activos;
                             if (activosFiltrados.length === 0) return <div className="empty-state">No hay activos</div>;
-                            return activosFiltrados.map(a => {
-                                let fotos = [];
-                                try { fotos = a.fotos_json ? JSON.parse(a.fotos_json) : []; } catch { fotos = []; }
-                                const viendoEste = viendoActivo && viendoActivo.id === a.id;
-                                const editandoEste = showForm && editingId === a.id;
-                                return (
-                                    <div key={a.id}>
-                                        <div className="list-item" style={{ cursor: 'pointer' }} onClick={() => { setViendoActivo(viendoEste ? null : a); setShowForm(false); setEditingId(null); }}>
-                                            <div className="list-item-header">
-                                                <div>
-                                                    <p className="card-title">⚙️ {a.emplazamiento_nombre ? `${a.emplazamiento_nombre} - ${a.nombre}` : a.nombre}</p>
-                                                    <p className="breadcrumb-path">{a.cliente_nombre} › {a.contrato_nombre} › {a.zona_nombre} › {a.emplazamiento_nombre}</p>
-                                                </div>
-                                                {a.tipo && <span className="badge" style={{ background: 'var(--bg-accent)', color: 'var(--fill-accent)' }}>{a.tipo}</span>}
-                                            </div>
-                                            <p className="card-text">✓ Estado: {a.estado}{fotos.length > 0 ? ` · 📷 ${fotos.length} foto${fotos.length === 1 ? '' : 's'}` : ''}</p>
-                                            <div style={{ marginTop: '8px', display: 'flex', gap: '8px', flexWrap: 'wrap' }} onClick={(e) => e.stopPropagation()}>
-                                                {esGestor && <button className="btn btn-primary" onClick={() => { setEditingId(a.id); setShowForm(true); setViendoActivo(null); }}>Editar</button>}
-                                                {esGestor && <button className="btn btn-danger" onClick={() => handleDelete(a.id)}>Eliminar</button>}
-                                            </div>
+                            return (
+                                <>
+                                    {esGestor && (
+                                        <div className="finalizar-banner" style={{ marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                                            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
+                                                <input type="checkbox" checked={seleccionados.length === activosFiltrados.length} onChange={() => setSeleccionados(seleccionados.length === activosFiltrados.length ? [] : activosFiltrados.map(a => a.id))} />
+                                                Seleccionar todos ({seleccionados.length}/{activosFiltrados.length})
+                                            </label>
+                                            {seleccionados.length > 0 && (
+                                                <button className="btn btn-danger" disabled={eliminandoLote} onClick={eliminarSeleccionados}>
+                                                    {eliminandoLote ? 'Eliminando...' : `🗑️ Eliminar ${seleccionados.length} seleccionado(s)`}
+                                                </button>
+                                            )}
                                         </div>
+                                    )}
+                                    {activosFiltrados.map(a => {
+                                        let fotos = [];
+                                        try { fotos = a.fotos_json ? JSON.parse(a.fotos_json) : []; } catch { fotos = []; }
+                                        const viendoEste = viendoActivo && viendoActivo.id === a.id;
+                                        const editandoEste = showForm && editingId === a.id;
+                                        return (
+                                            <div key={a.id}>
+                                                <div className="list-item" style={{ cursor: 'pointer' }} onClick={() => { setViendoActivo(viendoEste ? null : a); setShowForm(false); setEditingId(null); }}>
+                                                    <div className="list-item-header">
+                                                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+                                                            {esGestor && <input type="checkbox" checked={seleccionados.includes(a.id)} onClick={(e) => e.stopPropagation()} onChange={() => toggleSeleccionado(a.id)} style={{ marginTop: '4px' }} />}
+                                                            <div>
+                                                                <p className="card-title">⚙️ {a.emplazamiento_nombre ? `${a.emplazamiento_nombre} - ${a.nombre}` : a.nombre}</p>
+                                                                <p className="breadcrumb-path">{a.cliente_nombre} › {a.contrato_nombre} › {a.zona_nombre} › {a.emplazamiento_nombre}</p>
+                                                            </div>
+                                                        </div>
+                                                        {a.tipo && <span className="badge" style={{ background: 'var(--bg-accent)', color: 'var(--fill-accent)' }}>{a.tipo}</span>}
+                                                    </div>
+                                                    <p className="card-text">✓ Estado: {a.estado}{fotos.length > 0 ? ` · 📷 ${fotos.length} foto${fotos.length === 1 ? '' : 's'}` : ''}</p>
+                                                    <div style={{ marginTop: '8px', display: 'flex', gap: '8px', flexWrap: 'wrap' }} onClick={(e) => e.stopPropagation()}>
+                                                        {esGestor && <button className="btn btn-primary" onClick={() => { setEditingId(a.id); setShowForm(true); setViendoActivo(null); }}>Editar</button>}
+                                                        {esGestor && <button className="btn btn-danger" onClick={() => handleDelete(a.id)}>Eliminar</button>}
+                                                    </div>
+                                                </div>
 
                                         {viendoEste && (
                                             <div className="quickadd-box" ref={viewRef} style={{ marginTop: '4px' }}>
@@ -3651,7 +3710,9 @@
                                         )}
                                     </div>
                                 );
-                            });
+                                    })}
+                                </>
+                            );
                         })()}
                     </div>
                 </div>
@@ -3675,6 +3736,23 @@
             const formRef = useAutoScrollForm(showForm);
             const [search, setSearch] = useState('');
             const [contratoExpandido, setContratoExpandido] = useState(null);
+            const [seleccionados, setSeleccionados] = useState([]);
+            const [eliminandoLote, setEliminandoLote] = useState(false);
+
+            const toggleSeleccionado = (id) => {
+                setSeleccionados(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+            };
+            const eliminarSeleccionados = async () => {
+                if (seleccionados.length === 0) return;
+                if (!confirm(`¿Eliminar ${seleccionados.length} contrato(s)? Esta acción no se puede deshacer.`)) return;
+                setEliminandoLote(true);
+                for (const id of seleccionados) {
+                    await fetch(`${API_URL}/api/contratos/${id}`, { method: 'DELETE' });
+                }
+                setEliminandoLote(false);
+                setSeleccionados([]);
+                onRefresh();
+            };
 
             const handleAdd = async () => {
                 if (!formData.nombre.trim()) return;
@@ -3726,6 +3804,7 @@
             };
 
             const [importMsg, setImportMsg] = useState('');
+            const [importando, setImportando] = useState(false);
             const handleImportRows = async (rows) => {
                 let ok = 0, fail = 0;
                 for (const row of rows) {
@@ -3764,7 +3843,7 @@
                                 { key: 'fecha_fin', label: 'Fecha Fin' },
                                 { key: 'estado', label: 'Estado' }
                             ])}>📤 Exportar</button>
-                            {esGestor && <ExcelImportButton onRows={handleImportRows} />}
+                            {esGestor && <ExcelImportButton onRows={async (rows) => { setImportando(true); try { await handleImportRows(rows); } finally { setImportando(false); } }} />}
                             {esGestor && <button className="btn btn-secondary" onClick={() => setShowCamposManager(!showCamposManager)}>⚙️ Campos</button>}
                             {esGestor && (
                                 <button className="btn btn-crear" onClick={() => { setShowForm(!showForm); setEditingId(null); }}>
@@ -3776,7 +3855,13 @@
 
                     {esGestor && showCamposManager && <CamposConfigManager entidad="contrato" camposConfig={camposConfig} onRefresh={onRefresh} onClose={() => setShowCamposManager(false)} />}
 
-                    {importMsg && <div className="import-summary">{importMsg}</div>}
+                    {importando && (
+                        <div className="import-progress-banner">
+                            <span className="import-spinner"></span>
+                            Importando... esto puede tardar varios minutos con archivos grandes. No cierres ni recargues esta pantalla.
+                        </div>
+                    )}
+                    {!importando && importMsg && <div className="import-summary">✅ Importación terminada — {importMsg}</div>}
 
                     {showForm && (
                         <div className="card" ref={formRef} style={{ marginBottom: '1rem' }}>
@@ -3810,15 +3895,33 @@
                                 ? contratos.filter(c => (c.nombre || '').toLowerCase().includes(search.toLowerCase()))
                                 : contratos;
                             if (contratosFiltradosBusqueda.length === 0) return <div className="empty-state">No hay contratos</div>;
-                            return contratosFiltradosBusqueda.map(contrato => {
+                            return (
+                                <>
+                                    {esGestor && (
+                                        <div className="finalizar-banner" style={{ marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                                            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
+                                                <input type="checkbox" checked={seleccionados.length === contratosFiltradosBusqueda.length} onChange={() => setSeleccionados(seleccionados.length === contratosFiltradosBusqueda.length ? [] : contratosFiltradosBusqueda.map(c => c.id))} />
+                                                Seleccionar todos ({seleccionados.length}/{contratosFiltradosBusqueda.length})
+                                            </label>
+                                            {seleccionados.length > 0 && (
+                                                <button className="btn btn-danger" disabled={eliminandoLote} onClick={eliminarSeleccionados}>
+                                                    {eliminandoLote ? 'Eliminando...' : `🗑️ Eliminar ${seleccionados.length} seleccionado(s)`}
+                                                </button>
+                                            )}
+                                        </div>
+                                    )}
+                                    {contratosFiltradosBusqueda.map(contrato => {
                                 const numActivos = (activos || []).filter(a => a.contrato_id === contrato.id).length;
                                 const abierto = contratoExpandido === contrato.id;
                                 return (
                                     <div key={contrato.id} className="list-item">
                                         <div className="list-item-header">
-                                            <div>
-                                                <p className="card-title">📄 {contrato.nombre}</p>
-                                                <p className="card-text">🏢 {contrato.cliente_nombre}</p>
+                                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+                                                {esGestor && <input type="checkbox" checked={seleccionados.includes(contrato.id)} onChange={() => toggleSeleccionado(contrato.id)} style={{ marginTop: '4px' }} />}
+                                                <div>
+                                                    <p className="card-title">📄 {contrato.nombre}</p>
+                                                    <p className="card-text">🏢 {contrato.cliente_nombre}</p>
+                                                </div>
                                             </div>
                                             <span className="badge" style={{ background: 'var(--bg-accent)', color: 'var(--fill-accent)' }}>{contrato.estado}</span>
                                         </div>
@@ -3847,7 +3950,9 @@
                                         )}
                                     </div>
                                 );
-                            });
+                                    })}
+                                </>
+                            );
                         })()}
                     </div>
                 </div>
@@ -4119,6 +4224,23 @@
             // Árbol de dependencias: Cliente → Contratos → Activos, todo en línea
             const [clienteExpandido, setClienteExpandido] = useState(null);
             const [contratoExpandido, setContratoExpandido] = useState(null);
+            const [seleccionados, setSeleccionados] = useState([]);
+            const [eliminandoLote, setEliminandoLote] = useState(false);
+
+            const toggleSeleccionado = (id) => {
+                setSeleccionados(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+            };
+            const eliminarSeleccionados = async () => {
+                if (seleccionados.length === 0) return;
+                if (!confirm(`¿Eliminar ${seleccionados.length} cliente(s)? Esta acción no se puede deshacer.`)) return;
+                setEliminandoLote(true);
+                for (const id of seleccionados) {
+                    await fetch(`${API_URL}/api/clientes/${id}`, { method: 'DELETE' });
+                }
+                setEliminandoLote(false);
+                setSeleccionados([]);
+                onRefresh();
+            };
 
             const crearContratoParaCliente = async (clienteId, values) => {
                 await fetch(`${API_URL}/api/contratos`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cliente_id: clienteId, nombre: values.nombre, descripcion: values.descripcion || '' }) });
@@ -4167,6 +4289,7 @@
             };
 
             const [importMsg, setImportMsg] = useState('');
+            const [importando, setImportando] = useState(false);
             const handleImportRows = async (rows) => {
                 let ok = 0, fail = 0;
                 for (const row of rows) {
@@ -4198,7 +4321,7 @@
                                 { key: 'contacto', label: 'Contacto' },
                                 { key: 'telefono', label: 'Teléfono' }
                             ])}>📤 Exportar</button>
-                            {esGestor && <ExcelImportButton onRows={handleImportRows} />}
+                            {esGestor && <ExcelImportButton onRows={async (rows) => { setImportando(true); try { await handleImportRows(rows); } finally { setImportando(false); } }} />}
                             {esGestor && <button className="btn btn-secondary" onClick={() => setShowCamposManager(!showCamposManager)}>⚙️ Campos Cliente</button>}
                             {esGestor && <button className="btn btn-secondary" onClick={() => setShowTiposActivoManager(!showTiposActivoManager)}>⚙️ Tipos de Activo</button>}
                             {esGestor && <button className="btn btn-secondary" onClick={() => setShowCamposActivoManager(!showCamposActivoManager)}>⚙️ Campos Activo</button>}
@@ -4214,7 +4337,13 @@
                     {esGestor && showTiposActivoManager && <TiposActivoManager tiposActivo={tiposActivo} onRefresh={onRefresh} onClose={() => setShowTiposActivoManager(false)} />}
                     {esGestor && showCamposActivoManager && <CamposConfigManager entidad="activo" camposConfig={camposConfig} tiposActivo={tiposActivo} onRefresh={onRefresh} onClose={() => setShowCamposActivoManager(false)} />}
 
-                    {importMsg && <div className="import-summary">{importMsg}</div>}
+                    {importando && (
+                        <div className="import-progress-banner">
+                            <span className="import-spinner"></span>
+                            Importando... esto puede tardar varios minutos con archivos grandes. No cierres ni recargues esta pantalla.
+                        </div>
+                    )}
+                    {!importando && importMsg && <div className="import-summary">✅ Importación terminada — {importMsg}</div>}
 
                     {showForm && (
                         <div className="card" ref={formRef} style={{ marginBottom: '1rem' }}>
@@ -4247,14 +4376,34 @@
                                 ? clientesVisibles.filter(c => (c.nombre || '').toLowerCase().includes(search.toLowerCase()))
                                 : clientesVisibles;
                             if (clientesFiltradosBusqueda.length === 0) return <div className="empty-state">No hay clientes</div>;
-                            return clientesFiltradosBusqueda.map(cliente => {
+                            return (
+                                <>
+                                    {esGestor && (
+                                        <div className="finalizar-banner" style={{ marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                                            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
+                                                <input type="checkbox" checked={seleccionados.length === clientesFiltradosBusqueda.length} onChange={() => setSeleccionados(seleccionados.length === clientesFiltradosBusqueda.length ? [] : clientesFiltradosBusqueda.map(c => c.id))} />
+                                                Seleccionar todos ({seleccionados.length}/{clientesFiltradosBusqueda.length})
+                                            </label>
+                                            {seleccionados.length > 0 && (
+                                                <button className="btn btn-danger" disabled={eliminandoLote} onClick={eliminarSeleccionados}>
+                                                    {eliminandoLote ? 'Eliminando...' : `🗑️ Eliminar ${seleccionados.length} seleccionado(s)`}
+                                                </button>
+                                            )}
+                                        </div>
+                                    )}
+                                    {clientesFiltradosBusqueda.map(cliente => {
                                 const contratosDelCliente = contratos.filter(c => c.cliente_id === cliente.id);
                                 const arbolAbierto = clienteExpandido === cliente.id;
                                 return (
                                     <div key={cliente.id} className="list-item">
-                                        <p className="card-title">🏢 {cliente.nombre}</p>
-                                        <p className="card-text">📧 {cliente.contacto}</p>
-                                        <p className="card-text">📱 {cliente.telefono}</p>
+                                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+                                            {esGestor && <input type="checkbox" checked={seleccionados.includes(cliente.id)} onChange={() => toggleSeleccionado(cliente.id)} style={{ marginTop: '4px' }} />}
+                                            <div>
+                                                <p className="card-title">🏢 {cliente.nombre}</p>
+                                                <p className="card-text">📧 {cliente.contacto}</p>
+                                                <p className="card-text">📱 {cliente.telefono}</p>
+                                            </div>
+                                        </div>
                                         <div style={{ marginTop: '8px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                                             {esGestor && <button className="btn btn-primary" onClick={() => handleEdit(cliente)}>Editar</button>}
                                             {esGestor && <button className="btn btn-danger" onClick={() => handleDelete(cliente.id)}>Eliminar</button>}
@@ -4306,7 +4455,9 @@
                                         )}
                                     </div>
                                 );
-                            });
+                                    })}
+                                </>
+                            );
                         })()}
                     </div>
                 </div>
@@ -4647,6 +4798,7 @@
             const [filtroTecnico, setFiltroTecnico] = useState('todos');
             const [diaSeleccionado, setDiaSeleccionado] = useState(null);
             const [importMsg, setImportMsg] = useState('');
+            const [importando, setImportando] = useState(false);
 
             const tecnicos = usuarios.filter(u => u.activo);
             const firstOfMonth = new Date(year, month, 1);
@@ -4736,7 +4888,13 @@
                         </div>
                     </div>
 
-                    {importMsg && <div className="import-summary">{importMsg}</div>}
+                    {importando && (
+                        <div className="import-progress-banner">
+                            <span className="import-spinner"></span>
+                            Importando... esto puede tardar varios minutos con archivos grandes. No cierres ni recargues esta pantalla.
+                        </div>
+                    )}
+                    {!importando && importMsg && <div className="import-summary">✅ Importación terminada — {importMsg}</div>}
 
                     <div className="form-group">
                         <select value={filtroTecnico} onChange={(e) => setFiltroTecnico(e.target.value)}>
@@ -5804,6 +5962,7 @@
             const [precioNuevo, setPrecioNuevo] = useState({});
             const [formData, setFormData] = useState({ cliente_id: '', contrato_id: '', tipo: '', descripcion: '', unidad: 'ud', precio: '', costo: '', facturable: true });
             const [importMsg, setImportMsg] = useState('');
+            const [importando, setImportando] = useState(false);
             const [seleccionados, setSeleccionados] = useState([]);
             const [eliminando, setEliminando] = useState(false);
             const formRef = useAutoScrollForm(showForm);
@@ -5941,12 +6100,18 @@
                                 { key: 'cliente_nombre', label: 'Cliente' }, { key: 'contrato_nombre', label: 'Contrato' }, { key: 'tipo', label: 'Tipo' }, { key: 'descripcion', label: 'Descripción' },
                                 { key: 'unidad', label: 'Unidad' }, { key: 'precio_actual', label: 'Precio Actual' }
                             ])}>📤 Exportar</button>
-                            <ExcelImportButton onRows={handleImportRows} />
+                            <ExcelImportButton onRows={async (rows) => { setImportando(true); try { await handleImportRows(rows); } finally { setImportando(false); } }} />
                             <button className="btn btn-crear" onClick={() => { setShowForm(!showForm); setEditingId(null); setFormData({ cliente_id: '', contrato_id: '', tipo: '', descripcion: '', unidad: 'ud', precio: '', costo: '', facturable: true }); }}>+ Nuevo</button>
                         </div>
                     </div>
 
-                    {importMsg && <div className="import-summary">{importMsg}</div>}
+                    {importando && (
+                        <div className="import-progress-banner">
+                            <span className="import-spinner"></span>
+                            Importando... esto puede tardar varios minutos con archivos grandes. No cierres ni recargues esta pantalla.
+                        </div>
+                    )}
+                    {!importando && importMsg && <div className="import-summary">✅ Importación terminada — {importMsg}</div>}
 
                     <div className="form-group">
                         <input type="text" placeholder="🔍 Buscar material..." value={search} onChange={(e) => setSearch(e.target.value)} />
