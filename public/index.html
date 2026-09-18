@@ -1758,7 +1758,26 @@
                                         {clientes.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
                                     </select>
                                 </div>
-                                {otForm.departamento !== 'Corvelec' && (
+                                {otForm.departamento === 'Corvelec' ? (
+                                    <div className={`ficha-field ${!puedeEditarTodo ? 'field-locked' : ''}`}>
+                                        <span className="ficha-field-label">Obra</span>
+                                        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                                            <select style={{ flex: 1 }} value={otForm.contrato_id} disabled={!puedeEditarTodo || !otForm.cliente_id} onChange={(e) => setOtForm({ ...otForm, contrato_id: e.target.value })}>
+                                                <option value="">-- Selecciona --</option>
+                                                {contratosFiltrados.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                                            </select>
+                                            {puedeEditarTodo && otForm.cliente_id && (
+                                                <QuickAddInline label="Obra" fields={[{ key: 'nombre', placeholder: 'Nombre de la obra' }]} onCreate={async (values) => {
+                                                    const r = await fetch(`${API_URL}/api/contratos`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cliente_id: otForm.cliente_id, nombre: values.nombre }) });
+                                                    const nuevo = await r.json();
+                                                    setOtForm(f => ({ ...f, contrato_id: nuevo.id }));
+                                                    onRefresh();
+                                                }} />
+                                            )}
+                                        </div>
+                                        {!otForm.cliente_id && <p className="lock-note">Elige primero un Cliente para poder ver o crear sus Obras.</p>}
+                                    </div>
+                                ) : (
                                     <>
                                         <div className={`ficha-field ${!puedeEditarTodo ? 'field-locked' : ''}`}>
                                             <span className="ficha-field-label">Contrato</span>
