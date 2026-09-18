@@ -186,6 +186,9 @@
         @media (max-width: 640px) { .tecnicos-apoyo-grid { grid-template-columns: repeat(3, 1fr); } }
         @media (max-width: 420px) { .tecnicos-apoyo-grid { grid-template-columns: repeat(2, 1fr); } }
         .tecnico-apoyo-item { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+        .tecnicos-apoyo-checklist { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
+        .tecnico-apoyo-checklist-item { border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; }
+        .tecnico-apoyo-fechas { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 6px; padding-left: 20px; }
         .tecnico-items-wrap { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 16px; margin-bottom: 12px; }
         @media (max-width: 620px) { .tecnico-items-wrap { grid-template-columns: 1fr; } }
         .tecnico-item-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 6px 0; border-bottom: 1px dashed var(--border); }
@@ -1359,10 +1362,11 @@
                 try { return JSON.parse(tipo.checklist_json || '[]'); } catch { return []; }
             };
 
+            const hoyISO = new Date().toISOString().slice(0, 10);
             const initialOtForm = {
                 titulo: '', tipo: esGestor ? 'correctivo' : 'guardia', ticket: '', id_cliente: '',
                 cliente_id: '', contrato_id: '', emplazamiento_id: '', id_mantis: '', proyecto: '', procedencia_aviso: '',
-                activo_id: '', prioridad: 'media', fecha_programada: '', fecha_fin_programada: '',
+                activo_id: '', prioridad: 'media', fecha_programada: hoyISO, fecha_fin_programada: hoyISO,
                 responsable_id: user.id, asignado_a: null, tecnicos_apoyo: [], notas: '', estado: esGestor ? 'pendiente' : 'pendiente',
                 departamento: user.departamento || 'Facilities', encargado_id: user.rol === 'encargado' ? user.id : null
             };
@@ -1421,7 +1425,7 @@
                     cliente_id: o.cliente_id || '', contrato_id: o.contrato_id || '', emplazamiento_id: o.emplazamiento_id || '',
                     id_mantis: o.id_mantis || '', proyecto: o.proyecto || '', procedencia_aviso: o.procedencia_aviso || '',
                     activo_id: o.activo_id || '', prioridad: o.prioridad || 'media',
-                    fecha_programada: o.fecha_programada || '', fecha_fin_programada: o.fecha_fin_programada || '', responsable_id: o.responsable_id || user.id, asignado_a: o.asignado_a ?? null,
+                    fecha_programada: o.fecha_programada || hoyISO, fecha_fin_programada: o.fecha_fin_programada || o.fecha_programada || hoyISO, responsable_id: o.responsable_id || user.id, asignado_a: o.asignado_a ?? null,
                     tecnicos_apoyo: tecApoyo, notas: o.notas || '', estado: o.estado, departamento: o.departamento || 'Facilities',
                     encargado_id: o.encargado_id ?? null
                 });
@@ -1439,6 +1443,10 @@
 
             const guardarOt = async () => {
                 if (!otForm.titulo.trim()) { alert('El título es obligatorio'); return; }
+                if (otForm.fecha_programada && otForm.fecha_fin_programada && otForm.fecha_fin_programada < otForm.fecha_programada) {
+                    alert('La Fecha de Fin no puede ser anterior a la Fecha de Inicio');
+                    return;
+                }
                 if (otForm.tipo === 'preventivo' && !otForm.activo_id) { alert('Selecciona el activo a revisar'); return; }
                 if ((otForm.tipo === 'correctivo' || otForm.tipo === 'guardia') && !otForm.procedencia_aviso.trim()) {
                     alert('Indica la Procedencia del aviso (por qué medio o de parte de quién llegó)');
@@ -1795,23 +1803,21 @@
                                 </div>
 
                                 <div className="ficha-field">
-                                    <span className="ficha-field-label">Fecha Programada</span>
+                                    <span className="ficha-field-label">Fecha de Inicio</span>
                                     {esGestor ? (
                                         <input type="date" value={otForm.fecha_programada} onChange={(e) => setOtForm({ ...otForm, fecha_programada: e.target.value })} />
                                     ) : (
                                         <span className="ficha-field-value">{otForm.fecha_programada || '—'}</span>
                                     )}
                                 </div>
-                                {otForm.tipo === 'obra' && (
-                                    <div className="ficha-field">
-                                        <span className="ficha-field-label">Fecha Fin (si dura varios días)</span>
-                                        {esGestor ? (
-                                            <input type="date" value={otForm.fecha_fin_programada || ''} min={otForm.fecha_programada || ''} onChange={(e) => setOtForm({ ...otForm, fecha_fin_programada: e.target.value })} />
-                                        ) : (
-                                            <span className="ficha-field-value">{otForm.fecha_fin_programada || '—'}</span>
-                                        )}
-                                    </div>
-                                )}
+                                <div className="ficha-field">
+                                    <span className="ficha-field-label">Fecha de Fin</span>
+                                    {esGestor ? (
+                                        <input type="date" value={otForm.fecha_fin_programada || ''} min={otForm.fecha_programada || ''} onChange={(e) => setOtForm({ ...otForm, fecha_fin_programada: e.target.value })} />
+                                    ) : (
+                                        <span className="ficha-field-value">{otForm.fecha_fin_programada || '—'}</span>
+                                    )}
+                                </div>
                                 {(() => {
                                     const empSel = otForm.emplazamiento_id ? (emplazamientos || []).find(e => String(e.id) === String(otForm.emplazamiento_id)) : null;
                                     const tieneCoords = empSel && empSel.lat != null;
@@ -1902,15 +1908,50 @@
                             {esGestor && (
                                 <div className="form-group">
                                     <label>Técnicos de Apoyo</label>
-                                    <div className="tecnicos-apoyo-grid">
-                                        {tecnicosDisponibles.filter(u => u.id !== otForm.asignado_a).map(u => (
-                                            <label key={u.id} className="tecnico-apoyo-item">
-                                                <input type="checkbox" checked={otForm.tecnicos_apoyo.includes(u.id)} disabled={!puedeEditarTodo} onChange={(e) => {
-                                                    const checked = e.target.checked;
-                                                    setOtForm(f => ({ ...f, tecnicos_apoyo: checked ? [...f.tecnicos_apoyo, u.id] : f.tecnicos_apoyo.filter(id => id !== u.id) }));
-                                                }} /> {u.nombre}
-                                            </label>
-                                        ))}
+                                    <p className="lock-note">Marca los que participen en esta OT (ninguno, uno o varios) e indica, para cada uno, sus fechas de inicio y fin — pueden ser distintas a las de la OT si solo colaboran unos días.</p>
+                                    <div className="tecnicos-apoyo-checklist">
+                                        {tecnicosDisponibles.filter(u => u.id !== otForm.asignado_a).map(u => {
+                                            const entrada = (otForm.tecnicos_apoyo || []).find(t => t.id === u.id);
+                                            const marcado = !!entrada;
+                                            return (
+                                                <div key={u.id} className="tecnico-apoyo-checklist-item">
+                                                    <label className="tecnico-apoyo-item">
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={marcado}
+                                                            disabled={!puedeEditarTodo}
+                                                            onChange={(e) => {
+                                                                const checked = e.target.checked;
+                                                                setOtForm(f => ({
+                                                                    ...f,
+                                                                    tecnicos_apoyo: checked
+                                                                        ? [...(f.tecnicos_apoyo || []), { id: u.id, fecha_inicio: f.fecha_programada || '', fecha_fin: f.fecha_fin_programada || f.fecha_programada || '' }]
+                                                                        : (f.tecnicos_apoyo || []).filter(t => t.id !== u.id)
+                                                                }));
+                                                            }}
+                                                        /> {u.nombre}
+                                                    </label>
+                                                    {marcado && (
+                                                        <div className="tecnico-apoyo-fechas">
+                                                            <div className="ficha-field">
+                                                                <span className="ficha-field-label">Inicio</span>
+                                                                <input type="date" disabled={!puedeEditarTodo} value={entrada.fecha_inicio || ''} onChange={(e) => {
+                                                                    const val = e.target.value;
+                                                                    setOtForm(f => ({ ...f, tecnicos_apoyo: (f.tecnicos_apoyo || []).map(t => t.id === u.id ? { ...t, fecha_inicio: val } : t) }));
+                                                                }} />
+                                                            </div>
+                                                            <div className="ficha-field">
+                                                                <span className="ficha-field-label">Fin</span>
+                                                                <input type="date" disabled={!puedeEditarTodo} value={entrada.fecha_fin || ''} onChange={(e) => {
+                                                                    const val = e.target.value;
+                                                                    setOtForm(f => ({ ...f, tecnicos_apoyo: (f.tecnicos_apoyo || []).map(t => t.id === u.id ? { ...t, fecha_fin: val } : t) }));
+                                                                }} />
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            );
+                                        })}
                                     </div>
                                 </div>
                             )}
@@ -1927,9 +1968,14 @@
             // ============ RENDER: DETAIL ============
             if (mode === 'detail') {
                 if (!otSeleccionada) return <div className="empty-state">Orden no encontrada</div>;
-                let tecApoyoIds = [];
-                try { tecApoyoIds = otSeleccionada.tecnicos_apoyo ? JSON.parse(otSeleccionada.tecnicos_apoyo) : []; } catch {}
-                const nombresApoyo = tecApoyoIds.map(id => (usuarios.find(u => u.id === id) || {}).nombre).filter(Boolean);
+                let tecApoyo = [];
+                try { tecApoyo = otSeleccionada.tecnicos_apoyo ? JSON.parse(otSeleccionada.tecnicos_apoyo) : []; } catch {}
+                const detalleApoyo = tecApoyo.map(t => {
+                    const u = usuarios.find(x => x.id === t.id);
+                    if (!u) return null;
+                    const rango = (t.fecha_inicio || t.fecha_fin) ? ` (${t.fecha_inicio || '—'} a ${t.fecha_fin || '—'})` : '';
+                    return `${u.nombre}${rango}`;
+                }).filter(Boolean);
 
                 return (
                     <div>
@@ -1978,7 +2024,8 @@
                                 <div className="ficha-field"><span className="ficha-field-label">Departamento</span><span className="ficha-field-value">{otSeleccionada.departamento || 'Facilities'}</span></div>
                                 <div className="ficha-field"><span className="ficha-field-label">Encargado</span><span className="ficha-field-value">{otSeleccionada.encargado_nombre || '—'}</span></div>
 
-                                <div className="ficha-field"><span className="ficha-field-label">Fecha Programada</span><span className="ficha-field-value">{otSeleccionada.fecha_programada || '—'}</span></div>
+                                <div className="ficha-field"><span className="ficha-field-label">Fecha de Inicio</span><span className="ficha-field-value">{otSeleccionada.fecha_programada || '—'}</span></div>
+                                <div className="ficha-field"><span className="ficha-field-label">Fecha de Fin</span><span className="ficha-field-value">{otSeleccionada.fecha_fin_programada || '—'}</span></div>
                                 <div className="ficha-field"><span className="ficha-field-label">Coordenadas</span><span className="ficha-field-value">{otSeleccionada.emplazamiento_lat != null ? `${otSeleccionada.emplazamiento_lat}, ${otSeleccionada.emplazamiento_lon}` : '—'}</span></div>
                                 <div className="ficha-field">
                                     <span className="ficha-field-label">Enlace MAPS</span>
@@ -2001,7 +2048,7 @@
                                 {otSeleccionada.id_cliente && <div className="rv-row"><span className="rv-label">ID Cliente</span><span className="rv-value">{otSeleccionada.id_cliente}</span></div>}
                                 <div className="rv-row"><span className="rv-label">Técnico</span><span className="rv-value">{otSeleccionada.tecnico_nombre || '—'}</span></div>
                                 <div className="rv-row"><span className="rv-label">Responsable</span><span className="rv-value">{otSeleccionada.responsable_nombre || '—'}</span></div>
-                                {nombresApoyo.length > 0 && <div className="rv-row"><span className="rv-label">Apoyo</span><span className="rv-value">{nombresApoyo.join(', ')}</span></div>}
+                                {detalleApoyo.length > 0 && <div className="rv-row"><span className="rv-label">Apoyo</span><span className="rv-value">{detalleApoyo.join(', ')}</span></div>}
                             </div>
 
                             {otSeleccionada.notas && (
@@ -2090,7 +2137,7 @@
                             {otSeleccionada.fecha_programada && <div className="print-row"><span className="print-label">Programada</span><span className="print-value">{otSeleccionada.fecha_programada}</span></div>}
                             <div className="print-row"><span className="print-label">Técnico</span><span className="print-value">{otSeleccionada.tecnico_nombre || '—'}</span></div>
                             <div className="print-row"><span className="print-label">Responsable</span><span className="print-value">{otSeleccionada.responsable_nombre || '—'}</span></div>
-                            {nombresApoyo.length > 0 && <div className="print-row"><span className="print-label">Apoyo</span><span className="print-value">{nombresApoyo.join(', ')}</span></div>}
+                            {detalleApoyo.length > 0 && <div className="print-row"><span className="print-label">Apoyo</span><span className="print-value">{detalleApoyo.join(', ')}</span></div>}
                             {otSeleccionada.notas && <div className="print-row"><span className="print-label">Causa de la avería</span><span className="print-value">{otSeleccionada.notas}</span></div>}
 
                             <div className="print-section-title">Visitas ({visitas.length})</div>
@@ -4847,12 +4894,19 @@
             const ordenesDe = (tecnicoId, fechaStr) => {
                 return ordenes.filter(o => {
                     if (o.tipo === 'guardia' || !o.fecha_programada) return false;
-                    const inicio = String(o.fecha_programada).slice(0, 10);
-                    const fin = o.fecha_fin_programada ? String(o.fecha_fin_programada).slice(0, 10) : inicio;
-                    // Una obra puede durar varios días: se muestra en cada día dentro de [inicio, fin]
-                    if (fechaStr < inicio || fechaStr > fin) return false;
-                    if (o.asignado_a === tecnicoId) return true;
-                    try { return JSON.parse(o.tecnicos_apoyo || '[]').includes(tecnicoId); } catch { return false; }
+                    if (o.asignado_a === tecnicoId) {
+                        const inicio = String(o.fecha_programada).slice(0, 10);
+                        const fin = o.fecha_fin_programada ? String(o.fecha_fin_programada).slice(0, 10) : inicio;
+                        return fechaStr >= inicio && fechaStr <= fin;
+                    }
+                    // Técnico de apoyo: usa su propio rango de fechas si lo tiene; si no, el de la OT.
+                    let apoyo = [];
+                    try { apoyo = o.tecnicos_apoyo ? JSON.parse(o.tecnicos_apoyo) : []; } catch { apoyo = []; }
+                    const entrada = apoyo.find(t => t.id === tecnicoId);
+                    if (!entrada) return false;
+                    const inicioApoyo = entrada.fecha_inicio || String(o.fecha_programada).slice(0, 10);
+                    const finApoyo = entrada.fecha_fin || entrada.fecha_inicio || String(o.fecha_fin_programada || o.fecha_programada).slice(0, 10);
+                    return fechaStr >= inicioApoyo && fechaStr <= finApoyo;
                 });
             };
 
