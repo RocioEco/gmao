@@ -4848,11 +4848,18 @@
             formacion: 'OTROS'
         };
         const PALETA_PLANNING = ['#f472b6', '#4ade80', '#facc15', '#60a5fa', '#a78bfa', '#fb923c', '#2dd4bf', '#f87171', '#c084fc', '#34d399'];
+        const COLOR_VACACIONES = '#ef4444';
         function colorParaClavePlanning(clave) {
             let hash = 0;
             const str = String(clave);
             for (let i = 0; i < str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash);
             return PALETA_PLANNING[Math.abs(hash) % PALETA_PLANNING.length];
+        }
+        // Las OT de Vacaciones siempre en rojo; el resto, un color fijo por cada combinación de
+        // Cliente + Contrato + Tipo, para que toda esa combinación se vea siempre igual (no por OT suelta).
+        function colorParaOtPlanning(o) {
+            if (o.tipo === 'vacaciones') return COLOR_VACACIONES;
+            return colorParaClavePlanning(`${o.cliente_id || ''}::${o.contrato_id || ''}::${o.tipo || ''}`);
         }
 
         function PlanningSemanalView({ user, ordenes, usuarios }) {
@@ -4944,7 +4951,7 @@
                                                     return (
                                                         <td key={i} className="planning-celda">
                                                             {ots.length === 0 ? <span className="planning-vacio">·</span> : ots.map(o => {
-                                                                const color = colorParaClavePlanning(o.id);
+                                                                const color = colorParaOtPlanning(o);
                                                                 const categoria = CATEGORIA_PLANNING_POR_TIPO[o.tipo] || 'OTROS';
                                                                 return (
                                                                     <div key={o.id} className="planning-bloque" style={{ background: color }}>
