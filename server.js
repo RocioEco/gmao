@@ -559,6 +559,7 @@ db.serialize(() => {
     departamento TEXT DEFAULT 'Facilities',
     fecha_fin_programada TEXT,
     encargado_id INTEGER,
+    albaran_id INTEGER,
     tipo TEXT NOT NULL,
     estado TEXT NOT NULL,
     prioridad TEXT DEFAULT 'media',
@@ -599,6 +600,7 @@ db.serialize(() => {
   db.run(`ALTER TABLE ordenes_trabajo ADD COLUMN departamento TEXT DEFAULT 'Facilities'`, () => {});
   db.run(`ALTER TABLE ordenes_trabajo ADD COLUMN fecha_fin_programada TEXT`, () => {});
   db.run(`ALTER TABLE ordenes_trabajo ADD COLUMN encargado_id INTEGER`, () => {});
+  db.run(`ALTER TABLE ordenes_trabajo ADD COLUMN albaran_id INTEGER`, () => {});
 
   db.run(`CREATE TABLE IF NOT EXISTS visitas (
     id TEXT PRIMARY KEY,
@@ -1535,6 +1537,8 @@ app.get('/api/ordenes', (req, res) => {
                  e.lat as emplazamiento_lat,
                  e.lon as emplazamiento_lon,
                  z.nombre as zona_nombre,
+                 alb.estado as albaran_estado,
+                 alb.facturado as albaran_facturado,
                  (SELECT COUNT(*) FROM visitas v WHERE v.orden_id = o.id) as num_visitas,
                  (SELECT MAX(fecha) FROM visitas v WHERE v.orden_id = o.id) as ultima_visita,
                  (SELECT trabajos_pendientes FROM visitas v WHERE v.orden_id = o.id ORDER BY v.fecha DESC, v.rowid DESC LIMIT 1) as ultimo_trabajos_pendientes,
@@ -1548,6 +1552,7 @@ app.get('/api/ordenes', (req, res) => {
           LEFT JOIN activos a ON o.activo_id = a.id
           LEFT JOIN emplazamientos e ON e.id = COALESCE(o.emplazamiento_id, a.emplazamiento_id)
           LEFT JOIN zonas z ON e.zona_id = z.id
+          LEFT JOIN albaranes alb ON o.albaran_id = alb.id
           ORDER BY o.creado_en DESC`, (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
     res.json(rows);
@@ -1568,6 +1573,30 @@ app.post('/api/ordenes', (req, res) => {
       if (err) return res.status(500).json({ error: err.message });
       res.json({ id, ticket, id_cliente, cliente_id, contrato_id, emplazamiento_id, id_mantis, proyecto, procedencia_aviso, tipo, estado, prioridad, responsable_id, asignado_a, tecnicos_apoyo, titulo, notas, activo_id, datos_json, fecha_programada, fecha_fin_programada, fecha_cierre, departamento: departamento || 'Facilities', encargado_id });
     });
+});
+
+// IMPORTANTE: esta ruta va ANTES de '/api/ordenes/:id' — si no, Express interpretaría
+// "asignar-albaran" como si fuera el :id de una orden, y nunca llegaría aquí.
+// Envía una o varias OT a un albarán ("quedan albaranadas", vinculadas a él).
+app.put('/api/ordenes/asignar-albaran', (req, res) => {
+  const { ot_ids, albaran_id } = req.body;
+  if (!Array.isArray(ot_ids) || ot_ids.length === 0) return res.status(400).json({ error: 'No se indicaron OT' });
+  if (!albaran_id) return res.status(400).json({ error: 'Falta el albarán de destino' });
+  const marcadores = ot_ids.map(() => '?').join(',');
+  db.run(`UPDATE ordenes_trabajo SET albaran_id = ? WHERE id IN (${marcadores})`, [albaran_id, ...ot_ids], function (err) {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ success: true, actualizadas: this.changes });
+  });
+});
+
+// Quita una OT de su albarán (por si se envió por error). También va antes de '/api/ordenes/:id'
+// por el mismo motivo (aquí no hay ambigüedad real porque termina en /quitar-albaran, pero se deja
+// junto a la anterior por claridad).
+app.put('/api/ordenes/:id/quitar-albaran', (req, res) => {
+  db.run(`UPDATE ordenes_trabajo SET albaran_id = NULL WHERE id = ?`, [req.params.id], (err) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ success: true });
+  });
 });
 
 app.put('/api/ordenes/:id', (req, res) => {
@@ -1763,12 +1792,18 @@ app.delete('/api/albaranes/:id', (req, res) => {
 });
 
 // Marca/desmarca un albarán como facturado. La fecha se fija en el servidor, en el momento exacto.
+// Al facturarlo, TODAS las OT que se hayan enviado a albaranar en él pasan también a facturadas
+// automáticamente (y viceversa, si se desmarca).
 app.put('/api/albaranes/:id/facturar', (req, res) => {
   const { facturado } = req.body;
   const fecha = facturado ? new Date().toISOString().slice(0, 10) : null;
   db.run(`UPDATE albaranes SET facturado = ?, fecha_facturacion = ? WHERE id = ?`, [facturado ? 1 : 0, fecha, req.params.id], (err) => {
     if (err) return res.status(500).json({ error: err.message });
-    res.json({ success: true, facturado: !!facturado, fecha_facturacion: fecha });
+    db.run(`UPDATE ordenes_trabajo SET facturada = ?, fecha_facturacion = ? WHERE albaran_id = ?`,
+      [facturado ? 1 : 0, fecha, req.params.id], (err2) => {
+        if (err2) return res.status(500).json({ error: err2.message });
+        res.json({ success: true, facturado: !!facturado, fecha_facturacion: fecha });
+      });
   });
 });
 
