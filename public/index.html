@@ -135,10 +135,20 @@
         .badge.encargado { background: #fff0e6; color: #b35900; }
         .badge.tecnico { background: #f0f0f0; color: #666; }
 
+        .planning-manual-form { display: flex; flex-direction: column; gap: 3px; padding: 4px; background: var(--surface-1); border-radius: 6px; }
+        .planning-manual-form select, .planning-manual-form input { font-size: 11px; padding: 3px; }
+        .planning-scroll-wrap { max-height: 70vh; overflow: auto; border: 1px solid var(--border); border-radius: 8px; }
         .planning-table { border-collapse: collapse; width: 100%; min-width: 700px; font-size: 13px; }
-        .planning-table th { background: var(--surface-1); border: 1px solid var(--border); padding: 8px 10px; text-align: center; font-weight: 600; }
-        .planning-table th:first-child { text-align: left; min-width: 140px; }
+        .planning-table th { background: var(--surface-1); border: 1px solid var(--border); padding: 8px 10px; text-align: center; font-weight: 600; position: sticky; top: 0; z-index: 3; }
+        .planning-table th:first-child { text-align: left; min-width: 140px; z-index: 4; }
         .planning-table td { border: 1px solid var(--border); padding: 4px; vertical-align: top; }
+        @media print {
+            .header, .nav-tabs, .lock-note, .btn, .footer { display: none !important; }
+            .planning-scroll-wrap { max-height: none; overflow: visible; border: none; }
+            .planning-table th { position: static; }
+            .planning-table { font-size: 11px; }
+            body { background: #fff !important; }
+        }
         .planning-depto-header { background: var(--surface-2); font-weight: 700; padding: 8px 10px !important; letter-spacing: 0.3px; color: var(--text-secondary); }
         .planning-tecnico-nombre { font-weight: 600; padding: 10px !important; white-space: nowrap; }
         .planning-celda { min-width: 130px; text-align: center; }
@@ -4885,6 +4895,47 @@
         }
 
         function PlanningSemanalView({ user, ordenes, usuarios }) {
+            const [tecnicosExternos, setTecnicosExternos] = useState([]);
+            const [planningManual, setPlanningManual] = useState([]);
+            const [mostrandoFormExterno, setMostrandoFormExterno] = useState(false);
+            const [nombreExternoNuevo, setNombreExternoNuevo] = useState('');
+            const [deptoExternoNuevo, setDeptoExternoNuevo] = useState(user.departamento || 'Facilities');
+            const [celdaAbierta, setCeldaAbierta] = useState(null); // { tecnicoExternoId, fecha }
+            const [formManual, setFormManual] = useState({ categoria: 'OBRA', descripcion: '' });
+
+            const cargarExternos = () => {
+                fetch(`${API_URL}/api/tecnicos-externos`).then(r => r.json()).then(setTecnicosExternos).catch(() => {});
+                fetch(`${API_URL}/api/planning-manual`).then(r => r.json()).then(setPlanningManual).catch(() => {});
+            };
+            useEffect(() => { cargarExternos(); }, []);
+
+            const añadirTecnicoExterno = async () => {
+                if (!nombreExternoNuevo.trim()) return;
+                await fetch(`${API_URL}/api/tecnicos-externos`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nombre: nombreExternoNuevo, departamento: deptoExternoNuevo }) });
+                setNombreExternoNuevo('');
+                setMostrandoFormExterno(false);
+                cargarExternos();
+            };
+            const quitarTecnicoExterno = async (id) => {
+                if (!confirm('¿Quitar a este técnico externo del calendario? (su historial de trabajos ya registrados no se borra)')) return;
+                await fetch(`${API_URL}/api/tecnicos-externos/${id}`, { method: 'DELETE' });
+                cargarExternos();
+            };
+            const añadirTrabajoManual = async (tecnicoExternoId, fecha, departamento) => {
+                if (!formManual.descripcion.trim()) { alert('Describe brevemente el trabajo'); return; }
+                await fetch(`${API_URL}/api/planning-manual`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ tecnico_externo_id: tecnicoExternoId, fecha, categoria: formManual.categoria, descripcion: formManual.descripcion, departamento })
+                });
+                setFormManual({ categoria: 'OBRA', descripcion: '' });
+                setCeldaAbierta(null);
+                cargarExternos();
+            };
+            const quitarTrabajoManual = async (id) => {
+                await fetch(`${API_URL}/api/planning-manual/${id}`, { method: 'DELETE' });
+                cargarExternos();
+            };
+
             const lunesDe = (fecha) => {
                 const d = new Date(fecha);
                 const dia = (d.getDay() + 6) % 7; // 0 = lunes
@@ -4917,7 +4968,11 @@
 
             const tecnicosPorDepto = {};
             departamentosVisibles.forEach(dep => {
-                tecnicosPorDepto[dep] = usuarios.filter(u => u.activo && (u.rol === 'tecnico' || u.rol === 'encargado') && (u.departamento || 'Facilities') === dep);
+                const reales = usuarios.filter(u => u.activo && (u.rol === 'tecnico' || u.rol === 'encargado') && (u.departamento || 'Facilities') === dep)
+                    .map(u => ({ id: u.id, nombre: u.nombre, rol: u.rol, esExterno: false }));
+                const externos = tecnicosExternos.filter(t => (t.departamento || 'Facilities') === dep)
+                    .map(t => ({ id: t.id, nombre: t.nombre, rol: 'externo', esExterno: true }));
+                tecnicosPorDepto[dep] = [...reales, ...externos];
             });
 
             const ordenesDe = (tecnicoId, fechaStr) => {
@@ -4945,10 +5000,37 @@
                         <button className="btn btn-secondary" onClick={() => cambiarSemana(-1)}>←</button>
                         <span style={{ fontWeight: 600, fontSize: '15px' }}>{fmtCorto(diasSemana[0])} – {fmtCorto(diasSemana[4])}</span>
                         <button className="btn btn-secondary" onClick={() => cambiarSemana(1)}>→</button>
+                        {(user.rol === 'admin' || user.rol === 'supervisor' || user.rol === 'encargado') && (
+                            <button className="btn btn-secondary" onClick={() => setMostrandoFormExterno(!mostrandoFormExterno)}>👷 + Técnico externo</button>
+                        )}
+                        <button className="btn btn-secondary" style={{ marginLeft: 'auto' }} onClick={() => window.print()}>🖨️ Imprimir / PDF</button>
                     </div>
-                    <p className="lock-note">Cada celda muestra en su franja superior si se trata de una <strong>Obra</strong>, un <strong>Mantenimiento</strong> u <strong>Otros</strong> (vacaciones, formación, etc.).</p>
 
-                    <div style={{ overflowX: 'auto' }}>
+                    {mostrandoFormExterno && (
+                        <div className="card" style={{ marginBottom: '10px' }}>
+                            <p className="card-text" style={{ fontWeight: 600, marginBottom: '6px' }}>Añadir técnico externo (desplazado, sin cuenta en la app)</p>
+                            <div className="ficha-grid">
+                                <div className="ficha-field">
+                                    <span className="ficha-field-label">Nombre</span>
+                                    <input type="text" placeholder="Ej: Manolo (subcontrata)" value={nombreExternoNuevo} onChange={(e) => setNombreExternoNuevo(e.target.value)} />
+                                </div>
+                                <div className="ficha-field">
+                                    <span className="ficha-field-label">Departamento</span>
+                                    <select value={deptoExternoNuevo} onChange={(e) => setDeptoExternoNuevo(e.target.value)}>
+                                        <option value="Facilities">Facilities</option>
+                                        <option value="Corvelec">Corvelec</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div className="btn-group">
+                                <button className="btn btn-success" onClick={añadirTecnicoExterno}>Añadir</button>
+                                <button className="btn btn-secondary" onClick={() => setMostrandoFormExterno(false)}>Cancelar</button>
+                            </div>
+                        </div>
+                    )}
+                    <p className="lock-note">Cada celda muestra en su franja superior si se trata de una <strong>Obra</strong>, un <strong>Mantenimiento</strong> u <strong>Otros</strong> (vacaciones, formación, etc.). Los técnicos marcados como "Externo" no tienen cuenta en la app — pulsa "+" en su celda para añadirles trabajo a mano.</p>
+
+                    <div className="planning-scroll-wrap">
                         <table className="planning-table">
                             <thead>
                                 <tr>
@@ -4965,10 +5047,57 @@
                                         {tecnicosPorDepto[dep].length === 0 ? (
                                             <tr><td colSpan={6} className="card-text" style={{ padding: '10px' }}>No hay técnicos en este departamento</td></tr>
                                         ) : tecnicosPorDepto[dep].map(t => (
-                                            <tr key={t.id}>
-                                                <td className="planning-tecnico-nombre">{t.nombre}{t.rol === 'encargado' && <span className="badge encargado" style={{ marginLeft: '6px', fontSize: '10px' }}>Encargado</span>}</td>
+                                            <tr key={t.esExterno ? `ext-${t.id}` : t.id}>
+                                                <td className="planning-tecnico-nombre">
+                                                    {t.nombre}
+                                                    {t.rol === 'encargado' && <span className="badge encargado" style={{ marginLeft: '6px', fontSize: '10px' }}>Encargado</span>}
+                                                    {t.esExterno && (
+                                                        <>
+                                                            <span className="badge" style={{ marginLeft: '6px', fontSize: '10px', background: '#f0f0f0', color: '#666' }}>Externo</span>
+                                                            {(user.rol === 'admin' || user.rol === 'supervisor' || user.rol === 'encargado') && (
+                                                                <button className="btn btn-secondary" style={{ fontSize: '10px', padding: '2px 6px', marginLeft: '6px' }} onClick={() => quitarTecnicoExterno(t.id)}>✕</button>
+                                                            )}
+                                                        </>
+                                                    )}
+                                                </td>
                                                 {diasSemana.map((d, i) => {
                                                     const fechaStr = fmt(d);
+                                                    if (t.esExterno) {
+                                                        const trabajos = planningManual.filter(pm => pm.tecnico_externo_id === t.id && String(pm.fecha).slice(0, 10) === fechaStr);
+                                                        const celdaEstaAbierta = celdaAbierta && celdaAbierta.tecnicoExternoId === t.id && celdaAbierta.fecha === fechaStr;
+                                                        return (
+                                                            <td key={i} className="planning-celda" style={{ cursor: 'pointer' }}>
+                                                                {trabajos.map(pm => {
+                                                                    const color = colorParaClavePlanning(`ext-${t.id}-${pm.descripcion}`);
+                                                                    return (
+                                                                        <div key={pm.id} className="planning-bloque" style={{ background: color, position: 'relative' }}>
+                                                                            <div className="planning-bloque-cat">{pm.categoria}</div>
+                                                                            <div className="planning-bloque-desc">{pm.descripcion}</div>
+                                                                            <button onClick={(e) => { e.stopPropagation(); quitarTrabajoManual(pm.id); }} style={{ position: 'absolute', top: 2, right: 2, background: 'rgba(255,255,255,0.7)', border: 'none', borderRadius: '4px', fontSize: '10px', cursor: 'pointer', lineHeight: 1, padding: '1px 4px' }}>✕</button>
+                                                                        </div>
+                                                                    );
+                                                                })}
+                                                                {(user.rol === 'admin' || user.rol === 'supervisor' || user.rol === 'encargado') && (
+                                                                    celdaEstaAbierta ? (
+                                                                        <div className="planning-manual-form" onClick={(e) => e.stopPropagation()}>
+                                                                            <select value={formManual.categoria} onChange={(e) => setFormManual({ ...formManual, categoria: e.target.value })}>
+                                                                                <option value="OBRA">Obra</option>
+                                                                                <option value="MANTENIMIENTO">Mantenimiento</option>
+                                                                                <option value="OTROS">Otros</option>
+                                                                            </select>
+                                                                            <input type="text" placeholder="Descripción" value={formManual.descripcion} onChange={(e) => setFormManual({ ...formManual, descripcion: e.target.value })} />
+                                                                            <div style={{ display: 'flex', gap: '4px', marginTop: '4px' }}>
+                                                                                <button className="btn btn-success" style={{ fontSize: '10px', padding: '3px 6px' }} onClick={() => añadirTrabajoManual(t.id, fechaStr, dep)}>Añadir</button>
+                                                                                <button className="btn btn-secondary" style={{ fontSize: '10px', padding: '3px 6px' }} onClick={() => setCeldaAbierta(null)}>Cancelar</button>
+                                                                            </div>
+                                                                        </div>
+                                                                    ) : (
+                                                                        <span className="planning-vacio" onClick={() => { setCeldaAbierta({ tecnicoExternoId: t.id, fecha: fechaStr }); setFormManual({ categoria: 'OBRA', descripcion: '' }); }}>+</span>
+                                                                    )
+                                                                )}
+                                                            </td>
+                                                        );
+                                                    }
                                                     const ots = ordenesDe(t.id, fechaStr);
                                                     return (
                                                         <td key={i} className="planning-celda">
