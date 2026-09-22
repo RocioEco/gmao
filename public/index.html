@@ -604,7 +604,7 @@
                         {activeTab === 'planning' && (user.rol === 'admin' || user.rol === 'supervisor' || user.rol === 'encargado') && <PlanningSemanalView user={user} ordenes={ordenes} usuarios={usuarios} />}
                         {activeTab === 'inventario' && <InventarioView user={user} activos={activos} emplazamientos={emplazamientos} zonas={zonas} clientes={clientes} contratos={contratos} tiposActivo={tiposActivo} camposConfig={camposConfig} onRefresh={cargarDatos} />}
                         {activeTab === 'preciario' && (user.rol === 'admin' || user.rol === 'supervisor' || user.rol === 'encargado') && <PreciarioView user={user} materiales={materiales} clientes={clientes} contratos={contratos} onRefresh={cargarDatos} />}
-                        {activeTab === 'albaranes' && (user.rol === 'admin' || user.rol === 'supervisor' || user.rol === 'encargado') && <AlbaranesView user={user} clientes={clientes} onRefresh={cargarDatos} />}
+                        {activeTab === 'albaranes' && (user.rol === 'admin' || user.rol === 'supervisor' || user.rol === 'encargado') && <AlbaranesView user={user} clientes={clientes} contratos={contratos} ordenes={ordenes} onRefresh={cargarDatos} />}
                         {activeTab === 'facturacion' && (user.rol === 'admin' || user.rol === 'supervisor' || user.rol === 'encargado') && <FacturacionView user={user} ordenes={ordenes} clientes={clientes} materiales={materiales} usuarios={usuarios} onRefresh={cargarDatos} />}
                         {activeTab === 'resumen-obras' && (user.rol === 'admin' || user.rol === 'supervisor' || user.rol === 'encargado') && <ResumenObrasView user={user} ordenes={ordenes} clientes={clientes} usuarios={usuarios} />}
                         {activeTab === 'alta-campo' && <AltaCampoView user={user} clientes={clientes} contratos={contratos} zonas={zonas} emplazamientos={emplazamientos} tiposActivo={tiposActivo} camposConfig={camposConfig} onRefresh={cargarDatos} />}
@@ -4866,7 +4866,8 @@
             vacaciones: 'OTROS',
             formacion: 'OTROS'
         };
-        const PALETA_PLANNING = ['#f472b6', '#4ade80', '#facc15', '#60a5fa', '#a78bfa', '#fb923c', '#2dd4bf', '#f87171', '#c084fc', '#34d399'];
+        // Ninguno de estos colores puede ser rojo/rojizo: el rojo queda reservado en exclusiva para Vacaciones.
+        const PALETA_PLANNING = ['#f472b6', '#4ade80', '#facc15', '#60a5fa', '#a78bfa', '#fb923c', '#2dd4bf', '#818cf8', '#c084fc', '#34d399', '#38bdf8', '#a3e635'];
         const COLOR_VACACIONES = '#ef4444';
         function colorParaClavePlanning(clave) {
             let hash = 0;
@@ -5538,13 +5539,17 @@
                 return mins / 60;
             };
 
-            // Solo clientes con Obras/Reparaciones de Corvelec (coherente con el resto del módulo)
-            const clientesCorvelec = (user.rol === 'encargado' && user.departamento)
+            // Todos los clientes visibles para el usuario (el Encargado solo ve los de su propio
+            // departamento; Admin y Supervisor ven los de ambos, Facilities y Corvelec).
+            const clientesVisibles = (user.rol === 'encargado' && user.departamento)
                 ? clientes.filter(c => (c.departamento || 'Facilities') === user.departamento)
-                : clientes.filter(c => (c.departamento || 'Facilities') === 'Corvelec');
+                : clientes;
+            const [filtroDepartamento, setFiltroDepartamento] = useState('todos');
 
             const filasOT = ordenes
-                .filter(o => o.departamento === 'Corvelec' && o.estado === 'resuelta')
+                .filter(o => o.estado === 'resuelta')
+                .filter(o => user.rol !== 'encargado' || !user.departamento || (o.departamento || 'Facilities') === user.departamento)
+                .filter(o => filtroDepartamento === 'todos' || (o.departamento || 'Facilities') === filtroDepartamento)
                 .filter(o => filtroCliente === 'todos' || String(o.cliente_id) === filtroCliente)
                 .map(o => {
                     let visitasOT = visitas.filter(v => v.orden_id === o.id);
@@ -5590,14 +5595,24 @@
                         <h3 className="section-title" style={{ margin: 0 }}>🛠️ Resumen de Obras</h3>
                     </div>
 
-                    <p className="lock-note">Solo se muestran aquí las Obras y Reparaciones de Corvelec ya finalizadas (estado "Resuelta"). No incluye importes — solo horas, kilómetros y materiales utilizados.</p>
+                    <p className="lock-note">Se muestran las OT ya finalizadas (estado "Resuelta") de Facilities y Corvelec. No incluye importes — solo horas, kilómetros y materiales utilizados.</p>
 
                     <div className="ficha-grid">
+                        {(user.rol === 'admin' || user.rol === 'supervisor') && (
+                            <div className="ficha-field">
+                                <span className="ficha-field-label">Departamento</span>
+                                <select value={filtroDepartamento} onChange={(e) => setFiltroDepartamento(e.target.value)}>
+                                    <option value="todos">Todos</option>
+                                    <option value="Facilities">Facilities</option>
+                                    <option value="Corvelec">Corvelec</option>
+                                </select>
+                            </div>
+                        )}
                         <div className="ficha-field">
                             <span className="ficha-field-label">Cliente</span>
                             <select value={filtroCliente} onChange={(e) => setFiltroCliente(e.target.value)}>
                                 <option value="todos">Todos</option>
-                                {clientesCorvelec.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                                {clientesVisibles.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
                             </select>
                         </div>
                         <div className="ficha-field">
@@ -6008,7 +6023,7 @@
         }
 
         // ===== ALBARANES: provisionales (mínimos, sin fecha/importe) -> finales (completos, pendientes de facturar) =====
-        function AlbaranesView({ user, clientes, onRefresh }) {
+        function AlbaranesView({ user, clientes, contratos, ordenes, onRefresh }) {
             const [albaranes, setAlbaranes] = useState([]);
             const [cargando, setCargando] = useState(true);
             const [showForm, setShowForm] = useState(false);
@@ -6022,6 +6037,80 @@
                 fetch(`${API_URL}/api/albaranes`).then(r => r.json()).then(data => { setAlbaranes(data); setCargando(false); }).catch(() => setCargando(false));
             };
             useEffect(() => { cargar(); }, []);
+
+            // ===== Resumen mensual: un documento por Departamento + Cliente + Contrato/Obra,
+            // con toda la mano de obra y los materiales de ese mes (sin importes) =====
+            const mesActual = new Date().toISOString().slice(0, 7);
+            const [mostrarResumenMensual, setMostrarResumenMensual] = useState(false);
+            const [mesResumen, setMesResumen] = useState(mesActual);
+            const [visitasResumen, setVisitasResumen] = useState([]);
+            const [cargandoResumen, setCargandoResumen] = useState(false);
+            const [filtroDeptoResumen, setFiltroDeptoResumen] = useState('todos');
+
+            const cargarResumenMensual = () => {
+                setCargandoResumen(true);
+                fetch(`${API_URL}/api/visitas`).then(r => r.json()).then(data => { setVisitasResumen(data); setCargandoResumen(false); }).catch(() => setCargandoResumen(false));
+            };
+
+            const calcularHorasResumen = (hi, hf) => {
+                if (!hi || !hf) return 0;
+                const [h1, m1] = hi.split(':').map(Number);
+                const [h2, m2] = hf.split(':').map(Number);
+                if (isNaN(h1) || isNaN(h2)) return 0;
+                let mins = (h2 * 60 + m2) - (h1 * 60 + m1);
+                if (mins < 0) mins += 24 * 60;
+                return mins / 60;
+            };
+
+            // Agrupa, para el mes elegido, todas las visitas de OT resueltas por Departamento + Cliente + Contrato/Obra
+            const documentosMensuales = (() => {
+                if (!mostrarResumenMensual || !Array.isArray(ordenes)) return [];
+                const grupos = {};
+                for (const o of ordenes) {
+                    if (o.estado !== 'resuelta') continue;
+                    const dep = o.departamento || 'Facilities';
+                    if (filtroDeptoResumen !== 'todos' && dep !== filtroDeptoResumen) continue;
+                    const visitasOT = visitasResumen.filter(v => v.orden_id === o.id && String(v.fecha || '').slice(0, 7) === mesResumen);
+                    if (visitasOT.length === 0) continue;
+
+                    const key = `${dep}::${o.cliente_id || 'sin-cliente'}::${o.contrato_id || 'sin-contrato'}`;
+                    if (!grupos[key]) {
+                        const cliente = clientes.find(c => c.id === o.cliente_id);
+                        const contrato = (contratos || []).find(c => c.id === o.contrato_id);
+                        grupos[key] = {
+                            departamento: dep,
+                            clienteNombre: cliente ? cliente.nombre : (o.cliente_nombre || 'Sin cliente'),
+                            contratoNombre: contrato ? contrato.nombre : (o.contrato_nombre || 'Sin contrato/obra'),
+                            ots: [], horasTotales: 0, tecnicos: new Set(), materiales: {}
+                        };
+                    }
+                    const g = grupos[key];
+
+                    let tecnicosApoyo = [];
+                    try { tecnicosApoyo = o.tecnicos_apoyo ? JSON.parse(o.tecnicos_apoyo) : []; } catch { tecnicosApoyo = []; }
+                    const numTecnicos = 1 + (Array.isArray(tecnicosApoyo) ? tecnicosApoyo.length : 0);
+
+                    const horasOT = visitasOT.reduce((sum, v) => sum + calcularHorasResumen(v.hora_inicio, v.hora_fin), 0) * numTecnicos;
+                    g.horasTotales += horasOT;
+                    if (o.tecnico_nombre) g.tecnicos.add(o.tecnico_nombre);
+
+                    visitasOT.forEach(v => {
+                        let mats = [];
+                        try { mats = v.materiales_json ? JSON.parse(v.materiales_json) : []; } catch { mats = []; }
+                        mats.forEach(m => {
+                            if (!m.descripcion) return;
+                            const mk = m.material_id || m.descripcion;
+                            if (!g.materiales[mk]) g.materiales[mk] = { descripcion: m.descripcion, cantidad: 0 };
+                            g.materiales[mk].cantidad += parseFloat(m.cantidad) || 0;
+                        });
+                    });
+
+                    if (!g.ots.includes(o.id)) g.ots.push(o.id);
+                }
+                return Object.values(grupos)
+                    .map(g => ({ ...g, tecnicos: [...g.tecnicos], materiales: Object.values(g.materiales) }))
+                    .sort((a, b) => (a.departamento + a.clienteNombre + a.contratoNombre).localeCompare(b.departamento + b.clienteNombre + b.contratoNombre));
+            })();
 
             const crearProvisional = async () => {
                 if (!formNuevo.cliente_id) { alert('Selecciona un cliente'); return; }
@@ -6068,8 +6157,73 @@
                 <div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '8px' }}>
                         <h3 className="section-title" style={{ margin: 0 }}>📄 Albaranes</h3>
-                        <button className="btn btn-crear" onClick={() => setShowForm(!showForm)}>{showForm ? 'Cancelar' : '+ Nuevo Provisional'}</button>
+                        <div className="btn-group">
+                            <button className="btn btn-secondary" onClick={() => {
+                                const abrir = !mostrarResumenMensual;
+                                setMostrarResumenMensual(abrir);
+                                if (abrir && visitasResumen.length === 0) cargarResumenMensual();
+                            }}>
+                                {mostrarResumenMensual ? 'Ocultar resumen mensual' : '📊 Resumen mensual'}
+                            </button>
+                            <button className="btn btn-crear" onClick={() => setShowForm(!showForm)}>{showForm ? 'Cancelar' : '+ Nuevo Provisional'}</button>
+                        </div>
                     </div>
+
+                    {mostrarResumenMensual && (
+                        <div className="card" style={{ marginBottom: '1.5rem' }}>
+                            <p className="card-title" style={{ marginBottom: '4px' }}>📊 Resumen mensual por Departamento, Cliente y Contrato/Obra</p>
+                            <p className="lock-note" style={{ marginBottom: '10px' }}>
+                                Un documento por cada combinación de Departamento + Cliente + Contrato/Obra que tenga trabajo ese mes, con toda la mano de obra y los materiales utilizados. No incluye importes.
+                            </p>
+                            <div className="ficha-grid">
+                                <div className="ficha-field">
+                                    <span className="ficha-field-label">Mes</span>
+                                    <input type="month" value={mesResumen} onChange={(e) => setMesResumen(e.target.value)} />
+                                </div>
+                                <div className="ficha-field">
+                                    <span className="ficha-field-label">Departamento</span>
+                                    <select value={filtroDeptoResumen} onChange={(e) => setFiltroDeptoResumen(e.target.value)}>
+                                        <option value="todos">Todos</option>
+                                        <option value="Facilities">Facilities</option>
+                                        <option value="Corvelec">Corvelec</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            {cargandoResumen ? <div className="empty-state">Cargando...</div> : (
+                                documentosMensuales.length === 0 ? (
+                                    <div className="empty-state">No hay OT resueltas con visitas registradas en {mesResumen} con este filtro.</div>
+                                ) : (
+                                    <div className="list" style={{ marginTop: '10px' }}>
+                                        {documentosMensuales.map((doc, i) => (
+                                            <div key={i} className="list-item">
+                                                <div className="list-item-header">
+                                                    <div>
+                                                        <p className="card-title">🏢 {doc.departamento} · 👤 {doc.clienteNombre}</p>
+                                                        <p className="card-text">📄 {doc.contratoNombre} — {mesResumen}</p>
+                                                    </div>
+                                                    <span className="badge" style={{ background: 'var(--bg-accent)', color: 'var(--fill-accent)' }}>{doc.ots.length} OT</span>
+                                                </div>
+                                                <div className="readonly-view" style={{ marginTop: '8px' }}>
+                                                    <div className="rv-row"><span className="rv-label">Técnicos</span><span className="rv-value">{doc.tecnicos.join(', ') || '—'}</span></div>
+                                                    <div className="rv-row"><span className="rv-label">Horas totales</span><span className="rv-value">{doc.horasTotales.toFixed(2)} h</span></div>
+                                                    <div className="rv-row"><span className="rv-label">OT incluidas</span><span className="rv-value">{doc.ots.join(', ')}</span></div>
+                                                </div>
+                                                {doc.materiales.length > 0 && (
+                                                    <div style={{ marginTop: '8px' }}>
+                                                        <p className="card-text" style={{ fontWeight: 600 }}>Materiales</p>
+                                                        {doc.materiales.map((m, j) => (
+                                                            <p key={j} className="card-text" style={{ fontSize: '13px', borderBottom: '1px dashed var(--border)', padding: '4px 0' }}>{m.descripcion} × {m.cantidad}</p>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        ))}
+                                    </div>
+                                )
+                            )}
+                        </div>
+                    )}
 
                     <p className="lock-note">Crea un albarán provisional con solo Cliente, Obra y Departamento para no olvidar lo que tienes pendiente de albaranar. Cuando tengas fecha e importe, complétalo para pasarlo a "pendiente de facturar".</p>
 
