@@ -659,12 +659,14 @@ db.serialize(() => {
     fecha TEXT,
     importe REAL,
     descripcion TEXT,
+    lineas_json TEXT DEFAULT '[]',
     facturado INTEGER DEFAULT 0,
     fecha_facturacion TEXT,
     creado_por INTEGER,
     creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(cliente_id) REFERENCES clientes(id)
   )`);
+  db.run(`ALTER TABLE albaranes ADD COLUMN lineas_json TEXT DEFAULT '[]'`, () => {});
 
   // ===== INVENTARIO DE SWITCHES (SPA) =====
   db.run(`CREATE TABLE IF NOT EXISTS switches (
@@ -1775,19 +1777,24 @@ app.post('/api/albaranes', (req, res) => {
 });
 
 app.put('/api/albaranes/:id', (req, res) => {
-  const { cliente_id, obra, departamento, estado, fecha, importe, descripcion } = req.body;
-  db.run(`UPDATE albaranes SET cliente_id = ?, obra = ?, departamento = ?, estado = ?, fecha = ?, importe = ?, descripcion = ? WHERE id = ?`,
-    [cliente_id || null, obra || '', departamento || '', estado || 'provisional', fecha || null, importe !== undefined && importe !== '' ? parseFloat(importe) : null, descripcion || '', req.params.id],
+  const { cliente_id, obra, departamento, estado, fecha, importe, descripcion, lineas_json } = req.body;
+  db.run(`UPDATE albaranes SET cliente_id = ?, obra = ?, departamento = ?, estado = ?, fecha = ?, importe = ?, descripcion = ?, lineas_json = ? WHERE id = ?`,
+    [cliente_id || null, obra || '', departamento || '', estado || 'provisional', fecha || null, importe !== undefined && importe !== '' ? parseFloat(importe) : null, descripcion || '', lineas_json !== undefined ? lineas_json : '[]', req.params.id],
     (err) => {
       if (err) return res.status(500).json({ error: err.message });
       res.json({ success: true });
     });
 });
 
+// Al borrar un albarán, las OT que tenía vinculadas vuelven a quedar "sin albaranar" (no se pierden,
+// solo se sueltan, para poder enviarlas de nuevo a otro albarán más adelante).
 app.delete('/api/albaranes/:id', (req, res) => {
-  db.run('DELETE FROM albaranes WHERE id = ?', [req.params.id], (err) => {
-    if (err) return res.status(500).json({ error: err.message });
-    res.json({ success: true });
+  db.run('UPDATE ordenes_trabajo SET albaran_id = NULL WHERE albaran_id = ?', [req.params.id], (err0) => {
+    if (err0) return res.status(500).json({ error: err0.message });
+    db.run('DELETE FROM albaranes WHERE id = ?', [req.params.id], (err) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ success: true });
+    });
   });
 });
 
