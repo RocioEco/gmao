@@ -6256,14 +6256,16 @@
             };
 
             const eliminar = async (id) => {
-                if (!confirm('¿Eliminar este albarán?')) return;
+                if (!confirm('¿Eliminar este albarán? Las OT que tuviera vinculadas volverán a quedar sin albaranar.')) return;
                 await fetch(`${API_URL}/api/albaranes/${id}`, { method: 'DELETE' });
                 cargar();
+                if (onRefresh) onRefresh();
             };
 
             const toggleFacturado = async (a, valor) => {
                 await fetch(`${API_URL}/api/albaranes/${a.id}/facturar`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ facturado: valor }) });
                 cargar();
+                if (onRefresh) onRefresh();
             };
 
             const visibles = albaranes.filter(a => {
