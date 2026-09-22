@@ -668,6 +668,28 @@ db.serialize(() => {
   )`);
   db.run(`ALTER TABLE albaranes ADD COLUMN lineas_json TEXT DEFAULT '[]'`, () => {});
 
+  // ===== TÉCNICOS EXTERNOS: gente desplazada que no usa la app, pero cuyo trabajo se quiere
+  // reflejar igualmente en el Calendario (Planning Semanal) =====
+  db.run(`CREATE TABLE IF NOT EXISTS tecnicos_externos (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    nombre TEXT NOT NULL,
+    departamento TEXT DEFAULT 'Facilities',
+    activo INTEGER DEFAULT 1,
+    creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  )`);
+
+  // Trabajos añadidos a mano en el calendario para un técnico externo, sin pasar por una OT completa.
+  db.run(`CREATE TABLE IF NOT EXISTS planning_manual (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tecnico_externo_id INTEGER NOT NULL,
+    fecha TEXT NOT NULL,
+    categoria TEXT DEFAULT 'OBRA',
+    descripcion TEXT,
+    departamento TEXT DEFAULT 'Facilities',
+    creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(tecnico_externo_id) REFERENCES tecnicos_externos(id)
+  )`);
+
   // ===== INVENTARIO DE SWITCHES (SPA) =====
   db.run(`CREATE TABLE IF NOT EXISTS switches (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2037,6 +2059,57 @@ app.post('/api/backup/import', async (req, res) => {
   } catch (e) {
     res.status(500).json({ error: 'Error importando el backup: ' + e.message, stats });
   }
+});
+
+// ===== TÉCNICOS EXTERNOS Y SU PLANNING MANUAL (para gente desplazada que no usa la app) =====
+app.get('/api/tecnicos-externos', (req, res) => {
+  db.all('SELECT * FROM tecnicos_externos WHERE activo = 1 ORDER BY nombre', (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows);
+  });
+});
+
+app.post('/api/tecnicos-externos', (req, res) => {
+  const { nombre, departamento } = req.body;
+  if (!nombre) return res.status(400).json({ error: 'Nombre requerido' });
+  db.run('INSERT INTO tecnicos_externos (nombre, departamento) VALUES (?, ?)', [nombre, departamento || 'Facilities'], function (err) {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ id: this.lastID, nombre, departamento: departamento || 'Facilities' });
+  });
+});
+
+app.delete('/api/tecnicos-externos/:id', (req, res) => {
+  // Baja lógica (no se borra su historial de trabajos ya registrados)
+  db.run('UPDATE tecnicos_externos SET activo = 0 WHERE id = ?', [req.params.id], (err) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ success: true });
+  });
+});
+
+app.get('/api/planning-manual', (req, res) => {
+  db.all(`SELECT pm.*, te.nombre as tecnico_nombre FROM planning_manual pm
+          LEFT JOIN tecnicos_externos te ON pm.tecnico_externo_id = te.id
+          ORDER BY pm.fecha`, (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows);
+  });
+});
+
+app.post('/api/planning-manual', (req, res) => {
+  const { tecnico_externo_id, fecha, categoria, descripcion, departamento } = req.body;
+  if (!tecnico_externo_id || !fecha) return res.status(400).json({ error: 'Técnico y fecha requeridos' });
+  db.run('INSERT INTO planning_manual (tecnico_externo_id, fecha, categoria, descripcion, departamento) VALUES (?, ?, ?, ?, ?)',
+    [tecnico_externo_id, fecha, categoria || 'OBRA', descripcion || '', departamento || 'Facilities'], function (err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ id: this.lastID });
+    });
+});
+
+app.delete('/api/planning-manual/:id', (req, res) => {
+  db.run('DELETE FROM planning_manual WHERE id = ?', [req.params.id], (err) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ success: true });
+  });
 });
 
 // Servir archivos estáticos
