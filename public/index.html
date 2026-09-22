@@ -694,7 +694,7 @@
             // El "Encargado" solo debe ver los datos de su propio departamento en el dashboard general
             // (admin y Supervisor ven todo, como siempre).
             const esEncargado = user.rol === 'encargado' && user.departamento;
-            const ordenesDeptCompleto = esEncargado ? ordenes.filter(o => (o.departamento || 'Facilities') === user.departamento) : ordenes;
+            const ordenesDeptCompleto = esEncargado ? ordenes.filter(o => (o.departamento || 'Facilities') === user.departamento || o.encargado_id === user.id) : ordenes;
 
             // El dashboard se carga por defecto mostrando solo las OT activas (todas menos las finalizadas).
             const [filtroEstadoDash, setFiltroEstadoDash] = useState('activas');
@@ -1557,10 +1557,12 @@
             // también los trabajos interempresas que me hayan asignado puntualmente).
             // La pestaña "OT" (listado general) sí se restringe por departamento para Técnico y
             // Encargado — cada departamento solo ve sus propias órdenes ahí. Admin y Supervisor ven todas.
+            // Excepción: el Encargado siempre ve las OT donde figura como encargado asignado
+            // (campo "Encargado" de la OT), aunque sean de otro departamento — es justo para eso.
             const restringidoPorDepartamento = (user.rol === 'encargado' || user.rol === 'tecnico') && user.departamento;
             const ordenesBase = soloAsignadas
                 ? ordenes.filter(o => o.asignado_a === user.id)
-                : (restringidoPorDepartamento ? ordenes.filter(o => (o.departamento || 'Facilities') === user.departamento) : ordenes);
+                : (restringidoPorDepartamento ? ordenes.filter(o => (o.departamento || 'Facilities') === user.departamento || o.encargado_id === user.id) : ordenes);
             let ordenesFiltradas = filtroTipo === 'todas' ? ordenesBase : ordenesBase.filter(o => o.tipo === filtroTipo);
             if (filtroEstado !== 'todas') ordenesFiltradas = ordenesFiltradas.filter(o => o.estado === filtroEstado);
             if (buscarNombre.trim()) {
@@ -5548,7 +5550,7 @@
 
             const filasOT = ordenes
                 .filter(o => o.estado === 'resuelta')
-                .filter(o => user.rol !== 'encargado' || !user.departamento || (o.departamento || 'Facilities') === user.departamento)
+                .filter(o => user.rol !== 'encargado' || !user.departamento || (o.departamento || 'Facilities') === user.departamento || o.encargado_id === user.id)
                 .filter(o => filtroDepartamento === 'todos' || (o.departamento || 'Facilities') === filtroDepartamento)
                 .filter(o => filtroCliente === 'todos' || String(o.cliente_id) === filtroCliente)
                 .map(o => {
@@ -5716,7 +5718,7 @@
 
             const filasOT = ordenes
                 .filter(o => o.estado === 'resuelta')
-                .filter(o => user.rol !== 'encargado' || !user.departamento || (o.departamento || 'Facilities') === user.departamento)
+                .filter(o => user.rol !== 'encargado' || !user.departamento || (o.departamento || 'Facilities') === user.departamento || o.encargado_id === user.id)
                 .filter(o => filtroCliente === 'todos' || String(o.cliente_id) === filtroCliente)
                 .filter(o => filtroFacturada === 'todas' || (filtroFacturada === 'facturadas' ? !!o.facturada : !o.facturada))
                 .map(o => {
@@ -6128,69 +6130,61 @@
             };
 
             const docsElegidos = documentosMensuales.filter(d => docsSeleccionados.includes(d.key));
-            // Todos los documentos que se junten en un mismo albarán deben ser del mismo cliente
-            // (un albarán pertenece a un solo cliente). Si se seleccionan varias obras/contratos de
-            // ese mismo cliente, se juntan igualmente en un único albarán.
-            const clientesEnSeleccion = [...new Set(docsElegidos.map(d => d.clienteId))];
-            const clienteIdParaAlbaran = clientesEnSeleccion.length === 1 ? clientesEnSeleccion[0] : null;
+
+            const desasociarOT = async (otId) => {
+                if (!confirm(`¿Quitar la OT ${otId} de su albarán? Quedará sin albaranar de nuevo.`)) return;
+                await fetch(`${API_URL}/api/ordenes/${otId}/quitar-albaran`, { method: 'PUT' });
+                if (onRefresh) onRefresh();
+            };
+
+            // Genera un albarán INDEPENDIENTE por cada tarjeta seleccionada (aunque selecciones varias
+            // a la vez, cada una se convierte en su propio albarán — no se juntan entre sí).
+            const generarAlbaranDesdeUnDocumento = async (doc) => {
+                const otIds = doc.ots.filter(o => !o.albaranada).map(o => o.id);
+                if (otIds.length === 0) {
+                    alert(`Todas las OT de "${doc.clienteNombre} — ${doc.contratoNombre}" ya estaban albaranadas.`);
+                    return null;
+                }
+                const descripcion = `Resumen de ${mesResumen} — Técnicos: ${doc.tecnicos.join(', ') || '—'}`;
+                const lineas = [];
+                if (doc.horasTotales > 0) {
+                    lineas.push({ tipo: 'mano_obra', descripcion: `Mano de obra (${doc.tecnicos.join(', ') || 'técnicos'})`, cantidad: parseFloat(doc.horasTotales.toFixed(2)), precio_unitario: '' });
+                }
+                doc.materiales.forEach(m => lineas.push({ tipo: 'material', descripcion: m.descripcion, cantidad: m.cantidad, precio_unitario: '' }));
+
+                const rCrear = await fetch(`${API_URL}/api/albaranes`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ cliente_id: doc.clienteId, obra: doc.contratoNombre, departamento: doc.departamento, creado_por: user.id })
+                });
+                const nuevoAlbaran = await rCrear.json();
+                await fetch(`${API_URL}/api/albaranes/${nuevoAlbaran.id}`, {
+                    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ cliente_id: doc.clienteId, obra: doc.contratoNombre, estado: 'final', fecha: new Date().toISOString().slice(0, 10), importe: '', descripcion, lineas_json: JSON.stringify(lineas) })
+                });
+                await fetch(`${API_URL}/api/ordenes/asignar-albaran`, {
+                    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ot_ids: otIds, albaran_id: nuevoAlbaran.id })
+                });
+                return otIds.length;
+            };
 
             const generarAlbaranDesdeSeleccion = async () => {
                 if (docsElegidos.length === 0) return;
-                if (clientesEnSeleccion.length > 1) {
-                    alert('Solo puedes juntar en un mismo albarán tarjetas del mismo Cliente. Selecciona tarjetas de un único cliente cada vez.');
-                    return;
-                }
                 setGenerandoAlbaran(true);
                 try {
-                    const departamento = docsElegidos[0].departamento;
-                    const obra = [...new Set(docsElegidos.map(d => d.contratoNombre))].join(' + ');
-                    const horasTotales = docsElegidos.reduce((s, d) => s + d.horasTotales, 0);
-                    const tecnicos = [...new Set(docsElegidos.flatMap(d => d.tecnicos))];
-                    const otIds = docsElegidos.flatMap(d => d.ots).filter(o => !o.albaranada).map(o => o.id);
-                    if (otIds.length === 0) {
-                        alert('Todas las OT de las tarjetas seleccionadas ya estaban albaranadas. No hay nada nuevo que enviar.');
-                        setGenerandoAlbaran(false);
-                        return;
+                    let albaranesCreados = 0, otsEnviadas = 0;
+                    for (const doc of docsElegidos) {
+                        const n = await generarAlbaranDesdeUnDocumento(doc);
+                        if (n) { albaranesCreados++; otsEnviadas += n; }
                     }
-                    const descripcion = `Resumen de ${mesResumen} — Técnicos: ${tecnicos.join(', ') || '—'}`;
-
-                    // Líneas editables: una de mano de obra (con las horas totales) y una por cada
-                    // material agregado — todas sin precio todavía, para poder ponérselo antes de facturar.
-                    const lineas = [];
-                    if (horasTotales > 0) {
-                        lineas.push({ tipo: 'mano_obra', descripcion: `Mano de obra (${tecnicos.join(', ') || 'técnicos'})`, cantidad: parseFloat(horasTotales.toFixed(2)), precio_unitario: '' });
-                    }
-                    const materialesAgregados = {};
-                    docsElegidos.flatMap(d => d.materiales).forEach(m => {
-                        if (!materialesAgregados[m.descripcion]) materialesAgregados[m.descripcion] = { tipo: 'material', descripcion: m.descripcion, cantidad: 0, precio_unitario: '' };
-                        materialesAgregados[m.descripcion].cantidad += m.cantidad;
-                    });
-                    lineas.push(...Object.values(materialesAgregados));
-
-                    // 1) Crear el albarán ya "completado" con todo lo que sabemos, salvo los precios
-                    // (esos los añade el usuario más adelante, editando las líneas).
-                    const rCrear = await fetch(`${API_URL}/api/albaranes`, {
-                        method: 'POST', headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ cliente_id: clienteIdParaAlbaran, obra, departamento, creado_por: user.id })
-                    });
-                    const nuevoAlbaran = await rCrear.json();
-                    await fetch(`${API_URL}/api/albaranes/${nuevoAlbaran.id}`, {
-                        method: 'PUT', headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ cliente_id: clienteIdParaAlbaran, obra, estado: 'final', fecha: new Date().toISOString().slice(0, 10), importe: '', descripcion, lineas_json: JSON.stringify(lineas) })
-                    });
-
-                    // 2) Vincular todas las OT de las tarjetas elegidas a ese albarán ("quedan albaranadas")
-                    await fetch(`${API_URL}/api/ordenes/asignar-albaran`, {
-                        method: 'PUT', headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ ot_ids: otIds, albaran_id: nuevoAlbaran.id })
-                    });
-
                     setDocsSeleccionados([]);
                     cargar();
                     if (onRefresh) onRefresh();
-                    alert(`Albarán creado con ${otIds.length} OT. Ya puedes revisarlo más abajo y añadirle el importe cuando lo tengas.`);
+                    if (albaranesCreados > 0) {
+                        alert(`Se ${albaranesCreados === 1 ? 'creó 1 albarán' : `crearon ${albaranesCreados} albaranes`} con ${otsEnviadas} OT en total. Ya puedes revisarlos más abajo y añadirles el importe cuando lo tengas.`);
+                    }
                 } catch {
-                    alert('Error al generar el albarán');
+                    alert('Error al generar los albaranes');
                 }
                 setGenerandoAlbaran(false);
             };
@@ -6320,11 +6314,10 @@
                                         {user.rol === 'admin' && docsSeleccionados.length > 0 && (
                                             <div className="finalizar-banner" style={{ marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
                                                 <span className="card-text">
-                                                    {docsSeleccionados.length} tarjeta(s) seleccionada(s)
-                                                    {clientesEnSeleccion.length > 1 ? ' — ⚠️ son de clientes distintos, elige solo tarjetas de un mismo cliente' : ''}
+                                                    {docsSeleccionados.length} tarjeta(s) seleccionada(s) — se creará {docsSeleccionados.length === 1 ? 'un albarán' : `un albarán por cada una (${docsSeleccionados.length} albaranes)`}
                                                 </span>
-                                                <button className="btn btn-success" disabled={generandoAlbaran || clientesEnSeleccion.length > 1} onClick={generarAlbaranDesdeSeleccion}>
-                                                    {generandoAlbaran ? 'Generando...' : '📄 Generar albarán con seleccionados'}
+                                                <button className="btn btn-success" disabled={generandoAlbaran} onClick={generarAlbaranDesdeSeleccion}>
+                                                    {generandoAlbaran ? 'Generando...' : (docsSeleccionados.length === 1 ? '📄 Generar albarán' : '📄 Generar albaranes')}
                                                 </button>
                                             </div>
                                         )}
@@ -6347,16 +6340,17 @@
                                                 <div className="readonly-view" style={{ marginTop: '8px' }}>
                                                     <div className="rv-row"><span className="rv-label">Técnicos</span><span className="rv-value">{doc.tecnicos.join(', ') || '—'}</span></div>
                                                     <div className="rv-row"><span className="rv-label">Horas totales</span><span className="rv-value">{doc.horasTotales.toFixed(2)} h</span></div>
-                                                    <div className="rv-row">
-                                                        <span className="rv-label">OT incluidas</span>
-                                                        <span className="rv-value">
-                                                            {doc.ots.map((o, k) => (
-                                                                <span key={o.id}>
-                                                                    {o.id}{o.albaranada ? ' 📄' : ''}{k < doc.ots.length - 1 ? ', ' : ''}
-                                                                </span>
-                                                            ))}
-                                                        </span>
-                                                    </div>
+                                                </div>
+                                                <div style={{ marginTop: '6px' }}>
+                                                    <p className="card-text" style={{ fontWeight: 600 }}>OT incluidas</p>
+                                                    {doc.ots.map(o => (
+                                                        <div key={o.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px', borderBottom: '1px dashed var(--border)', padding: '3px 0' }}>
+                                                            <span>{o.id} {o.albaranada && <span className="badge" style={{ background: 'var(--bg-accent)', color: 'var(--fill-accent)', fontSize: '10px', marginLeft: '4px' }}>📄 Albaranada</span>}</span>
+                                                            {o.albaranada && user.rol === 'admin' && (
+                                                                <button className="btn btn-secondary" style={{ fontSize: '11px', padding: '3px 8px' }} onClick={() => desasociarOT(o.id)}>Desasociar</button>
+                                                            )}
+                                                        </div>
+                                                    ))}
                                                 </div>
                                                 {doc.materiales.length > 0 && (
                                                     <div style={{ marginTop: '8px' }}>
