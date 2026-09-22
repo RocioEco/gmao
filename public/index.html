@@ -6046,6 +6046,8 @@
             const [visitasResumen, setVisitasResumen] = useState([]);
             const [cargandoResumen, setCargandoResumen] = useState(false);
             const [filtroDeptoResumen, setFiltroDeptoResumen] = useState('todos');
+            const [docsSeleccionados, setDocsSeleccionados] = useState([]);
+            const [generandoAlbaran, setGenerandoAlbaran] = useState(false);
 
             const cargarResumenMensual = () => {
                 setCargandoResumen(true);
@@ -6078,7 +6080,10 @@
                         const cliente = clientes.find(c => c.id === o.cliente_id);
                         const contrato = (contratos || []).find(c => c.id === o.contrato_id);
                         grupos[key] = {
+                            key,
                             departamento: dep,
+                            clienteId: o.cliente_id || null,
+                            contratoId: o.contrato_id || null,
                             clienteNombre: cliente ? cliente.nombre : (o.cliente_nombre || 'Sin cliente'),
                             contratoNombre: contrato ? contrato.nombre : (o.contrato_nombre || 'Sin contrato/obra'),
                             ots: [], horasTotales: 0, tecnicos: new Set(), materiales: {}
@@ -6111,6 +6116,61 @@
                     .map(g => ({ ...g, tecnicos: [...g.tecnicos], materiales: Object.values(g.materiales) }))
                     .sort((a, b) => (a.departamento + a.clienteNombre + a.contratoNombre).localeCompare(b.departamento + b.clienteNombre + b.contratoNombre));
             })();
+
+            const toggleDocSeleccionado = (key) => {
+                setDocsSeleccionados(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]);
+            };
+
+            const docsElegidos = documentosMensuales.filter(d => docsSeleccionados.includes(d.key));
+            // Todos los documentos que se junten en un mismo albarán deben ser del mismo cliente
+            // (un albarán pertenece a un solo cliente). Si se seleccionan varias obras/contratos de
+            // ese mismo cliente, se juntan igualmente en un único albarán.
+            const clientesEnSeleccion = [...new Set(docsElegidos.map(d => d.clienteId))];
+            const clienteIdParaAlbaran = clientesEnSeleccion.length === 1 ? clientesEnSeleccion[0] : null;
+
+            const generarAlbaranDesdeSeleccion = async () => {
+                if (docsElegidos.length === 0) return;
+                if (clientesEnSeleccion.length > 1) {
+                    alert('Solo puedes juntar en un mismo albarán tarjetas del mismo Cliente. Selecciona tarjetas de un único cliente cada vez.');
+                    return;
+                }
+                setGenerandoAlbaran(true);
+                try {
+                    const departamento = docsElegidos[0].departamento;
+                    const obra = [...new Set(docsElegidos.map(d => d.contratoNombre))].join(' + ');
+                    const horasTotales = docsElegidos.reduce((s, d) => s + d.horasTotales, 0);
+                    const tecnicos = [...new Set(docsElegidos.flatMap(d => d.tecnicos))];
+                    const materialesTexto = docsElegidos.flatMap(d => d.materiales).map(m => `${m.descripcion} × ${m.cantidad}`).join(', ');
+                    const otIds = docsElegidos.flatMap(d => d.ots);
+                    const descripcion = `Resumen de ${mesResumen} — Horas: ${horasTotales.toFixed(2)} h · Técnicos: ${tecnicos.join(', ') || '—'}${materialesTexto ? ` · Materiales: ${materialesTexto}` : ''}`;
+
+                    // 1) Crear el albarán ya "completado" con todo lo que sabemos, salvo el importe
+                    // (eso lo añadirá el usuario más adelante, a mano).
+                    const rCrear = await fetch(`${API_URL}/api/albaranes`, {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ cliente_id: clienteIdParaAlbaran, obra, departamento, creado_por: user.id })
+                    });
+                    const nuevoAlbaran = await rCrear.json();
+                    await fetch(`${API_URL}/api/albaranes/${nuevoAlbaran.id}`, {
+                        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ cliente_id: clienteIdParaAlbaran, obra, estado: 'final', fecha: new Date().toISOString().slice(0, 10), importe: '', descripcion })
+                    });
+
+                    // 2) Vincular todas las OT de las tarjetas elegidas a ese albarán ("quedan albaranadas")
+                    await fetch(`${API_URL}/api/ordenes/asignar-albaran`, {
+                        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ ot_ids: otIds, albaran_id: nuevoAlbaran.id })
+                    });
+
+                    setDocsSeleccionados([]);
+                    cargar();
+                    if (onRefresh) onRefresh();
+                    alert(`Albarán creado con ${otIds.length} OT. Ya puedes revisarlo más abajo y añadirle el importe cuando lo tengas.`);
+                } catch {
+                    alert('Error al generar el albarán');
+                }
+                setGenerandoAlbaran(false);
+            };
 
             const crearProvisional = async () => {
                 if (!formNuevo.cliente_id) { alert('Selecciona un cliente'); return; }
@@ -6195,12 +6255,28 @@
                                     <div className="empty-state">No hay OT resueltas con visitas registradas en {mesResumen} con este filtro.</div>
                                 ) : (
                                     <div className="list" style={{ marginTop: '10px' }}>
+                                        {user.rol === 'admin' && docsSeleccionados.length > 0 && (
+                                            <div className="finalizar-banner" style={{ marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                                                <span className="card-text">
+                                                    {docsSeleccionados.length} tarjeta(s) seleccionada(s)
+                                                    {clientesEnSeleccion.length > 1 ? ' — ⚠️ son de clientes distintos, elige solo tarjetas de un mismo cliente' : ''}
+                                                </span>
+                                                <button className="btn btn-success" disabled={generandoAlbaran || clientesEnSeleccion.length > 1} onClick={generarAlbaranDesdeSeleccion}>
+                                                    {generandoAlbaran ? 'Generando...' : '📄 Generar albarán con seleccionados'}
+                                                </button>
+                                            </div>
+                                        )}
                                         {documentosMensuales.map((doc, i) => (
                                             <div key={i} className="list-item">
                                                 <div className="list-item-header">
-                                                    <div>
-                                                        <p className="card-title">🏢 {doc.departamento} · 👤 {doc.clienteNombre}</p>
-                                                        <p className="card-text">📄 {doc.contratoNombre} — {mesResumen}</p>
+                                                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+                                                        {user.rol === 'admin' && (
+                                                            <input type="checkbox" checked={docsSeleccionados.includes(doc.key)} onChange={() => toggleDocSeleccionado(doc.key)} style={{ marginTop: '4px' }} />
+                                                        )}
+                                                        <div>
+                                                            <p className="card-title">🏢 {doc.departamento} · 👤 {doc.clienteNombre}</p>
+                                                            <p className="card-text">📄 {doc.contratoNombre} — {mesResumen}</p>
+                                                        </div>
                                                     </div>
                                                     <span className="badge" style={{ background: 'var(--bg-accent)', color: 'var(--fill-accent)' }}>{doc.ots.length} OT</span>
                                                 </div>
@@ -6273,18 +6349,37 @@
                                     {a.estado === 'final' && (
                                         <div className="readonly-view" style={{ marginTop: '8px' }}>
                                             <div className="rv-row"><span className="rv-label">Fecha</span><span className="rv-value">{a.fecha || '—'}</span></div>
-                                            <div className="rv-row"><span className="rv-label">Importe</span><span className="rv-value">{a.importe != null ? `${parseFloat(a.importe).toFixed(2)} €` : '—'}</span></div>
+                                            <div className="rv-row"><span className="rv-label">Importe</span><span className="rv-value">{a.importe != null && a.importe !== '' ? `${parseFloat(a.importe).toFixed(2)} €` : '— (pendiente de añadir)'}</span></div>
                                             {a.descripcion && <div className="rv-row"><span className="rv-label">Descripción</span><span className="rv-value">{a.descripcion}</span></div>}
                                         </div>
                                     )}
 
+                                    {(() => {
+                                        const otsVinculadas = (ordenes || []).filter(o => o.albaran_id === a.id);
+                                        if (otsVinculadas.length === 0) return null;
+                                        return (
+                                            <div style={{ marginTop: '8px' }}>
+                                                <p className="card-text" style={{ fontWeight: 600 }}>OT albaranadas en este documento ({otsVinculadas.length})</p>
+                                                {otsVinculadas.map(o => (
+                                                    <p key={o.id} className="card-text" style={{ fontSize: '13px', borderBottom: '1px dashed var(--border)', padding: '4px 0' }}>
+                                                        {o.id} — {o.titulo} {a.facturado ? <span className="badge" style={{ background: '#d1fae5', color: '#065f46', fontSize: '10px', marginLeft: '4px' }}>Facturada</span> : null}
+                                                    </p>
+                                                ))}
+                                            </div>
+                                        );
+                                    })()}
+
                                     <div style={{ marginTop: '8px', display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
                                         {a.estado === 'provisional' && <button className="btn btn-primary" onClick={() => abrirCompletar(a)}>{completandoId === a.id ? 'Cerrar' : 'Completar albarán'}</button>}
                                         {a.estado === 'final' && (
-                                            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
-                                                <input type="checkbox" checked={!!a.facturado} onChange={(e) => toggleFacturado(a, e.target.checked)} />
-                                                Facturado {a.fecha_facturacion ? `(${a.fecha_facturacion})` : ''}
-                                            </label>
+                                            a.facturado ? (
+                                                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
+                                                    <input type="checkbox" checked={true} onChange={(e) => toggleFacturado(a, e.target.checked)} />
+                                                    Facturado {a.fecha_facturacion ? `(${a.fecha_facturacion})` : ''} — todas sus OT quedaron marcadas como facturadas
+                                                </label>
+                                            ) : (
+                                                <button className="btn btn-success" onClick={() => toggleFacturado(a, true)}>📤 Enviar a facturar</button>
+                                            )
                                         )}
                                         <button className="btn btn-danger" onClick={() => eliminar(a.id)}>Eliminar</button>
                                     </div>
