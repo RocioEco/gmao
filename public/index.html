@@ -6048,6 +6048,9 @@
             const [filtroDeptoResumen, setFiltroDeptoResumen] = useState('todos');
             const [docsSeleccionados, setDocsSeleccionados] = useState([]);
             const [generandoAlbaran, setGenerandoAlbaran] = useState(false);
+            const [editandoLineasId, setEditandoLineasId] = useState(null);
+            const [lineasEnEdicion, setLineasEnEdicion] = useState([]);
+            const [guardandoLineas, setGuardandoLineas] = useState(false);
 
             const cargarResumenMensual = () => {
                 setCargandoResumen(true);
@@ -6086,7 +6089,7 @@
                             contratoId: o.contrato_id || null,
                             clienteNombre: cliente ? cliente.nombre : (o.cliente_nombre || 'Sin cliente'),
                             contratoNombre: contrato ? contrato.nombre : (o.contrato_nombre || 'Sin contrato/obra'),
-                            ots: [], horasTotales: 0, tecnicos: new Set(), materiales: {}
+                            ots: [], otsAlbaranadas: 0, horasTotales: 0, tecnicos: new Set(), materiales: {}
                         };
                     }
                     const g = grupos[key];
@@ -6110,7 +6113,10 @@
                         });
                     });
 
-                    if (!g.ots.includes(o.id)) g.ots.push(o.id);
+                    if (!g.ots.some(x => x.id === o.id)) {
+                        g.ots.push({ id: o.id, albaranada: !!o.albaran_id });
+                        if (o.albaran_id) g.otsAlbaranadas++;
+                    }
                 }
                 return Object.values(grupos)
                     .map(g => ({ ...g, tecnicos: [...g.tecnicos], materiales: Object.values(g.materiales) }))
@@ -6140,12 +6146,29 @@
                     const obra = [...new Set(docsElegidos.map(d => d.contratoNombre))].join(' + ');
                     const horasTotales = docsElegidos.reduce((s, d) => s + d.horasTotales, 0);
                     const tecnicos = [...new Set(docsElegidos.flatMap(d => d.tecnicos))];
-                    const materialesTexto = docsElegidos.flatMap(d => d.materiales).map(m => `${m.descripcion} × ${m.cantidad}`).join(', ');
-                    const otIds = docsElegidos.flatMap(d => d.ots);
-                    const descripcion = `Resumen de ${mesResumen} — Horas: ${horasTotales.toFixed(2)} h · Técnicos: ${tecnicos.join(', ') || '—'}${materialesTexto ? ` · Materiales: ${materialesTexto}` : ''}`;
+                    const otIds = docsElegidos.flatMap(d => d.ots).filter(o => !o.albaranada).map(o => o.id);
+                    if (otIds.length === 0) {
+                        alert('Todas las OT de las tarjetas seleccionadas ya estaban albaranadas. No hay nada nuevo que enviar.');
+                        setGenerandoAlbaran(false);
+                        return;
+                    }
+                    const descripcion = `Resumen de ${mesResumen} — Técnicos: ${tecnicos.join(', ') || '—'}`;
 
-                    // 1) Crear el albarán ya "completado" con todo lo que sabemos, salvo el importe
-                    // (eso lo añadirá el usuario más adelante, a mano).
+                    // Líneas editables: una de mano de obra (con las horas totales) y una por cada
+                    // material agregado — todas sin precio todavía, para poder ponérselo antes de facturar.
+                    const lineas = [];
+                    if (horasTotales > 0) {
+                        lineas.push({ tipo: 'mano_obra', descripcion: `Mano de obra (${tecnicos.join(', ') || 'técnicos'})`, cantidad: parseFloat(horasTotales.toFixed(2)), precio_unitario: '' });
+                    }
+                    const materialesAgregados = {};
+                    docsElegidos.flatMap(d => d.materiales).forEach(m => {
+                        if (!materialesAgregados[m.descripcion]) materialesAgregados[m.descripcion] = { tipo: 'material', descripcion: m.descripcion, cantidad: 0, precio_unitario: '' };
+                        materialesAgregados[m.descripcion].cantidad += m.cantidad;
+                    });
+                    lineas.push(...Object.values(materialesAgregados));
+
+                    // 1) Crear el albarán ya "completado" con todo lo que sabemos, salvo los precios
+                    // (esos los añade el usuario más adelante, editando las líneas).
                     const rCrear = await fetch(`${API_URL}/api/albaranes`, {
                         method: 'POST', headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ cliente_id: clienteIdParaAlbaran, obra, departamento, creado_por: user.id })
@@ -6153,7 +6176,7 @@
                     const nuevoAlbaran = await rCrear.json();
                     await fetch(`${API_URL}/api/albaranes/${nuevoAlbaran.id}`, {
                         method: 'PUT', headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ cliente_id: clienteIdParaAlbaran, obra, estado: 'final', fecha: new Date().toISOString().slice(0, 10), importe: '', descripcion })
+                        body: JSON.stringify({ cliente_id: clienteIdParaAlbaran, obra, estado: 'final', fecha: new Date().toISOString().slice(0, 10), importe: '', descripcion, lineas_json: JSON.stringify(lineas) })
                     });
 
                     // 2) Vincular todas las OT de las tarjetas elegidas a ese albarán ("quedan albaranadas")
@@ -6183,6 +6206,43 @@
             const abrirCompletar = (a) => {
                 setFormCompletar({ fecha: a.fecha || new Date().toISOString().slice(0, 10), importe: a.importe ?? '', descripcion: a.descripcion || '' });
                 setCompletandoId(a.id);
+            };
+
+            // ===== Líneas de material / mano de obra dentro de un albarán, con precio editable =====
+            const parsearLineas = (a) => { try { return a.lineas_json ? JSON.parse(a.lineas_json) : []; } catch { return []; } };
+
+            const abrirEdicionLineas = (a) => {
+                setLineasEnEdicion(parsearLineas(a));
+                setEditandoLineasId(a.id);
+            };
+
+            const añadirLinea = (tipo) => {
+                setLineasEnEdicion(prev => [...prev, { tipo, descripcion: '', cantidad: 1, precio_unitario: '' }]);
+            };
+            const quitarLinea = (idx) => {
+                setLineasEnEdicion(prev => prev.filter((_, i) => i !== idx));
+            };
+            const actualizarLinea = (idx, campo, valor) => {
+                setLineasEnEdicion(prev => prev.map((l, i) => i === idx ? { ...l, [campo]: valor } : l));
+            };
+            const totalLineas = (lineas) => lineas.reduce((s, l) => s + ((parseFloat(l.cantidad) || 0) * (parseFloat(l.precio_unitario) || 0)), 0);
+
+            const guardarLineas = async (a) => {
+                setGuardandoLineas(true);
+                try {
+                    const nuevoImporte = totalLineas(lineasEnEdicion);
+                    await fetch(`${API_URL}/api/albaranes/${a.id}`, {
+                        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            cliente_id: a.cliente_id, obra: a.obra, departamento: a.departamento, estado: a.estado,
+                            fecha: a.fecha, descripcion: a.descripcion, importe: nuevoImporte,
+                            lineas_json: JSON.stringify(lineasEnEdicion)
+                        })
+                    });
+                    setEditandoLineasId(null);
+                    cargar();
+                } catch { alert('Error al guardar las líneas'); }
+                setGuardandoLineas(false);
             };
 
             const guardarComoFinal = async (a) => {
@@ -6278,12 +6338,23 @@
                                                             <p className="card-text">📄 {doc.contratoNombre} — {mesResumen}</p>
                                                         </div>
                                                     </div>
-                                                    <span className="badge" style={{ background: 'var(--bg-accent)', color: 'var(--fill-accent)' }}>{doc.ots.length} OT</span>
+                                                    <span className="badge" style={{ background: doc.otsAlbaranadas === doc.ots.length ? '#d1fae5' : doc.otsAlbaranadas > 0 ? '#fff8e1' : 'var(--bg-accent)', color: doc.otsAlbaranadas === doc.ots.length ? '#065f46' : doc.otsAlbaranadas > 0 ? '#b8860b' : 'var(--fill-accent)' }}>
+                                                        {doc.ots.length} OT{doc.otsAlbaranadas > 0 ? ` · ${doc.otsAlbaranadas} ya albaranada${doc.otsAlbaranadas === 1 ? '' : 's'}` : ''}
+                                                    </span>
                                                 </div>
                                                 <div className="readonly-view" style={{ marginTop: '8px' }}>
                                                     <div className="rv-row"><span className="rv-label">Técnicos</span><span className="rv-value">{doc.tecnicos.join(', ') || '—'}</span></div>
                                                     <div className="rv-row"><span className="rv-label">Horas totales</span><span className="rv-value">{doc.horasTotales.toFixed(2)} h</span></div>
-                                                    <div className="rv-row"><span className="rv-label">OT incluidas</span><span className="rv-value">{doc.ots.join(', ')}</span></div>
+                                                    <div className="rv-row">
+                                                        <span className="rv-label">OT incluidas</span>
+                                                        <span className="rv-value">
+                                                            {doc.ots.map((o, k) => (
+                                                                <span key={o.id}>
+                                                                    {o.id}{o.albaranada ? ' 📄' : ''}{k < doc.ots.length - 1 ? ', ' : ''}
+                                                                </span>
+                                                            ))}
+                                                        </span>
+                                                    </div>
                                                 </div>
                                                 {doc.materiales.length > 0 && (
                                                     <div style={{ marginTop: '8px' }}>
@@ -6369,8 +6440,63 @@
                                         );
                                     })()}
 
+                                    {a.estado === 'final' && editandoLineasId !== a.id && (() => {
+                                        const lineas = parsearLineas(a);
+                                        if (lineas.length === 0) return null;
+                                        return (
+                                            <div style={{ marginTop: '8px' }}>
+                                                <p className="card-text" style={{ fontWeight: 600 }}>Material y mano de obra</p>
+                                                {lineas.map((l, i) => (
+                                                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', borderBottom: '1px dashed var(--border)', padding: '4px 0' }}>
+                                                        <span>{l.tipo === 'mano_obra' ? '👷' : '📦'} {l.descripcion} × {l.cantidad}</span>
+                                                        <span>{l.precio_unitario !== '' && l.precio_unitario != null ? `${(parseFloat(l.cantidad) * parseFloat(l.precio_unitario)).toFixed(2)} €` : '⚠️ Sin precio'}</span>
+                                                    </div>
+                                                ))}
+                                                <p className="card-text" style={{ textAlign: 'right', fontWeight: 600, marginTop: '4px' }}>Total: {totalLineas(lineas).toFixed(2)} €</p>
+                                            </div>
+                                        );
+                                    })()}
+
+                                    {a.estado === 'final' && editandoLineasId === a.id && (
+                                        <div className="quickadd-box" style={{ marginTop: '10px' }}>
+                                            <p className="card-text" style={{ fontWeight: 600 }}>Editar material y mano de obra</p>
+                                            {lineasEnEdicion.length === 0 && <p className="card-text">Sin líneas todavía. Añade una abajo.</p>}
+                                            {lineasEnEdicion.map((l, i) => (
+                                                <div key={i} style={{ display: 'flex', gap: '6px', alignItems: 'flex-end', marginBottom: '8px', flexWrap: 'wrap' }}>
+                                                    <div className="ficha-field" style={{ flex: 2, minWidth: '140px' }}>
+                                                        <span className="ficha-field-label">{l.tipo === 'mano_obra' ? '👷 Mano de obra' : '📦 Material'}</span>
+                                                        <input type="text" placeholder="Descripción" value={l.descripcion} onChange={(e) => actualizarLinea(i, 'descripcion', e.target.value)} />
+                                                    </div>
+                                                    <div className="ficha-field" style={{ width: '80px' }}>
+                                                        <span className="ficha-field-label">{l.tipo === 'mano_obra' ? 'Horas' : 'Cantidad'}</span>
+                                                        <input type="number" step="0.01" value={l.cantidad} onChange={(e) => actualizarLinea(i, 'cantidad', e.target.value)} />
+                                                    </div>
+                                                    <div className="ficha-field" style={{ width: '100px' }}>
+                                                        <span className="ficha-field-label">Precio/ud (€)</span>
+                                                        <input type="number" step="0.01" placeholder="0.00" value={l.precio_unitario} onChange={(e) => actualizarLinea(i, 'precio_unitario', e.target.value)} />
+                                                    </div>
+                                                    <button className="btn btn-danger" onClick={() => quitarLinea(i)}>✕</button>
+                                                </div>
+                                            ))}
+                                            <div className="btn-group" style={{ marginBottom: '10px' }}>
+                                                <button className="btn btn-secondary" onClick={() => añadirLinea('mano_obra')}>+ Añadir mano de obra</button>
+                                                <button className="btn btn-secondary" onClick={() => añadirLinea('material')}>+ Añadir material</button>
+                                            </div>
+                                            <p className="card-text" style={{ textAlign: 'right', fontWeight: 600 }}>Total: {totalLineas(lineasEnEdicion).toFixed(2)} €</p>
+                                            <div className="btn-group">
+                                                <button className="btn btn-success" disabled={guardandoLineas} onClick={() => guardarLineas(a)}>{guardandoLineas ? 'Guardando...' : 'Guardar líneas'}</button>
+                                                <button className="btn btn-secondary" onClick={() => setEditandoLineasId(null)}>Cancelar</button>
+                                            </div>
+                                        </div>
+                                    )}
+
                                     <div style={{ marginTop: '8px', display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
                                         {a.estado === 'provisional' && <button className="btn btn-primary" onClick={() => abrirCompletar(a)}>{completandoId === a.id ? 'Cerrar' : 'Completar albarán'}</button>}
+                                        {a.estado === 'final' && !a.facturado && (
+                                            <button className="btn btn-primary" onClick={() => editandoLineasId === a.id ? setEditandoLineasId(null) : abrirEdicionLineas(a)}>
+                                                {editandoLineasId === a.id ? 'Cerrar edición' : '✏️ Editar material / mano de obra'}
+                                            </button>
+                                        )}
                                         {a.estado === 'final' && (
                                             a.facturado ? (
                                                 <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
