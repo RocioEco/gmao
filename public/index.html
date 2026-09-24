@@ -1200,6 +1200,56 @@
             );
         }
 
+        // Permite añadir compañeros que también trabajaron en esta visita (a veces no va el técnico
+        // programado, o van varios), cada uno con sus propias horas — igual que se añaden materiales.
+        function CompanerosPicker({ value, onChange, usuarios, tecnicoPrincipalId, readOnly }) {
+            const filas = value && value.length ? value : [{ tecnico_id: '', nombre: '', horas: '' }];
+
+            const tecnicosDisponibles = (usuarios || [])
+                .filter(u => u.activo && (u.rol === 'tecnico' || u.rol === 'encargado') && u.id !== parseInt(tecnicoPrincipalId))
+                .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+
+            const updateRow = (i, field, val) => {
+                const copy = [...filas];
+                copy[i] = { ...copy[i], [field]: val };
+                if (field === 'tecnico_id' && val) {
+                    const u = usuarios.find(x => x.id === parseInt(val));
+                    if (u) copy[i].nombre = u.nombre;
+                } else if (field === 'tecnico_id' && !val) {
+                    copy[i].nombre = '';
+                }
+                onChange(copy);
+            };
+            const addRow = () => onChange([...filas, { tecnico_id: '', nombre: '', horas: '' }]);
+            const removeRow = (i) => { const copy = [...filas]; copy.splice(i, 1); onChange(copy); };
+
+            if (readOnly) {
+                return filas.filter(f => f.nombre).length ? (
+                    <div className="mini-list">
+                        {filas.filter(f => f.nombre).map((f, i) => (
+                            <p key={i} className="card-text">• {f.nombre} {f.horas ? `— ${f.horas} h` : ''}</p>
+                        ))}
+                    </div>
+                ) : <p className="card-text">No se registraron compañeros en esta visita.</p>;
+            }
+
+            return (
+                <div>
+                    {filas.map((f, i) => (
+                        <div key={i} className="material-picker-row">
+                            <select value={f.tecnico_id} onChange={(e) => updateRow(i, 'tecnico_id', e.target.value)}>
+                                <option value="">-- Compañero --</option>
+                                {tecnicosDisponibles.map(u => <option key={u.id} value={u.id}>{u.nombre}</option>)}
+                            </select>
+                            <input type="number" step="0.25" min="0" placeholder="Horas" value={f.horas} onChange={(e) => updateRow(i, 'horas', e.target.value)} />
+                            {filas.length > 1 && <div style={{ gridColumn: '1 / -1' }}><button className="btn-remove-row" onClick={() => removeRow(i)}>Quitar</button></div>}
+                        </div>
+                    ))}
+                    <button className="btn-add-row" onClick={addRow}>+ Añadir compañero</button>
+                </div>
+            );
+        }
+
         function DesplazamientosForm({ value, onChange, readOnly }) {
             const desplazamientos = (value && value.length) ? value : [{ matricula: '', origen: '', destino: '', kilometros: '' }];
             const updateItem = (idx, field, val) => {
@@ -1389,7 +1439,7 @@
             const blankVisita = () => ({
                 fecha: new Date().toISOString().slice(0, 10), tecnico_id: user.id, hora_inicio: '', hora_fin: '',
                 id_mantis: '', proyecto: '', descripcion: '', trabajos_pendientes: '', checklist_json: {}, materiales_json: [], materiales_pendientes_json: [], fotos_json: [], videos_json: [],
-                medio_ambiente_json: [], seguridad_json: {}, desplazamientos_json: [], firma: '', firma_nombre: '', finalizado: false
+                medio_ambiente_json: [], seguridad_json: {}, desplazamientos_json: [], firma: '', firma_nombre: '', finalizado: false, companeros_json: []
             });
             const [visitaForm, setVisitaForm] = useState(blankVisita());
 
@@ -1508,7 +1558,7 @@
             };
 
             const abrirEditarVisita = (v) => {
-                let checklist = {}, mats = [], matsPend = [], fotos = [], videos = [], medio = [], seg = {}, desp = [];
+                let checklist = {}, mats = [], matsPend = [], fotos = [], videos = [], medio = [], seg = {}, desp = [], compan = [];
                 try { checklist = v.checklist_json ? JSON.parse(v.checklist_json) : {}; } catch {}
                 try { mats = v.materiales_json ? JSON.parse(v.materiales_json) : []; } catch {}
                 try { matsPend = v.materiales_pendientes_json ? JSON.parse(v.materiales_pendientes_json) : []; } catch {}
@@ -1517,11 +1567,12 @@
                 try { medio = v.medio_ambiente_json ? JSON.parse(v.medio_ambiente_json) : []; } catch {}
                 try { seg = v.seguridad_json ? JSON.parse(v.seguridad_json) : {}; } catch {}
                 try { desp = v.desplazamientos_json ? JSON.parse(v.desplazamientos_json) : []; } catch {}
+                try { compan = v.companeros_json ? JSON.parse(v.companeros_json) : []; } catch {}
                 setVisitaForm({
                     fecha: v.fecha || '', tecnico_id: v.tecnico_id || user.id, hora_inicio: v.hora_inicio || '', hora_fin: v.hora_fin || '',
                     id_mantis: v.id_mantis || '', proyecto: v.proyecto || '', descripcion: v.descripcion || '', trabajos_pendientes: v.trabajos_pendientes || '',
                     checklist_json: checklist, materiales_json: mats, materiales_pendientes_json: matsPend, fotos_json: fotos, videos_json: videos,
-                    medio_ambiente_json: medio, seguridad_json: seg, desplazamientos_json: desp,
+                    medio_ambiente_json: medio, seguridad_json: seg, desplazamientos_json: desp, companeros_json: compan,
                     firma: v.firma || '', firma_nombre: v.firma_nombre || '', finalizado: !!v.finalizado
                 });
                 setEditingVisitId(v.id);
@@ -1543,6 +1594,7 @@
                     medio_ambiente_json: JSON.stringify(visitaForm.medio_ambiente_json || {}),
                     seguridad_json: JSON.stringify(visitaForm.seguridad_json || {}),
                     desplazamientos_json: JSON.stringify(visitaForm.desplazamientos_json || []),
+                    companeros_json: JSON.stringify(visitaForm.companeros_json || []),
                     firma: visitaForm.firma, firma_nombre: visitaForm.firma_nombre,
                     finalizado: visitaForm.finalizado ? 1 : 0
                 };
@@ -2303,6 +2355,12 @@
                             )}
 
                             <div className="checklist-section">
+                                <div className="checklist-section-title">👷 Compañeros en esta visita</div>
+                                <p className="lock-note" style={{ marginTop: 0 }}>Añade a quien más haya venido contigo (o en tu lugar), con sus horas — por si no fue el técnico programado, o fue más de uno.</p>
+                                <CompanerosPicker value={visitaForm.companeros_json} onChange={(v) => setVisitaForm({ ...visitaForm, companeros_json: v })} usuarios={usuarios} tecnicoPrincipalId={visitaForm.tecnico_id} />
+                            </div>
+
+                            <div className="checklist-section">
                                 <div className="checklist-section-title">🚗 Vehículo y Kilómetros</div>
                                 <DesplazamientosForm value={visitaForm.desplazamientos_json} onChange={(v) => setVisitaForm({ ...visitaForm, desplazamientos_json: v })} />
                             </div>
@@ -2347,7 +2405,7 @@
             // ============ RENDER: VIEW VISITA (solo lectura) ============
             if (mode === 'view-visita') {
                 if (!visitaViendo) return <div className="empty-state">Visita no encontrada</div>;
-                let checklist = {}, mats = [], matsPend = [], fotos = [], videos = [], medio = [], seg = {}, desp = [];
+                let checklist = {}, mats = [], matsPend = [], fotos = [], videos = [], medio = [], seg = {}, desp = [], compan = [];
                 try { checklist = visitaViendo.checklist_json ? JSON.parse(visitaViendo.checklist_json) : {}; } catch {}
                 try { mats = visitaViendo.materiales_json ? JSON.parse(visitaViendo.materiales_json) : []; } catch {}
                 try { matsPend = visitaViendo.materiales_pendientes_json ? JSON.parse(visitaViendo.materiales_pendientes_json) : []; } catch {}
@@ -2356,6 +2414,7 @@
                 try { medio = visitaViendo.medio_ambiente_json ? JSON.parse(visitaViendo.medio_ambiente_json) : []; } catch {}
                 try { seg = visitaViendo.seguridad_json ? JSON.parse(visitaViendo.seguridad_json) : {}; } catch {}
                 try { desp = visitaViendo.desplazamientos_json ? JSON.parse(visitaViendo.desplazamientos_json) : []; } catch {}
+                try { compan = visitaViendo.companeros_json ? JSON.parse(visitaViendo.companeros_json) : []; } catch {}
 
                 return (
                     <div>
@@ -2401,6 +2460,11 @@
                                     <SignaturePad value={visitaViendo.firma} onChange={() => {}} readOnly={true} />
                                 </div>
                             )}
+
+                            <div className="checklist-section">
+                                <div className="checklist-section-title">👷 Compañeros en esta visita</div>
+                                <CompanerosPicker value={compan} onChange={() => {}} usuarios={usuarios} readOnly={true} />
+                            </div>
 
                             <div className="checklist-section">
                                 <div className="checklist-section-title">🚗 Vehículo y Kilómetros</div>
