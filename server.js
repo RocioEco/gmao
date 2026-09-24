@@ -624,6 +624,7 @@ db.serialize(() => {
     firma TEXT,
     firma_nombre TEXT,
     finalizado INTEGER DEFAULT 0,
+    companeros_json TEXT,
     creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(orden_id) REFERENCES ordenes_trabajo(id),
     FOREIGN KEY(tecnico_id) REFERENCES usuarios(id)
@@ -632,6 +633,7 @@ db.serialize(() => {
   db.run(`ALTER TABLE visitas ADD COLUMN videos_json TEXT`, () => {});
   db.run(`ALTER TABLE visitas ADD COLUMN trabajos_pendientes TEXT`, () => {});
   db.run(`ALTER TABLE visitas ADD COLUMN materiales_pendientes_json TEXT`, () => {});
+  db.run(`ALTER TABLE visitas ADD COLUMN companeros_json TEXT`, () => {});
 
   db.run(`CREATE TABLE IF NOT EXISTS materiales (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1675,16 +1677,16 @@ app.get('/api/visitas', (req, res) => {
 app.post('/api/visitas', (req, res) => {
   const { orden_id, fecha, tecnico_id, hora_inicio, hora_fin, id_mantis, proyecto, descripcion, trabajos_pendientes,
           checklist_tipo, checklist_json, materiales_json, materiales_pendientes_json, fotos_json, videos_json, medio_ambiente_json,
-          seguridad_json, desplazamientos_json, firma, firma_nombre, finalizado } = req.body;
+          seguridad_json, desplazamientos_json, firma, firma_nombre, finalizado, companeros_json } = req.body;
   if (!orden_id) return res.status(400).json({ error: 'orden_id requerido' });
   const id = `VIS-${Date.now()}`;
   db.run(`INSERT INTO visitas (id, orden_id, fecha, tecnico_id, hora_inicio, hora_fin, id_mantis, proyecto, 
           descripcion, trabajos_pendientes, checklist_tipo, checklist_json, materiales_json, materiales_pendientes_json, fotos_json, videos_json, medio_ambiente_json, 
-          seguridad_json, desplazamientos_json, firma, firma_nombre, finalizado) 
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          seguridad_json, desplazamientos_json, firma, firma_nombre, finalizado, companeros_json) 
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [id, orden_id, fecha, tecnico_id, hora_inicio, hora_fin, id_mantis, proyecto, descripcion, trabajos_pendientes,
      checklist_tipo, checklist_json, materiales_json, materiales_pendientes_json, fotos_json, videos_json, medio_ambiente_json,
-     seguridad_json, desplazamientos_json, firma, firma_nombre, finalizado ? 1 : 0],
+     seguridad_json, desplazamientos_json, firma, firma_nombre, finalizado ? 1 : 0, companeros_json || '[]'],
     function(err) {
       if (err) return res.status(500).json({ error: err.message });
       // Una visita finalizada NO cierra la OT automáticamente (puede requerir más técnicos/visitas).
@@ -1692,21 +1694,21 @@ app.post('/api/visitas', (req, res) => {
       db.run(`UPDATE ordenes_trabajo SET estado = 'en_curso' WHERE id = ? AND estado = 'abierta'`, [orden_id]);
       res.json({ id, orden_id, fecha, tecnico_id, hora_inicio, hora_fin, id_mantis, proyecto, descripcion, trabajos_pendientes,
         checklist_tipo, checklist_json, materiales_json, materiales_pendientes_json, fotos_json, videos_json, medio_ambiente_json,
-        seguridad_json, desplazamientos_json, firma, firma_nombre, finalizado: finalizado ? 1 : 0 });
+        seguridad_json, desplazamientos_json, firma, firma_nombre, finalizado: finalizado ? 1 : 0, companeros_json: companeros_json || '[]' });
     });
 });
 
 app.put('/api/visitas/:id', (req, res) => {
   const { fecha, tecnico_id, hora_inicio, hora_fin, id_mantis, proyecto, descripcion, trabajos_pendientes,
           checklist_tipo, checklist_json, materiales_json, materiales_pendientes_json, fotos_json, videos_json, medio_ambiente_json,
-          seguridad_json, desplazamientos_json, firma, firma_nombre, finalizado, orden_id } = req.body;
+          seguridad_json, desplazamientos_json, firma, firma_nombre, finalizado, orden_id, companeros_json } = req.body;
   db.run(`UPDATE visitas SET fecha = ?, tecnico_id = ?, hora_inicio = ?, hora_fin = ?, id_mantis = ?, 
           proyecto = ?, descripcion = ?, trabajos_pendientes = ?, checklist_tipo = ?, checklist_json = ?, materiales_json = ?, materiales_pendientes_json = ?,
           fotos_json = ?, videos_json = ?, medio_ambiente_json = ?, seguridad_json = ?, desplazamientos_json = ?, 
-          firma = ?, firma_nombre = ?, finalizado = ? WHERE id = ?`,
+          firma = ?, firma_nombre = ?, finalizado = ?, companeros_json = ? WHERE id = ?`,
     [fecha, tecnico_id, hora_inicio, hora_fin, id_mantis, proyecto, descripcion, trabajos_pendientes, checklist_tipo,
      checklist_json, materiales_json, materiales_pendientes_json, fotos_json, videos_json, medio_ambiente_json, seguridad_json,
-     desplazamientos_json, firma, firma_nombre, finalizado ? 1 : 0, req.params.id],
+     desplazamientos_json, firma, firma_nombre, finalizado ? 1 : 0, companeros_json || '[]', req.params.id],
     (err) => {
       if (err) return res.status(500).json({ error: err.message });
       if (orden_id) {
