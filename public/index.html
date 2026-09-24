@@ -5760,11 +5760,12 @@
                 ? clientes.filter(c => (c.departamento || 'Facilities') === user.departamento)
                 : clientes;
             const [filtroDepartamento, setFiltroDepartamento] = useState('todos');
+            const [filtroEstadoObras, setFiltroEstadoObras] = useState('todos');
 
             const filasOT = ordenes
-                .filter(o => o.estado === 'resuelta')
                 .filter(o => user.rol !== 'encargado' || !user.departamento || (o.departamento || 'Facilities') === user.departamento || o.encargado_id === user.id)
                 .filter(o => filtroDepartamento === 'todos' || (o.departamento || 'Facilities') === filtroDepartamento)
+                .filter(o => filtroEstadoObras === 'todos' || o.estado === filtroEstadoObras)
                 .filter(o => filtroCliente === 'todos' || String(o.cliente_id) === filtroCliente)
                 .map(o => {
                     let visitasOT = visitas.filter(v => v.orden_id === o.id);
@@ -5810,7 +5811,7 @@
                         <h3 className="section-title" style={{ margin: 0 }}>🛠️ Resumen de Obras</h3>
                     </div>
 
-                    <p className="lock-note">Se muestran las OT ya finalizadas (estado "Resuelta") de Facilities y Corvelec. No incluye importes — solo horas, kilómetros y materiales utilizados.</p>
+                    <p className="lock-note">Se muestran todas las OT de Facilities y Corvelec, estén finalizadas o no. No incluye importes — solo horas, kilómetros y materiales utilizados.</p>
 
                     <div className="ficha-grid">
                         {(user.rol === 'admin' || user.rol === 'supervisor') && (
@@ -5838,6 +5839,17 @@
                             <span className="ficha-field-label">Hasta</span>
                             <input type="date" value={filtroHasta} onChange={(e) => setFiltroHasta(e.target.value)} />
                         </div>
+                        <div className="ficha-field">
+                            <span className="ficha-field-label">Estado</span>
+                            <select value={filtroEstadoObras} onChange={(e) => setFiltroEstadoObras(e.target.value)}>
+                                <option value="todos">Todos</option>
+                                <option value="pendiente">Pendiente</option>
+                                <option value="abierta">Asignada / Abierta</option>
+                                <option value="en_curso">En curso</option>
+                                <option value="resuelta">Resuelta</option>
+                                <option value="cancelada">Cancelada</option>
+                            </select>
+                        </div>
                     </div>
 
                     {cargando ? <div className="empty-state">Cargando...</div> : (
@@ -5849,6 +5861,13 @@
                                             <p className="card-title">{f.ot.id} <span className={`badge ${f.ot.tipo}`}>{f.ot.tipo}</span></p>
                                             <p className="card-text">{f.ot.titulo}</p>
                                             <p className="card-text">👤 {f.ot.cliente_nombre || '—'}</p>
+                                            <span className="badge" style={{
+                                                background: f.ot.estado === 'resuelta' ? '#d1fae5' : f.ot.estado === 'cancelada' ? '#fee2e2' : '#fff8e1',
+                                                color: f.ot.estado === 'resuelta' ? '#065f46' : f.ot.estado === 'cancelada' ? '#991b1b' : '#b8860b',
+                                                fontSize: '10px', marginTop: '2px'
+                                            }}>
+                                                {f.ot.estado === 'resuelta' ? '✓ Finalizada' : f.ot.estado === 'cancelada' ? 'Cancelada' : f.ot.estado.replace('_', ' ')}
+                                            </span>
                                         </div>
                                     </div>
 
