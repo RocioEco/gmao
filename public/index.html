@@ -1574,7 +1574,8 @@
                 ? ordenes.filter(o => o.asignado_a === user.id)
                 : (restringidoPorDepartamento ? ordenes.filter(o => (o.departamento || 'Facilities') === user.departamento || o.encargado_id === user.id) : ordenes);
             let ordenesFiltradas = filtroTipo === 'todas' ? ordenesBase : ordenesBase.filter(o => o.tipo === filtroTipo);
-            if (filtroEstado !== 'todas') ordenesFiltradas = ordenesFiltradas.filter(o => o.estado === filtroEstado);
+            if (filtroEstado === 'activas') ordenesFiltradas = ordenesFiltradas.filter(o => o.estado !== 'resuelta' && o.estado !== 'cancelada');
+            else if (filtroEstado !== 'todas') ordenesFiltradas = ordenesFiltradas.filter(o => o.estado === filtroEstado);
             if (buscarNombre.trim()) {
                 const q = buscarNombre.trim().toLowerCase();
                 ordenesFiltradas = ordenesFiltradas.filter(o => (o.titulo || '').toLowerCase().includes(q) || (o.id || '').toLowerCase().includes(q));
@@ -1625,9 +1626,9 @@
                             ))}
                         </div>
                         <div className="tipo-filter-bar">
-                            {['todas', 'abierta', 'en_curso', 'resuelta', 'pendiente'].map(t => (
+                            {['todas', 'activas', 'abierta', 'en_curso', 'resuelta', 'pendiente'].map(t => (
                                 <button key={t} className={`tipo-filter-btn ${filtroEstado === t ? 'active' : ''}`} onClick={() => setFiltroEstado(t)}>
-                                    {t === 'todas' ? 'Cualquier estado' : t.replace('_', ' ')}
+                                    {t === 'todas' ? 'Cualquier estado' : t === 'activas' ? 'Activas (sin finalizar)' : t.replace('_', ' ')}
                                 </button>
                             ))}
                         </div>
