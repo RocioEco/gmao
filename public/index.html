@@ -624,9 +624,9 @@
                         {activeTab === 'planning' && (user.rol === 'admin' || user.rol === 'supervisor' || user.rol === 'encargado') && <PlanningSemanalView user={user} ordenes={ordenes} usuarios={usuarios} />}
                         {activeTab === 'inventario' && <InventarioView user={user} activos={activos} emplazamientos={emplazamientos} zonas={zonas} clientes={clientes} contratos={contratos} tiposActivo={tiposActivo} camposConfig={camposConfig} onRefresh={cargarDatos} />}
                         {activeTab === 'preciario' && (user.rol === 'admin' || user.rol === 'supervisor' || user.rol === 'encargado') && <PreciarioView user={user} materiales={materiales} clientes={clientes} contratos={contratos} onRefresh={cargarDatos} />}
-                        {activeTab === 'albaranes' && (user.rol === 'admin' || user.rol === 'supervisor' || user.rol === 'encargado') && <AlbaranesView user={user} clientes={clientes} contratos={contratos} ordenes={ordenes} onRefresh={cargarDatos} />}
+                        {activeTab === 'albaranes' && (user.rol === 'admin' || user.rol === 'supervisor' || user.rol === 'encargado') && <AlbaranesView user={user} clientes={clientes} contratos={contratos} ordenes={ordenes} materiales={materiales} onRefresh={cargarDatos} />}
                         {activeTab === 'facturacion' && (user.rol === 'admin' || user.rol === 'supervisor' || user.rol === 'encargado') && <FacturacionView user={user} ordenes={ordenes} clientes={clientes} materiales={materiales} usuarios={usuarios} onRefresh={cargarDatos} />}
-                        {activeTab === 'resumen-obras' && (user.rol === 'admin' || user.rol === 'supervisor' || user.rol === 'encargado') && <ResumenObrasView user={user} ordenes={ordenes} clientes={clientes} usuarios={usuarios} />}
+                        {activeTab === 'resumen-obras' && (user.rol === 'admin' || user.rol === 'supervisor' || user.rol === 'encargado') && <ResumenObrasView user={user} ordenes={ordenes} clientes={clientes} usuarios={usuarios} materiales={materiales} />}
                         {activeTab === 'alta-campo' && <AltaCampoView user={user} clientes={clientes} contratos={contratos} zonas={zonas} emplazamientos={emplazamientos} tiposActivo={tiposActivo} camposConfig={camposConfig} onRefresh={cargarDatos} />}
                         {activeTab === 'usuarios' && (user.rol === 'admin' || user.rol === 'supervisor' || user.rol === 'encargado') && <UsuariosView user={user} usuarios={usuarios} onRefresh={cargarDatos} />}
                     </div>
@@ -5766,7 +5766,7 @@
         }
 
         // ===== RESUMEN DE OBRAS (Corvelec): igual que Facturación pero sin importes — solo horas, km y materiales =====
-        function ResumenObrasView({ user, ordenes, clientes, usuarios }) {
+        function ResumenObrasView({ user, ordenes, clientes, usuarios, materiales }) {
             const [visitas, setVisitas] = useState([]);
             const [cargando, setCargando] = useState(true);
             const [filtroCliente, setFiltroCliente] = useState('todos');
@@ -5827,12 +5827,20 @@
                         let mats = [];
                         try { mats = v.materiales_json ? JSON.parse(v.materiales_json) : []; } catch { mats = []; }
                         mats.forEach(m => {
-                            if (!m.descripcion) return;
+                            // Si el material se eligió del Preciario pero por lo que sea no quedó guardada
+                            // su descripción en la visita, se recupera del propio Preciario por su id — así
+                            // no se pierde silenciosamente del resumen.
+                            let descripcion = m.descripcion;
+                            if (!descripcion && m.material_id && materiales) {
+                                const delPreciario = materiales.find(mat => mat.id === parseInt(m.material_id));
+                                if (delPreciario) descripcion = delPreciario.descripcion;
+                            }
+                            if (!descripcion) return;
                             // Se agrupa por descripción (no por material_id): así, aunque el mismo material
                             // venga de dos catálogos distintos, o alguna visita lo registrara sin id, se suma
                             // igualmente en una sola línea con la cantidad total correcta.
-                            const key = m.descripcion.trim().toLowerCase();
-                            if (!materialesAgregados[key]) materialesAgregados[key] = { descripcion: m.descripcion, cantidad: 0 };
+                            const key = descripcion.trim().toLowerCase();
+                            if (!materialesAgregados[key]) materialesAgregados[key] = { descripcion, cantidad: 0 };
                             materialesAgregados[key].cantidad += parseFloat(m.cantidad) || 0;
                         });
                     });
@@ -6037,9 +6045,14 @@
                         let mats = [];
                         try { mats = v.materiales_json ? JSON.parse(v.materiales_json) : []; } catch { mats = []; }
                         mats.forEach(m => {
-                            if (!m.descripcion) return;
-                            const key = m.material_id || m.descripcion;
-                            if (!materialesAgregados[key]) materialesAgregados[key] = { descripcion: m.descripcion, cantidad: 0, material_id: m.material_id };
+                            let descripcion = m.descripcion;
+                            if (!descripcion && m.material_id) {
+                                const delPreciario = materiales.find(mat => mat.id === parseInt(m.material_id));
+                                if (delPreciario) descripcion = delPreciario.descripcion;
+                            }
+                            if (!descripcion) return;
+                            const key = m.material_id || descripcion;
+                            if (!materialesAgregados[key]) materialesAgregados[key] = { descripcion, cantidad: 0, material_id: m.material_id };
                             materialesAgregados[key].cantidad += parseFloat(m.cantidad) || 0;
                         });
                     });
@@ -6319,7 +6332,7 @@
         }
 
         // ===== ALBARANES: provisionales (mínimos, sin fecha/importe) -> finales (completos, pendientes de facturar) =====
-        function AlbaranesView({ user, clientes, contratos, ordenes, onRefresh }) {
+        function AlbaranesView({ user, clientes, contratos, ordenes, materiales, onRefresh }) {
             const [albaranes, setAlbaranes] = useState([]);
             const [cargando, setCargando] = useState(true);
             const [showForm, setShowForm] = useState(false);
@@ -6402,9 +6415,14 @@
                         let mats = [];
                         try { mats = v.materiales_json ? JSON.parse(v.materiales_json) : []; } catch { mats = []; }
                         mats.forEach(m => {
-                            if (!m.descripcion) return;
-                            const mk = m.material_id || m.descripcion;
-                            if (!g.materiales[mk]) g.materiales[mk] = { descripcion: m.descripcion, cantidad: 0 };
+                            let descripcion = m.descripcion;
+                            if (!descripcion && m.material_id && materiales) {
+                                const delPreciario = materiales.find(mat => mat.id === parseInt(m.material_id));
+                                if (delPreciario) descripcion = delPreciario.descripcion;
+                            }
+                            if (!descripcion) return;
+                            const mk = descripcion.trim().toLowerCase();
+                            if (!g.materiales[mk]) g.materiales[mk] = { descripcion, cantidad: 0 };
                             g.materiales[mk].cantidad += parseFloat(m.cantidad) || 0;
                         });
                     });
