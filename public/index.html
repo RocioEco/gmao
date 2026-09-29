@@ -7026,7 +7026,7 @@
                     {showForm && !editingId && (
                         <div className="card" ref={formRef} style={{ marginBottom: '1rem' }}>
                             <p className="card-text" style={{ fontWeight: 600, marginBottom: '6px' }}>+ Nuevo Material</p>
-                            <CamposFormularioMaterial />
+                            {CamposFormularioMaterial()}
                         </div>
                     )}
 
@@ -7056,7 +7056,7 @@
                                     {editandoEsteMaterial ? (
                                         <div>
                                             <p className="card-text" style={{ fontWeight: 600, marginBottom: '6px' }}>Editar Material</p>
-                                            <CamposFormularioMaterial />
+                                            {CamposFormularioMaterial()}
                                         </div>
                                     ) : (
                                         <>
