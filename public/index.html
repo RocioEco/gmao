@@ -621,7 +621,7 @@
                         {activeTab === 'mis-ots' && <OrdenesView user={user} ordenes={ordenes} clientes={clientes} contratos={contratos} activos={activos} zonas={zonas} emplazamientos={emplazamientos} tiposActivo={tiposActivo} usuarios={usuarios} materiales={materiales} onRefresh={cargarDatos} soloAsignadas={true} />}
                         {activeTab === 'ordenes' && <OrdenesView user={user} ordenes={ordenes} clientes={clientes} contratos={contratos} activos={activos} zonas={zonas} emplazamientos={emplazamientos} tiposActivo={tiposActivo} usuarios={usuarios} materiales={materiales} onRefresh={cargarDatos} />}
                         {activeTab === 'guardias' && (user.rol === 'admin' || user.rol === 'supervisor' || user.rol === 'encargado') && <OrdenesView user={user} ordenes={ordenes} clientes={clientes} contratos={contratos} activos={activos} zonas={zonas} emplazamientos={emplazamientos} tiposActivo={tiposActivo} usuarios={usuarios} materiales={materiales} onRefresh={cargarDatos} filtroInicialTipo="guardia" />}
-                        {activeTab === 'planning' && (user.rol === 'admin' || user.rol === 'supervisor' || user.rol === 'encargado') && <PlanningSemanalView user={user} ordenes={ordenes} usuarios={usuarios} />}
+                        {activeTab === 'planning' && (user.rol === 'admin' || user.rol === 'supervisor' || user.rol === 'encargado') && <PlanningSemanalView user={user} ordenes={ordenes} usuarios={usuarios} onRefresh={cargarDatos} />}
                         {activeTab === 'inventario' && <InventarioView user={user} activos={activos} emplazamientos={emplazamientos} zonas={zonas} clientes={clientes} contratos={contratos} tiposActivo={tiposActivo} camposConfig={camposConfig} onRefresh={cargarDatos} />}
                         {activeTab === 'preciario' && (user.rol === 'admin' || user.rol === 'supervisor' || user.rol === 'encargado') && <PreciarioView user={user} materiales={materiales} clientes={clientes} contratos={contratos} onRefresh={cargarDatos} />}
                         {activeTab === 'albaranes' && (user.rol === 'admin' || user.rol === 'supervisor' || user.rol === 'encargado') && <AlbaranesView user={user} clientes={clientes} contratos={contratos} ordenes={ordenes} materiales={materiales} onRefresh={cargarDatos} />}
@@ -5014,13 +5014,35 @@
             return colorParaClavePlanning(`${o.cliente_id || ''}::${o.contrato_id || ''}::${o.tipo || ''}`);
         }
 
-        function PlanningSemanalView({ user, ordenes, usuarios }) {
+        function PlanningSemanalView({ user, ordenes, usuarios, onRefresh }) {
             const [tecnicosExternos, setTecnicosExternos] = useState([]);
             const [planningManual, setPlanningManual] = useState([]);
             const [mostrandoFormExterno, setMostrandoFormExterno] = useState(false);
             const [nombreExternoNuevo, setNombreExternoNuevo] = useState('');
             const [deptoExternoNuevo, setDeptoExternoNuevo] = useState(user.departamento || 'Facilities');
             const [celdaAbierta, setCeldaAbierta] = useState(null); // { tecnicoExternoId, fecha }
+            const [celdaOTAbierta, setCeldaOTAbierta] = useState(null); // { tecnicoId, fecha }
+            const [otParaAsignar, setOtParaAsignar] = useState('');
+            const [asignandoOT, setAsignandoOT] = useState(false);
+
+            // OT que aún no están resueltas ni canceladas: candidatas para asignar directamente desde el calendario.
+            const otsNoResueltas = (ordenes || []).filter(o => o.tipo !== 'guardia' && o.estado !== 'resuelta' && o.estado !== 'cancelada');
+
+            const asignarOTATecnico = async (otId, tecnicoId, fecha) => {
+                const ot = ordenes.find(o => o.id === otId);
+                if (!ot) return;
+                setAsignandoOT(true);
+                try {
+                    await fetch(`${API_URL}/api/ordenes/${otId}`, {
+                        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ ...ot, asignado_a: tecnicoId, fecha_programada: fecha, fecha_fin_programada: ot.fecha_fin_programada && ot.fecha_fin_programada >= fecha ? ot.fecha_fin_programada : fecha })
+                    });
+                    setCeldaOTAbierta(null);
+                    setOtParaAsignar('');
+                    if (onRefresh) onRefresh();
+                } catch { alert('Error al asignar la OT'); }
+                setAsignandoOT(false);
+            };
             const [formManual, setFormManual] = useState({ categoria: 'OBRA', descripcion: '' });
 
             const cargarExternos = () => {
@@ -5219,9 +5241,10 @@
                                                         );
                                                     }
                                                     const ots = ordenesDe(t.id, fechaStr);
+                                                    const celdaOTEstaAbierta = celdaOTAbierta && celdaOTAbierta.tecnicoId === t.id && celdaOTAbierta.fecha === fechaStr;
                                                     return (
                                                         <td key={i} className="planning-celda">
-                                                            {ots.length === 0 ? <span className="planning-vacio">·</span> : ots.map(o => {
+                                                            {ots.map(o => {
                                                                 const color = colorParaOtPlanning(o);
                                                                 const categoria = CATEGORIA_PLANNING_POR_TIPO[o.tipo] || 'OTROS';
                                                                 return (
@@ -5231,6 +5254,25 @@
                                                                     </div>
                                                                 );
                                                             })}
+                                                            {(user.rol === 'admin' || user.rol === 'supervisor' || user.rol === 'encargado') && (
+                                                                celdaOTEstaAbierta ? (
+                                                                    <div className="planning-manual-form" onClick={(e) => e.stopPropagation()}>
+                                                                        <select value={otParaAsignar} onChange={(e) => setOtParaAsignar(e.target.value)}>
+                                                                            <option value="">-- Elige una OT --</option>
+                                                                            {otsNoResueltas.map(o => <option key={o.id} value={o.id}>{o.id} — {o.titulo}</option>)}
+                                                                        </select>
+                                                                        <div style={{ display: 'flex', gap: '4px', marginTop: '4px' }}>
+                                                                            <button className="btn btn-success" style={{ fontSize: '10px', padding: '3px 6px' }} disabled={!otParaAsignar || asignandoOT} onClick={() => asignarOTATecnico(otParaAsignar, t.id, fechaStr)}>
+                                                                                {asignandoOT ? 'Asignando...' : 'Asignar'}
+                                                                            </button>
+                                                                            <button className="btn btn-secondary" style={{ fontSize: '10px', padding: '3px 6px' }} onClick={() => setCeldaOTAbierta(null)}>Cancelar</button>
+                                                                        </div>
+                                                                    </div>
+                                                                ) : (
+                                                                    <span className="planning-vacio" onClick={() => { setCeldaOTAbierta({ tecnicoId: t.id, fecha: fechaStr }); setOtParaAsignar(''); }}>+</span>
+                                                                )
+                                                            )}
+                                                            {ots.length === 0 && !(user.rol === 'admin' || user.rol === 'supervisor' || user.rol === 'encargado') && <span className="planning-vacio">·</span>}
                                                         </td>
                                                     );
                                                 })}
@@ -5852,18 +5894,6 @@
             const granHoras = filasOT.reduce((s, f) => s + f.horasTotales, 0);
             const granKm = filasOT.reduce((s, f) => s + f.kmTotales, 0);
 
-            // Total de materiales sumado entre TODAS las OT visibles con el filtro actual (antes no existía:
-            // cada tarjeta mostraba sus propios materiales, pero nunca se totalizaban todos juntos).
-            const materialesGranTotalObj = {};
-            filasOT.forEach(f => {
-                f.materiales.forEach(m => {
-                    const key = m.descripcion.trim().toLowerCase();
-                    if (!materialesGranTotalObj[key]) materialesGranTotalObj[key] = { descripcion: m.descripcion, cantidad: 0 };
-                    materialesGranTotalObj[key].cantidad += m.cantidad;
-                });
-            });
-            const materialesGranTotal = Object.values(materialesGranTotalObj).sort((a, b) => a.descripcion.localeCompare(b.descripcion, 'es'));
-
             return (
                 <div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '8px' }}>
@@ -5953,19 +5983,8 @@
                     )}
 
                     {filasOT.length > 0 && (
-                        <div className="card" style={{ marginTop: '1rem' }}>
-                            <p className="card-title" style={{ textAlign: 'right' }}>Total — {granHoras.toFixed(2)} h · {granKm.toFixed(1)} km</p>
-                            {materialesGranTotal.length > 0 && (
-                                <div style={{ marginTop: '8px' }}>
-                                    <p className="card-text" style={{ fontWeight: 600, textAlign: 'right' }}>Total materiales (todas las OT visibles)</p>
-                                    {materialesGranTotal.map((m, i) => (
-                                        <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', borderBottom: '1px dashed var(--border)', padding: '4px 0' }}>
-                                            <span>{m.descripcion}</span>
-                                            <span style={{ fontWeight: 600 }}>{m.cantidad}</span>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
+                        <div className="card" style={{ marginTop: '1rem', textAlign: 'right' }}>
+                            <p className="card-title">Total — {granHoras.toFixed(2)} h · {granKm.toFixed(1)} km</p>
                         </div>
                     )}
                 </div>
