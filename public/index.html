@@ -1170,6 +1170,20 @@
                 return Object.values(mejores).sort((a, b) => a.descripcion.localeCompare(b.descripcion));
             })();
 
+            // Agrupados por categoría (el campo "Tipo" del Preciario), para que el técnico los vea
+            // organizados en vez de una lista larga suelta. Los que no tienen categoría van al final.
+            const materialesPorCategoria = (() => {
+                const grupos = {};
+                materialesCliente.forEach(m => {
+                    const cat = (m.tipo || '').trim() || 'Sin categoría';
+                    if (!grupos[cat]) grupos[cat] = [];
+                    grupos[cat].push(m);
+                });
+                return Object.keys(grupos)
+                    .sort((a, b) => (a === 'Sin categoría' ? 1 : b === 'Sin categoría' ? -1 : a.localeCompare(b, 'es')))
+                    .map(categoria => ({ categoria, items: grupos[categoria] }));
+            })();
+
             const updateRow = (i, field, val) => {
                 const copy = [...filas];
                 copy[i] = { ...copy[i], [field]: val };
@@ -1198,7 +1212,11 @@
                         <div key={i} className="material-picker-row">
                             <select value={f.material_id} onChange={(e) => updateRow(i, 'material_id', e.target.value)}>
                                 <option value="">-- Material del preciario (opcional) --</option>
-                                {materialesCliente.map(m => <option key={m.id} value={m.id}>{m.descripcion}</option>)}
+                                {materialesPorCategoria.map(g => (
+                                    <optgroup key={g.categoria} label={g.categoria}>
+                                        {g.items.map(m => <option key={m.id} value={m.id}>{m.descripcion}</option>)}
+                                    </optgroup>
+                                ))}
                             </select>
                             <input type="number" min="0" placeholder="Cantidad" value={f.cantidad} onChange={(e) => updateRow(i, 'cantidad', e.target.value)} />
                             <input style={{ gridColumn: '1 / -1' }} type="text" placeholder="Descripción (si no está en el preciario)" value={f.descripcion} onChange={(e) => updateRow(i, 'descripcion', e.target.value)} />
