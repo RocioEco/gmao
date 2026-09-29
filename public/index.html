@@ -122,6 +122,16 @@
         .btn-secondary:hover { background: var(--surface-2); }
         .btn-group { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 1rem; }
         .list { display: grid; gap: 12px; }
+        .ordenes-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; align-items: start; }
+        @media (max-width: 1400px) { .ordenes-grid { grid-template-columns: repeat(3, 1fr); } }
+        @media (max-width: 1000px) { .ordenes-grid { grid-template-columns: repeat(2, 1fr); } }
+        @media (max-width: 640px) { .ordenes-grid { grid-template-columns: 1fr; } }
+        @media print {
+            .header, .nav-tabs, .tipo-filter-bar, .btn-group, .btn { display: none !important; }
+            .ordenes-grid { grid-template-columns: repeat(3, 1fr) !important; gap: 6px; }
+            .ordenes-grid .list-item { break-inside: avoid; font-size: 10px; padding: 6px !important; }
+            body { background: #fff !important; }
+        }
         .list-item { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 1rem; }
         .list-item:hover { border-color: var(--fill-accent); }
         .list-item-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; }
@@ -1654,6 +1664,15 @@
             if (filtroClienteOt !== 'todos') ordenesFiltradas = ordenesFiltradas.filter(o => String(o.cliente_id) === filtroClienteOt);
             if (filtroContratoOt !== 'todos') ordenesFiltradas = ordenesFiltradas.filter(o => String(o.contrato_id) === filtroContratoOt);
 
+            // Las OT van por última visita (la más reciente primero) — no alfabéticamente, a diferencia
+            // del resto de la app. Las que aún no tienen ninguna visita se quedan al final.
+            ordenesFiltradas = ordenesFiltradas.slice().sort((a, b) => {
+                if (!a.ultima_visita && !b.ultima_visita) return 0;
+                if (!a.ultima_visita) return 1;
+                if (!b.ultima_visita) return -1;
+                return String(b.ultima_visita).localeCompare(String(a.ultima_visita));
+            });
+
             const contratosDelFiltro = filtroClienteOt !== 'todos' ? contratos.filter(c => String(c.cliente_id) === filtroClienteOt) : contratos;
 
             // ============ RENDER: LIST ============
@@ -1704,7 +1723,24 @@
                             ))}
                         </div>
 
-                        <div className="list">
+                        <div className="btn-group" style={{ marginBottom: '10px' }}>
+                            <button className="btn btn-excel" onClick={() => exportToExcel(
+                                ordenesFiltradas.map(o => ({
+                                    id: o.id, titulo: o.titulo, tipo: o.tipo, estado: o.estado, departamento: o.departamento || 'Facilities',
+                                    cliente: o.cliente_nombre || '', contrato: o.contrato_nombre || '', tecnico: o.tecnico_nombre || 'Sin asignar',
+                                    encargado: o.encargado_nombre || '', ticket: o.ticket || '', id_cliente: o.id_cliente || '',
+                                    fecha_inicio: o.fecha_programada || '', fecha_fin: o.fecha_fin_programada || '', prioridad: o.prioridad || ''
+                                })), 'ordenes_de_trabajo', [
+                                    { key: 'id', label: 'Nº OT' }, { key: 'titulo', label: 'Título' }, { key: 'tipo', label: 'Tipo' }, { key: 'estado', label: 'Estado' },
+                                    { key: 'departamento', label: 'Departamento' }, { key: 'cliente', label: 'Cliente' }, { key: 'contrato', label: 'Contrato/Obra' },
+                                    { key: 'tecnico', label: 'Técnico' }, { key: 'encargado', label: 'Encargado' }, { key: 'ticket', label: 'Ticket' }, { key: 'id_cliente', label: 'ID Cliente' },
+                                    { key: 'fecha_inicio', label: 'Fecha Inicio' }, { key: 'fecha_fin', label: 'Fecha Fin' }, { key: 'prioridad', label: 'Prioridad' }
+                                ]
+                            )}>📤 Exportar a Excel ({ordenesFiltradas.length})</button>
+                            <button className="btn btn-secondary" onClick={() => window.print()}>🖨️ Imprimir listado</button>
+                        </div>
+
+                        <div className="ordenes-grid">
                             {ordenesFiltradas.length === 0 ? (
                                 <div className="empty-state">No hay órdenes</div>
                             ) : (
@@ -2665,7 +2701,7 @@
                     )}
 
                     <div className="list">
-                        {zonas.length === 0 ? <div className="empty-state">No hay zonas</div> : zonas.map(z => (
+                        {zonas.length === 0 ? <div className="empty-state">No hay zonas</div> : [...zonas].sort((a, b) => (a.nombre || '').localeCompare(b.nombre || '', 'es')).map(z => (
                             <div key={z.id} className="list-item">
                                 <p className="card-title">🗺️ {z.nombre}</p>
                                 {esGestor && (
@@ -3203,9 +3239,9 @@
 
                     <div className="list">
                         {(() => {
-                            const emplazamientosFiltrados = search
+                            const emplazamientosFiltrados = (search
                                 ? emplazamientos.filter(e => (e.nombre || '').toLowerCase().includes(search.toLowerCase()))
-                                : emplazamientos;
+                                : emplazamientos).slice().sort((a, b) => (a.nombre || '').localeCompare(b.nombre || '', 'es'));
                             if (emplazamientosFiltrados.length === 0) return <div className="empty-state">No hay emplazamientos</div>;
                             return emplazamientosFiltrados.map(e => {
                             const activosDeAqui = activos ? activos.filter(a => a.emplazamiento_id === e.id) : [];
@@ -3807,9 +3843,9 @@
 
                     <div className="list">
                         {(() => {
-                            const activosFiltrados = search
+                            const activosFiltrados = (search
                                 ? activos.filter(a => ((a.nombre || '') + (a.emplazamiento_nombre || '')).toLowerCase().includes(search.toLowerCase()))
-                                : activos;
+                                : activos).slice().sort((a, b) => (a.nombre || '').localeCompare(b.nombre || '', 'es'));
                             if (activosFiltrados.length === 0) return <div className="empty-state">No hay activos</div>;
                             return (
                                 <>
@@ -4069,9 +4105,9 @@
 
                     <div className="list">
                         {(() => {
-                            const contratosFiltradosBusqueda = search
+                            const contratosFiltradosBusqueda = (search
                                 ? contratos.filter(c => (c.nombre || '').toLowerCase().includes(search.toLowerCase()))
-                                : contratos;
+                                : contratos).slice().sort((a, b) => (a.nombre || '').localeCompare(b.nombre || '', 'es'));
                             if (contratosFiltradosBusqueda.length === 0) return <div className="empty-state">No hay contratos</div>;
                             return (
                                 <>
@@ -4558,9 +4594,9 @@
 
                     <div className="list">
                         {(() => {
-                            const clientesFiltradosBusqueda = search
+                            const clientesFiltradosBusqueda = (search
                                 ? clientesVisibles.filter(c => (c.nombre || '').toLowerCase().includes(search.toLowerCase()))
-                                : clientesVisibles;
+                                : clientesVisibles).slice().sort((a, b) => (a.nombre || '').localeCompare(b.nombre || '', 'es'));
                             if (clientesFiltradosBusqueda.length === 0) return <div className="empty-state">No hay clientes</div>;
                             return (
                                 <>
@@ -6499,7 +6535,7 @@
                 if (filtroEstado === 'pendientes_facturar') return a.estado === 'final' && !a.facturado;
                 if (filtroEstado === 'facturados') return a.estado === 'final' && !!a.facturado;
                 return true;
-            });
+            }).sort((a, b) => (a.cliente_nombre || '').localeCompare(b.cliente_nombre || '', 'es'));
 
             return (
                 <div>
@@ -6762,6 +6798,7 @@
             const [editingId, setEditingId] = useState(null);
             const [search, setSearch] = useState('');
             const [filtroCliente, setFiltroCliente] = useState('todos');
+            const [filtroContrato, setFiltroContrato] = useState('todos');
             const [verHistorialId, setVerHistorialId] = useState(null);
             const [precioNuevo, setPrecioNuevo] = useState({});
             const [formData, setFormData] = useState({ cliente_id: '', contrato_id: '', tipo: '', descripcion: '', unidad: 'ud', precio: '', costo: '', facturable: true });
@@ -6779,7 +6816,12 @@
 
             let filtrados = materiales;
             if (filtroCliente !== 'todos') filtrados = filtrados.filter(m => m.cliente_id === parseInt(filtroCliente));
+            if (filtroContrato !== 'todos') filtrados = filtrados.filter(m => m.contrato_id === parseInt(filtroContrato));
             if (search) filtrados = filtrados.filter(m => m.descripcion.toLowerCase().includes(search.toLowerCase()) || (m.tipo || '').toLowerCase().includes(search.toLowerCase()));
+            filtrados = filtrados.slice().sort((a, b) => (a.descripcion || '').localeCompare(b.descripcion || '', 'es'));
+
+            // Solo se ofrecen como opción los contratos del cliente elegido (si hay uno elegido)
+            const contratosDelFiltro = filtroCliente !== 'todos' ? (contratos || []).filter(c => c.cliente_id === parseInt(filtroCliente)) : (contratos || []);
 
             const handleAdd = async () => {
                 if (!formData.descripcion.trim()) { alert('La descripción es obligatoria'); return; }
@@ -6805,6 +6847,54 @@
                 setEditingId(m.id);
                 setShowForm(true);
             };
+
+            // Campos del formulario, compartidos entre "+ Nuevo Material" (arriba de la lista) y la
+            // edición en línea (justo sobre el propio artículo, sin saltar al principio de la página).
+            const CamposFormularioMaterial = () => (
+                <>
+                    <div className="form-group">
+                        <label>Cliente</label>
+                        <select value={formData.cliente_id} onChange={(e) => setFormData({ ...formData, cliente_id: e.target.value, contrato_id: '' })}>
+                            <option value="">-- Sin cliente específico --</option>
+                            {clientes.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                        </select>
+                    </div>
+                    <div className="form-group">
+                        <label>Contrato (opcional)</label>
+                        <select value={formData.contrato_id} disabled={!formData.cliente_id} className={!formData.cliente_id ? 'select-disabled' : ''} onChange={(e) => setFormData({ ...formData, contrato_id: e.target.value })}>
+                            <option value="">-- Todos los contratos de este cliente --</option>
+                            {contratosDelFormulario.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                        </select>
+                        {!formData.cliente_id && <p className="lock-note">Selecciona primero un cliente para poder limitar a un contrato concreto.</p>}
+                    </div>
+                    <div className="form-group"><label>Tipo / Categoría</label><input type="text" placeholder="Ej: Accesorios Puertas" value={formData.tipo} onChange={(e) => setFormData({ ...formData, tipo: e.target.value })} /></div>
+                    <div className="form-group"><label>Descripción</label><input type="text" placeholder="Descripción del material" value={formData.descripcion} onChange={(e) => setFormData({ ...formData, descripcion: e.target.value })} /></div>
+                    <div className="form-group"><label>Unidad</label><input type="text" placeholder="ud, m, kg..." value={formData.unidad} onChange={(e) => setFormData({ ...formData, unidad: e.target.value })} /></div>
+                    <div className="ficha-grid">
+                        <div className="ficha-field">
+                            <span className="ficha-field-label">{editingId ? 'Nuevo precio de venta (opcional)' : 'Precio de venta (€)'}</span>
+                            <input type="number" step="0.01" placeholder="0.00" value={formData.precio} onChange={(e) => setFormData({ ...formData, precio: e.target.value })} />
+                        </div>
+                        <div className="ficha-field">
+                            <span className="ficha-field-label">{editingId ? 'Nuevo precio de coste (opcional)' : 'Precio de coste (€)'}</span>
+                            <input type="number" step="0.01" placeholder="0.00" value={formData.costo} onChange={(e) => setFormData({ ...formData, costo: e.target.value })} />
+                        </div>
+                    </div>
+                    <div className="form-group">
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                            <input type="checkbox" checked={formData.facturable} onChange={(e) => setFormData({ ...formData, facturable: e.target.checked })} />
+                            Facturable al cliente
+                        </label>
+                        {!formData.facturable && (
+                            <p className="lock-note">Este concepto (por ejemplo, mano de obra incluida en el contrato) se seguirá contando como coste interno, pero no se sumará al total a facturar en el Resumen Facturación.</p>
+                        )}
+                    </div>
+                    <div className="btn-group">
+                        <button className="btn btn-success" onClick={handleAdd}>{editingId ? 'Guardar cambios' : 'Crear'}</button>
+                        <button className="btn btn-secondary" onClick={() => { setShowForm(false); setEditingId(null); }}>Cancelar</button>
+                    </div>
+                </>
+            );
 
             // Crea una nueva entrada para el MISMO material (misma descripción/tipo/unidad), pero
             // dejando Cliente, Contrato, Precio y Coste en blanco para elegir el otro contrato con su
@@ -6921,56 +7011,22 @@
                         <input type="text" placeholder="🔍 Buscar material..." value={search} onChange={(e) => setSearch(e.target.value)} />
                     </div>
                     <div className="form-group">
-                        <select value={filtroCliente} onChange={(e) => setFiltroCliente(e.target.value)}>
+                        <select value={filtroCliente} onChange={(e) => { setFiltroCliente(e.target.value); setFiltroContrato('todos'); }}>
                             <option value="todos">Todos los clientes</option>
                             {clientes.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
                         </select>
                     </div>
+                    <div className="form-group">
+                        <select value={filtroContrato} onChange={(e) => setFiltroContrato(e.target.value)}>
+                            <option value="todos">Todos los contratos</option>
+                            {contratosDelFiltro.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                        </select>
+                    </div>
 
-                    {showForm && (
+                    {showForm && !editingId && (
                         <div className="card" ref={formRef} style={{ marginBottom: '1rem' }}>
-                            <p className="card-text" style={{ fontWeight: 600, marginBottom: '6px' }}>{editingId ? 'Editar Material' : '+ Nuevo Material'}</p>
-                            <div className="form-group">
-                                <label>Cliente</label>
-                                <select value={formData.cliente_id} onChange={(e) => setFormData({ ...formData, cliente_id: e.target.value, contrato_id: '' })}>
-                                    <option value="">-- Sin cliente específico --</option>
-                                    {clientes.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-                                </select>
-                            </div>
-                            <div className="form-group">
-                                <label>Contrato (opcional)</label>
-                                <select value={formData.contrato_id} disabled={!formData.cliente_id} className={!formData.cliente_id ? 'select-disabled' : ''} onChange={(e) => setFormData({ ...formData, contrato_id: e.target.value })}>
-                                    <option value="">-- Todos los contratos de este cliente --</option>
-                                    {contratosDelFormulario.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-                                </select>
-                                {!formData.cliente_id && <p className="lock-note">Selecciona primero un cliente para poder limitar a un contrato concreto.</p>}
-                            </div>
-                            <div className="form-group"><label>Tipo / Categoría</label><input type="text" placeholder="Ej: Accesorios Puertas" value={formData.tipo} onChange={(e) => setFormData({ ...formData, tipo: e.target.value })} /></div>
-                            <div className="form-group"><label>Descripción</label><input type="text" placeholder="Descripción del material" value={formData.descripcion} onChange={(e) => setFormData({ ...formData, descripcion: e.target.value })} /></div>
-                            <div className="form-group"><label>Unidad</label><input type="text" placeholder="ud, m, kg..." value={formData.unidad} onChange={(e) => setFormData({ ...formData, unidad: e.target.value })} /></div>
-                            <div className="ficha-grid">
-                                <div className="ficha-field">
-                                    <span className="ficha-field-label">{editingId ? 'Nuevo precio de venta (opcional)' : 'Precio de venta (€)'}</span>
-                                    <input type="number" step="0.01" placeholder="0.00" value={formData.precio} onChange={(e) => setFormData({ ...formData, precio: e.target.value })} />
-                                </div>
-                                <div className="ficha-field">
-                                    <span className="ficha-field-label">{editingId ? 'Nuevo precio de coste (opcional)' : 'Precio de coste (€)'}</span>
-                                    <input type="number" step="0.01" placeholder="0.00" value={formData.costo} onChange={(e) => setFormData({ ...formData, costo: e.target.value })} />
-                                </div>
-                            </div>
-                            <div className="form-group">
-                                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                                    <input type="checkbox" checked={formData.facturable} onChange={(e) => setFormData({ ...formData, facturable: e.target.checked })} />
-                                    Facturable al cliente
-                                </label>
-                                {!formData.facturable && (
-                                    <p className="lock-note">Este concepto (por ejemplo, mano de obra incluida en el contrato) se seguirá contando como coste interno, pero no se sumará al total a facturar en el Resumen Facturación.</p>
-                                )}
-                            </div>
-                            <div className="btn-group">
-                                <button className="btn btn-success" onClick={handleAdd}>{editingId ? 'Guardar cambios' : 'Crear'}</button>
-                                <button className="btn btn-secondary" onClick={() => { setShowForm(false); setEditingId(null); }}>Cancelar</button>
-                            </div>
+                            <p className="card-text" style={{ fontWeight: 600, marginBottom: '6px' }}>+ Nuevo Material</p>
+                            <CamposFormularioMaterial />
                         </div>
                     )}
 
@@ -6994,35 +7050,45 @@
                             const precioActual = getPrecioActual(m);
                             const costeActual = getCosteActual(m);
                             const esFacturable = m.facturable !== 0;
+                            const editandoEsteMaterial = editingId === m.id;
                             return (
                                 <div key={m.id} className="list-item">
-                                    <div className="list-item-header">
-                                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
-                                            <input type="checkbox" checked={seleccionados.includes(m.id)} onChange={() => toggleSeleccionado(m.id)} style={{ marginTop: '4px' }} />
-                                            <div>
-                                                <p className="card-title">{m.descripcion}</p>
-                                                <p className="card-text">{m.tipo} {m.cliente_nombre ? `· ${m.cliente_nombre}` : ''}{m.contrato_nombre ? ` › ${m.contrato_nombre}` : ''}</p>
+                                    {editandoEsteMaterial ? (
+                                        <div>
+                                            <p className="card-text" style={{ fontWeight: 600, marginBottom: '6px' }}>Editar Material</p>
+                                            <CamposFormularioMaterial />
+                                        </div>
+                                    ) : (
+                                        <>
+                                            <div className="list-item-header">
+                                                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+                                                    <input type="checkbox" checked={seleccionados.includes(m.id)} onChange={() => toggleSeleccionado(m.id)} style={{ marginTop: '4px' }} />
+                                                    <div>
+                                                        <p className="card-title">{m.descripcion}</p>
+                                                        <p className="card-text">{m.tipo} {m.cliente_nombre ? `· ${m.cliente_nombre}` : ''}{m.contrato_nombre ? ` › ${m.contrato_nombre}` : ''}</p>
+                                                    </div>
+                                                </div>
+                                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' }}>
+                                                    <span className="badge" style={{ background: 'var(--bg-accent)', color: 'var(--fill-accent)' }}>
+                                                        {precioActual !== null ? `${precioActual.toFixed(2)} €` : 'Sin precio'} / {m.unidad}
+                                                    </span>
+                                                    {costeActual !== null && <span className="card-text" style={{ fontSize: '11px' }}>Coste: {costeActual.toFixed(2)} €</span>}
+                                                    {!esFacturable && <span className="badge" style={{ background: '#fee2e2', color: '#991b1b' }}>No facturable</span>}
+                                                </div>
                                             </div>
-                                        </div>
-                                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' }}>
-                                            <span className="badge" style={{ background: 'var(--bg-accent)', color: 'var(--fill-accent)' }}>
-                                                {precioActual !== null ? `${precioActual.toFixed(2)} €` : 'Sin precio'} / {m.unidad}
-                                            </span>
-                                            {costeActual !== null && <span className="card-text" style={{ fontSize: '11px' }}>Coste: {costeActual.toFixed(2)} €</span>}
-                                            {!esFacturable && <span className="badge" style={{ background: '#fee2e2', color: '#991b1b' }}>No facturable</span>}
-                                        </div>
-                                    </div>
 
-                                    <div style={{ marginTop: '8px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                                        <button className="btn btn-primary" onClick={() => handleEdit(m)}>Editar</button>
-                                        <button className="btn btn-secondary" onClick={() => handleDuplicar(m)}>📋 Duplicar para otro contrato</button>
-                                        <button className="btn btn-secondary" onClick={() => setVerHistorialId(verHistorialId === m.id ? null : m.id)}>
-                                            {verHistorialId === m.id ? 'Ocultar historial' : `Ver historial (${historial.length})`}
-                                        </button>
-                                        <button className="btn btn-danger" onClick={() => handleDelete(m.id)}>Eliminar</button>
-                                    </div>
+                                            <div style={{ marginTop: '8px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                                                <button className="btn btn-primary" onClick={() => handleEdit(m)}>Editar</button>
+                                                <button className="btn btn-secondary" onClick={() => handleDuplicar(m)}>📋 Duplicar para otro contrato</button>
+                                                <button className="btn btn-secondary" onClick={() => setVerHistorialId(verHistorialId === m.id ? null : m.id)}>
+                                                    {verHistorialId === m.id ? 'Ocultar historial' : `Ver historial (${historial.length})`}
+                                                </button>
+                                                <button className="btn btn-danger" onClick={() => handleDelete(m.id)}>Eliminar</button>
+                                            </div>
+                                        </>
+                                    )}
 
-                                    {verHistorialId === m.id && (
+                                    {!editandoEsteMaterial && verHistorialId === m.id && (
                                         <div style={{ marginTop: '10px' }}>
                                             {historial.length === 0 ? <p className="card-text">Sin historial de precios.</p> : (
                                                 [...historial].reverse().map((h, i) => (
