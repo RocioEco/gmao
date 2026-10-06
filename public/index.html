@@ -5042,24 +5042,60 @@
             const [celdaOTAbierta, setCeldaOTAbierta] = useState(null); // { tecnicoId, fecha }
             const [otParaAsignar, setOtParaAsignar] = useState('');
             const [asignandoOT, setAsignandoOT] = useState(false);
+            const [companerosParaAsignar, setCompanerosParaAsignar] = useState([]); // ids de técnicos de apoyo
 
             // OT que aún no están resueltas ni canceladas: candidatas para asignar directamente desde el calendario.
             const otsNoResueltas = (ordenes || []).filter(o => o.tipo !== 'guardia' && o.estado !== 'resuelta' && o.estado !== 'cancelada');
+
+            const toggleCompaneroParaAsignar = (id) => {
+                setCompanerosParaAsignar(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+            };
 
             const asignarOTATecnico = async (otId, tecnicoId, fecha) => {
                 const ot = ordenes.find(o => o.id === otId);
                 if (!ot) return;
                 setAsignandoOT(true);
                 try {
+                    // Se mantienen los técnicos de apoyo que ya tuviera la OT y se añaden los elegidos ahora
+                    // (sin duplicar), con este mismo día como fecha de inicio y fin por defecto.
+                    let apoyoExistente = [];
+                    try { apoyoExistente = ot.tecnicos_apoyo ? JSON.parse(ot.tecnicos_apoyo) : []; } catch { apoyoExistente = []; }
+                    const idsExistentes = apoyoExistente.map(a => a.id);
+                    const nuevosApoyo = companerosParaAsignar
+                        .filter(id => id !== tecnicoId && !idsExistentes.includes(id))
+                        .map(id => ({ id, fecha_inicio: fecha, fecha_fin: fecha }));
+
                     await fetch(`${API_URL}/api/ordenes/${otId}`, {
                         method: 'PUT', headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ ...ot, asignado_a: tecnicoId, fecha_programada: fecha, fecha_fin_programada: ot.fecha_fin_programada && ot.fecha_fin_programada >= fecha ? ot.fecha_fin_programada : fecha })
+                        body: JSON.stringify({
+                            ...ot, asignado_a: tecnicoId, fecha_programada: fecha,
+                            fecha_fin_programada: ot.fecha_fin_programada && ot.fecha_fin_programada >= fecha ? ot.fecha_fin_programada : fecha,
+                            tecnicos_apoyo: JSON.stringify([...apoyoExistente, ...nuevosApoyo])
+                        })
                     });
                     setCeldaOTAbierta(null);
                     setOtParaAsignar('');
+                    setCompanerosParaAsignar([]);
                     if (onRefresh) onRefresh();
                 } catch { alert('Error al asignar la OT'); }
                 setAsignandoOT(false);
+            };
+
+            // Quita a un técnico de una OT vista en el calendario: si era el principal, la OT queda sin
+            // asignar; si era de apoyo, se le quita de la lista de apoyo de esa OT.
+            const desasignarOTDeTecnico = async (otId, tecnicoId) => {
+                const ot = ordenes.find(o => o.id === otId);
+                if (!ot) return;
+                if (!confirm('¿Quitar esta OT de este técnico?')) return;
+                let apoyo = [];
+                try { apoyo = ot.tecnicos_apoyo ? JSON.parse(ot.tecnicos_apoyo) : []; } catch { apoyo = []; }
+                const payload = { ...ot };
+                if (ot.asignado_a === tecnicoId) payload.asignado_a = null;
+                else payload.tecnicos_apoyo = JSON.stringify(apoyo.filter(a => a.id !== tecnicoId));
+                try {
+                    await fetch(`${API_URL}/api/ordenes/${otId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+                    if (onRefresh) onRefresh();
+                } catch { alert('Error al desasignar la OT'); }
             };
             const [formManual, setFormManual] = useState({ categoria: 'OBRA', descripcion: '' });
 
@@ -5260,37 +5296,55 @@
                                                     }
                                                     const ots = ordenesDe(t.id, fechaStr);
                                                     const celdaOTEstaAbierta = celdaOTAbierta && celdaOTAbierta.tecnicoId === t.id && celdaOTAbierta.fecha === fechaStr;
+                                                    const esGestorCalendario = user.rol === 'admin' || user.rol === 'supervisor' || user.rol === 'encargado';
+                                                    // Compañeros que se pueden añadir como apoyo: cualquier técnico/encargado activo salvo el de esta fila.
+                                                    const companerosDisponibles = (usuarios || [])
+                                                        .filter(u => u.activo && (u.rol === 'tecnico' || u.rol === 'encargado') && u.id !== t.id)
+                                                        .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
                                                     return (
                                                         <td key={i} className="planning-celda">
                                                             {ots.map(o => {
                                                                 const color = colorParaOtPlanning(o);
                                                                 const categoria = CATEGORIA_PLANNING_POR_TIPO[o.tipo] || 'OTROS';
                                                                 return (
-                                                                    <div key={o.id} className="planning-bloque" style={{ background: color }}>
+                                                                    <div key={o.id} className="planning-bloque" style={{ background: color, position: 'relative' }}>
                                                                         <div className="planning-bloque-cat">{categoria}</div>
                                                                         <div className="planning-bloque-desc">{o.titulo}</div>
+                                                                        {esGestorCalendario && (
+                                                                            <button onClick={(e) => { e.stopPropagation(); desasignarOTDeTecnico(o.id, t.id); }} title="Desasignar" style={{ position: 'absolute', top: 2, right: 2, background: 'rgba(255,255,255,0.7)', border: 'none', borderRadius: '4px', fontSize: '10px', cursor: 'pointer', lineHeight: 1, padding: '1px 4px' }}>✕</button>
+                                                                        )}
                                                                     </div>
                                                                 );
                                                             })}
-                                                            {(user.rol === 'admin' || user.rol === 'supervisor' || user.rol === 'encargado') && (
+                                                            {esGestorCalendario && (
                                                                 celdaOTEstaAbierta ? (
                                                                     <div className="planning-manual-form" onClick={(e) => e.stopPropagation()}>
                                                                         <select value={otParaAsignar} onChange={(e) => setOtParaAsignar(e.target.value)}>
                                                                             <option value="">-- Elige una OT --</option>
                                                                             {otsNoResueltas.map(o => <option key={o.id} value={o.id}>{o.id} — {o.titulo}</option>)}
                                                                         </select>
+                                                                        {companerosDisponibles.length > 0 && (
+                                                                            <div style={{ marginTop: '4px', textAlign: 'left' }}>
+                                                                                <span style={{ fontSize: '10px', fontWeight: 600 }}>Compañeros (opcional):</span>
+                                                                                {companerosDisponibles.map(u => (
+                                                                                    <label key={u.id} style={{ display: 'block', fontSize: '10px' }}>
+                                                                                        <input type="checkbox" checked={companerosParaAsignar.includes(u.id)} onChange={() => toggleCompaneroParaAsignar(u.id)} /> {u.nombre}
+                                                                                    </label>
+                                                                                ))}
+                                                                            </div>
+                                                                        )}
                                                                         <div style={{ display: 'flex', gap: '4px', marginTop: '4px' }}>
                                                                             <button className="btn btn-success" style={{ fontSize: '10px', padding: '3px 6px' }} disabled={!otParaAsignar || asignandoOT} onClick={() => asignarOTATecnico(otParaAsignar, t.id, fechaStr)}>
                                                                                 {asignandoOT ? 'Asignando...' : 'Asignar'}
                                                                             </button>
-                                                                            <button className="btn btn-secondary" style={{ fontSize: '10px', padding: '3px 6px' }} onClick={() => setCeldaOTAbierta(null)}>Cancelar</button>
+                                                                            <button className="btn btn-secondary" style={{ fontSize: '10px', padding: '3px 6px' }} onClick={() => { setCeldaOTAbierta(null); setCompanerosParaAsignar([]); }}>Cancelar</button>
                                                                         </div>
                                                                     </div>
                                                                 ) : (
-                                                                    <span className="planning-vacio" onClick={() => { setCeldaOTAbierta({ tecnicoId: t.id, fecha: fechaStr }); setOtParaAsignar(''); }}>+</span>
+                                                                    <span className="planning-vacio" onClick={() => { setCeldaOTAbierta({ tecnicoId: t.id, fecha: fechaStr }); setOtParaAsignar(''); setCompanerosParaAsignar([]); }}>+</span>
                                                                 )
                                                             )}
-                                                            {ots.length === 0 && !(user.rol === 'admin' || user.rol === 'supervisor' || user.rol === 'encargado') && <span className="planning-vacio">·</span>}
+                                                            {ots.length === 0 && !esGestorCalendario && <span className="planning-vacio">·</span>}
                                                         </td>
                                                     );
                                                 })}
@@ -6392,6 +6446,7 @@
             const [visitasResumen, setVisitasResumen] = useState([]);
             const [cargandoResumen, setCargandoResumen] = useState(false);
             const [filtroDeptoResumen, setFiltroDeptoResumen] = useState('todos');
+            const [filtroEstadoResumen, setFiltroEstadoResumen] = useState('todas');
             const [docsSeleccionados, setDocsSeleccionados] = useState([]);
             const [generandoAlbaran, setGenerandoAlbaran] = useState(false);
             const [editandoLineasId, setEditandoLineasId] = useState(null);
@@ -6418,7 +6473,8 @@
                 if (!mostrarResumenMensual || !Array.isArray(ordenes)) return [];
                 const grupos = {};
                 for (const o of ordenes) {
-                    if (o.estado !== 'resuelta') continue;
+                    if (filtroEstadoResumen === 'resuelta' && o.estado !== 'resuelta') continue;
+                    if (o.estado === 'cancelada') continue;
                     const dep = o.departamento || 'Facilities';
                     if (filtroDeptoResumen !== 'todos' && dep !== filtroDeptoResumen) continue;
                     const visitasOT = visitasResumen.filter(v => v.orden_id === o.id && String(v.fecha || '').slice(0, 7) === mesResumen);
@@ -6626,7 +6682,7 @@
                             <button className="btn btn-secondary" onClick={() => {
                                 const abrir = !mostrarResumenMensual;
                                 setMostrarResumenMensual(abrir);
-                                if (abrir && visitasResumen.length === 0) cargarResumenMensual();
+                                if (abrir) cargarResumenMensual();
                             }}>
                                 {mostrarResumenMensual ? 'Ocultar resumen mensual' : '📊 Resumen mensual'}
                             </button>
@@ -6643,7 +6699,7 @@
                             <div className="ficha-grid">
                                 <div className="ficha-field">
                                     <span className="ficha-field-label">Mes</span>
-                                    <input type="month" value={mesResumen} onChange={(e) => setMesResumen(e.target.value)} />
+                                    <input type="month" value={mesResumen} onChange={(e) => { setMesResumen(e.target.value); cargarResumenMensual(); }} />
                                 </div>
                                 <div className="ficha-field">
                                     <span className="ficha-field-label">Departamento</span>
@@ -6651,6 +6707,13 @@
                                         <option value="todos">Todos</option>
                                         <option value="Facilities">Facilities</option>
                                         <option value="Corvelec">Corvelec</option>
+                                    </select>
+                                </div>
+                                <div className="ficha-field">
+                                    <span className="ficha-field-label">OT incluidas</span>
+                                    <select value={filtroEstadoResumen} onChange={(e) => setFiltroEstadoResumen(e.target.value)}>
+                                        <option value="todas">Todas (finalizadas o no)</option>
+                                        <option value="resuelta">Solo finalizadas</option>
                                     </select>
                                 </div>
                             </div>
