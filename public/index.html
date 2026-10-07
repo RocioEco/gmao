@@ -2583,6 +2583,30 @@
         }
 
         // ===== HELPERS EXCEL (SheetJS) =====
+        // ===== Horas de una visita =====
+        // Cuentan SOLO:
+        //   - las horas del técnico que cubre la visita (su hora de inicio y fin), y
+        //   - las de los compañeros/técnicos de apoyo que tengan horario (hora de inicio y fin rellenas).
+        // Un compañero sin horario no suma horas. No se multiplica por el número de técnicos de la OT.
+        function horasEntreHoras(hi, hf) {
+            if (!hi || !hf) return 0;
+            const [h1, m1] = hi.split(':').map(Number);
+            const [h2, m2] = hf.split(':').map(Number);
+            if (isNaN(h1) || isNaN(h2)) return 0;
+            let mins = (h2 * 60 + m2) - (h1 * 60 + m1);
+            if (mins < 0) mins += 24 * 60;
+            return mins / 60;
+        }
+        function horasDeVisita(v) {
+            const principal = horasEntreHoras(v.hora_inicio, v.hora_fin);
+            let compan = [];
+            try { compan = v.companeros_json ? JSON.parse(v.companeros_json) : []; } catch { compan = []; }
+            // Solo los compañeros con horario completo
+            const conHorario = (Array.isArray(compan) ? compan : []).filter(c => c && c.nombre && c.hora_inicio && c.hora_fin);
+            const extra = conHorario.reduce((sum, c) => sum + horasEntreHoras(c.hora_inicio, c.hora_fin), 0);
+            return { principal, total: principal + extra, companeros: conHorario };
+        }
+
         function exportToExcel(data, filename, columns) {
             if (!data || data.length === 0) {
                 alert('No hay datos para exportar');
@@ -5923,12 +5947,17 @@
                     if (filtroHasta) visitasOT = visitasOT.filter(v => v.fecha <= filtroHasta);
                     if ((filtroDesde || filtroHasta) && visitasOT.length === 0) return null;
 
-                    const trabajadores = [...new Set(visitasOT.map(v => v.tecnico_nombre).filter(Boolean))];
-                    const horasTotales = visitasOT.reduce((sum, v) => sum + calcularHoras(v.hora_inicio, v.hora_fin), 0);
-
                     let tecnicosApoyo = [];
                     try { tecnicosApoyo = o.tecnicos_apoyo ? JSON.parse(o.tecnicos_apoyo) : []; } catch { tecnicosApoyo = []; }
                     const numTecnicos = 1 + (Array.isArray(tecnicosApoyo) ? tecnicosApoyo.length : 0);
+
+                    const detallesVisitas = visitasOT.map(v => horasDeVisita(v));
+                    const horasPrincipal = detallesVisitas.reduce((sum, d) => sum + d.principal, 0);
+                    const horasTotales = detallesVisitas.reduce((sum, d) => sum + d.total, 0);
+                    const trabajadores = [...new Set([
+                        ...visitasOT.map(v => v.tecnico_nombre),
+                        ...detallesVisitas.flatMap(d => d.companeros.map(c => c.nombre))
+                    ].filter(Boolean))];
 
                     const kmTotales = visitasOT.reduce((sum, v) => {
                         let desp = [];
@@ -5959,7 +5988,7 @@
                         });
                     });
 
-                    return { ot: o, trabajadores, numTecnicos, horasTotales, kmTotales, materiales: Object.values(materialesAgregados) };
+                    return { ot: o, trabajadores, numTecnicos, horasPrincipal, horasTotales, kmTotales, materiales: Object.values(materialesAgregados) };
                 })
                 .filter(Boolean);
 
@@ -6036,7 +6065,7 @@
                                         <div className="rv-row"><span className="rv-label">Trabajador</span><span className="rv-value">{f.trabajadores.join(', ') || '—'}</span></div>
                                         <div className="rv-row">
                                             <span className="rv-label">Horas</span>
-                                            <span className="rv-value">{f.numTecnicos > 1 ? `${f.horasTotales.toFixed(2)} h × ${f.numTecnicos} técnicos` : `${f.horasTotales.toFixed(2)} h`}</span>
+                                            <span className="rv-value">{f.horasTotales > f.horasPrincipal + 0.001 ? `${f.horasTotales.toFixed(2)} h (suma de todos los técnicos)` : `${f.horasTotales.toFixed(2)} h`}</span>
                                         </div>
                                         <div className="rv-row"><span className="rv-label">Kilómetros</span><span className="rv-value">{f.kmTotales.toFixed(1)} km</span></div>
                                     </div>
@@ -6120,16 +6149,18 @@
                     if (filtroHasta) visitasOT = visitasOT.filter(v => v.fecha <= filtroHasta);
                     if ((filtroDesde || filtroHasta) && visitasOT.length === 0) return null;
 
-                    const trabajadores = [...new Set(visitasOT.map(v => v.tecnico_nombre).filter(Boolean))];
-                    const horasTotales = visitasOT.reduce((sum, v) => sum + calcularHoras(v.hora_inicio, v.hora_fin), 0);
-
-                    // Si la OT tuvo técnicos de apoyo, las horas se facturan multiplicadas por el
-                    // número total de técnicos que trabajaron en ella (principal + apoyo), ya que
-                    // cada uno dedica su propio tiempo en paralelo.
+                    // Las horas facturables = horas del técnico de cada visita + las de los compañeros que
+                    // tengan horario en esa visita. No se multiplica por los técnicos de apoyo de la OT.
                     let tecnicosApoyo = [];
                     try { tecnicosApoyo = o.tecnicos_apoyo ? JSON.parse(o.tecnicos_apoyo) : []; } catch { tecnicosApoyo = []; }
                     const numTecnicos = 1 + (Array.isArray(tecnicosApoyo) ? tecnicosApoyo.length : 0);
-                    const horasFacturables = horasTotales * numTecnicos;
+                    const detallesVisitas = visitasOT.map(v => horasDeVisita(v));
+                    const horasTotales = detallesVisitas.reduce((sum, d) => sum + d.principal, 0);
+                    const horasFacturables = detallesVisitas.reduce((sum, d) => sum + d.total, 0);
+                    const trabajadores = [...new Set([
+                        ...visitasOT.map(v => v.tecnico_nombre),
+                        ...detallesVisitas.flatMap(d => d.companeros.map(c => c.nombre))
+                    ].filter(Boolean))];
 
                     const materialesAgregados = {};
                     visitasOT.forEach(v => {
@@ -6338,8 +6369,8 @@
                                     <div className="rv-row">
                                         <span className="rv-label">Horas</span>
                                         <span className="rv-value">
-                                            {f.numTecnicos > 1
-                                                ? `${f.horasTotales.toFixed(2)} h × ${f.numTecnicos} técnicos = ${f.horasFacturables.toFixed(2)} h facturables`
+                                            {f.horasFacturables > f.horasTotales + 0.001
+                                                ? `${f.horasTotales.toFixed(2)} h del técnico → ${f.horasFacturables.toFixed(2)} h facturables (suma de todos los técnicos)`
                                                 : `${f.horasTotales.toFixed(2)} h`}
                                         </span>
                                     </div>
@@ -6500,9 +6531,12 @@
                     try { tecnicosApoyo = o.tecnicos_apoyo ? JSON.parse(o.tecnicos_apoyo) : []; } catch { tecnicosApoyo = []; }
                     const numTecnicos = 1 + (Array.isArray(tecnicosApoyo) ? tecnicosApoyo.length : 0);
 
-                    const horasOT = visitasOT.reduce((sum, v) => sum + calcularHorasResumen(v.hora_inicio, v.hora_fin), 0) * numTecnicos;
-                    g.horasTotales += horasOT;
+                    // Suma las horas de TODOS los que trabajaron: técnico de cada visita + compañeros registrados
+                    const detallesVisitas = visitasOT.map(v => horasDeVisita(v));
+                    g.horasTotales += detallesVisitas.reduce((sum, d) => sum + d.total, 0);
                     if (o.tecnico_nombre) g.tecnicos.add(o.tecnico_nombre);
+                    visitasOT.forEach(v => { if (v.tecnico_nombre) g.tecnicos.add(v.tecnico_nombre); });
+                    detallesVisitas.forEach(d => d.companeros.forEach(c => { if (c.nombre) g.tecnicos.add(c.nombre); }));
 
                     visitasOT.forEach(v => {
                         let mats = [];
