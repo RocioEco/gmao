@@ -6473,7 +6473,9 @@
             // con toda la mano de obra y los materiales de ese mes (sin importes) =====
             const mesActual = new Date().toISOString().slice(0, 7);
             const [mostrarResumenMensual, setMostrarResumenMensual] = useState(false);
-            const [mesResumen, setMesResumen] = useState(mesActual);
+            const [mesResumen, setMesResumen] = useState(mesActual); // mes de INICIO del periodo
+            const [mesResumenHasta, setMesResumenHasta] = useState(mesActual); // mes de FIN del periodo
+            const etiquetaPeriodo = mesResumen === mesResumenHasta ? mesResumen : `${mesResumen} a ${mesResumenHasta}`;
             const [visitasResumen, setVisitasResumen] = useState([]);
             const [cargandoResumen, setCargandoResumen] = useState(false);
             const [filtroDeptoResumen, setFiltroDeptoResumen] = useState('todos');
@@ -6512,7 +6514,7 @@
                     if (filtroDeptoResumen !== 'todos' && dep !== filtroDeptoResumen) continue;
                     if (filtroClienteResumen !== 'todos' && String(o.cliente_id) !== filtroClienteResumen) continue;
                     if (filtroContratoResumen !== 'todos' && String(o.contrato_id) !== filtroContratoResumen) continue;
-                    const visitasOT = visitasResumen.filter(v => v.orden_id === o.id && String(v.fecha || '').slice(0, 7) === mesResumen);
+                    const visitasOT = visitasResumen.filter(v => v.orden_id === o.id && String(v.fecha || '').slice(0, 7) >= mesResumen && String(v.fecha || '').slice(0, 7) <= mesResumenHasta);
                     if (visitasOT.length === 0) continue;
 
                     const key = `${dep}::${o.cliente_id || 'sin-cliente'}::${o.contrato_id || 'sin-contrato'}`;
@@ -6588,7 +6590,7 @@
                     alert(`Todas las OT de "${doc.clienteNombre} — ${doc.contratoNombre}" ya estaban albaranadas.`);
                     return null;
                 }
-                const descripcion = `Resumen de ${mesResumen} — Técnicos: ${doc.tecnicos.join(', ') || '—'}`;
+                const descripcion = `Resumen de ${etiquetaPeriodo} — Técnicos: ${doc.tecnicos.join(', ') || '—'}`;
                 const lineas = [];
                 if (doc.horasTotales > 0) {
                     lineas.push({ tipo: 'mano_obra', descripcion: `Mano de obra (${doc.tecnicos.join(', ') || 'técnicos'})`, cantidad: parseFloat(doc.horasTotales.toFixed(2)), precio_unitario: '' });
@@ -6732,12 +6734,28 @@
                         <div className="card" style={{ marginBottom: '1.5rem' }}>
                             <p className="card-title" style={{ marginBottom: '4px' }}>📊 Resumen mensual por Departamento, Cliente y Contrato/Obra</p>
                             <p className="lock-note" style={{ marginBottom: '10px' }}>
-                                Un documento por cada combinación de Departamento + Cliente + Contrato/Obra que tenga trabajo ese mes, con toda la mano de obra y los materiales utilizados. No incluye importes.
+                                Un documento por cada combinación de Departamento + Cliente + Contrato/Obra que tenga trabajo en el periodo elegido (un mes, o varios si pones Desde y Hasta distintos), con toda la mano de obra y los materiales utilizados. No incluye importes.
                             </p>
                             <div className="ficha-grid">
                                 <div className="ficha-field">
-                                    <span className="ficha-field-label">Mes</span>
-                                    <input type="month" value={mesResumen} onChange={(e) => { setMesResumen(e.target.value); cargarResumenMensual(); }} />
+                                    <span className="ficha-field-label">Desde (mes)</span>
+                                    <input type="month" value={mesResumen} onChange={(e) => {
+                                        const v = e.target.value; if (!v) return;
+                                        setMesResumen(v);
+                                        if (v > mesResumenHasta) setMesResumenHasta(v); // el fin nunca queda antes del inicio
+                                        setDocsSeleccionados([]);
+                                        cargarResumenMensual();
+                                    }} />
+                                </div>
+                                <div className="ficha-field">
+                                    <span className="ficha-field-label">Hasta (mes)</span>
+                                    <input type="month" value={mesResumenHasta} min={mesResumen} onChange={(e) => {
+                                        const v = e.target.value; if (!v) return;
+                                        setMesResumenHasta(v);
+                                        if (v < mesResumen) setMesResumen(v);
+                                        setDocsSeleccionados([]);
+                                        cargarResumenMensual();
+                                    }} />
                                 </div>
                                 <div className="ficha-field">
                                     <span className="ficha-field-label">Departamento</span>
@@ -6775,7 +6793,7 @@
 
                             {cargandoResumen ? <div className="empty-state">Cargando...</div> : (
                                 documentosMensuales.length === 0 ? (
-                                    <div className="empty-state">No hay OT con visitas registradas en {mesResumen} con estos filtros.</div>
+                                    <div className="empty-state">No hay OT con visitas registradas en {etiquetaPeriodo} con estos filtros.</div>
                                 ) : (
                                     <div className="list" style={{ marginTop: '10px' }}>
                                         {user.rol === 'admin' && docsElegidos.length > 0 && (
@@ -6797,7 +6815,7 @@
                                                         )}
                                                         <div>
                                                             <p className="card-title">🏢 {doc.departamento} · 👤 {doc.clienteNombre}</p>
-                                                            <p className="card-text">📄 {doc.contratoNombre} — {mesResumen}</p>
+                                                            <p className="card-text">📄 {doc.contratoNombre} — {etiquetaPeriodo}</p>
                                                         </div>
                                                     </div>
                                                     <span className="badge" style={{ background: doc.otsAlbaranadas === doc.ots.length ? '#d1fae5' : doc.otsAlbaranadas > 0 ? '#fff8e1' : 'var(--bg-accent)', color: doc.otsAlbaranadas === doc.ots.length ? '#065f46' : doc.otsAlbaranadas > 0 ? '#b8860b' : 'var(--fill-accent)' }}>
