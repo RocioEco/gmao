@@ -6478,6 +6478,8 @@
             const [cargandoResumen, setCargandoResumen] = useState(false);
             const [filtroDeptoResumen, setFiltroDeptoResumen] = useState('todos');
             const [filtroEstadoResumen, setFiltroEstadoResumen] = useState('todas');
+            const [filtroClienteResumen, setFiltroClienteResumen] = useState('todos');
+            const [filtroContratoResumen, setFiltroContratoResumen] = useState('todos');
             const [docsSeleccionados, setDocsSeleccionados] = useState([]);
             const [generandoAlbaran, setGenerandoAlbaran] = useState(false);
             const [editandoLineasId, setEditandoLineasId] = useState(null);
@@ -6508,6 +6510,8 @@
                     if (o.estado === 'cancelada') continue;
                     const dep = o.departamento || 'Facilities';
                     if (filtroDeptoResumen !== 'todos' && dep !== filtroDeptoResumen) continue;
+                    if (filtroClienteResumen !== 'todos' && String(o.cliente_id) !== filtroClienteResumen) continue;
+                    if (filtroContratoResumen !== 'todos' && String(o.contrato_id) !== filtroContratoResumen) continue;
                     const visitasOT = visitasResumen.filter(v => v.orden_id === o.id && String(v.fecha || '').slice(0, 7) === mesResumen);
                     if (visitasOT.length === 0) continue;
 
@@ -6750,20 +6754,37 @@
                                         <option value="resuelta">Solo finalizadas</option>
                                     </select>
                                 </div>
+                                <div className="ficha-field">
+                                    <span className="ficha-field-label">Cliente</span>
+                                    <select value={filtroClienteResumen} onChange={(e) => { setFiltroClienteResumen(e.target.value); setFiltroContratoResumen('todos'); setDocsSeleccionados([]); }}>
+                                        <option value="todos">Todos</option>
+                                        {[...clientes].sort((a, b) => (a.nombre || '').localeCompare(b.nombre || '', 'es')).map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                                    </select>
+                                </div>
+                                <div className="ficha-field">
+                                    <span className="ficha-field-label">Contrato / Obra</span>
+                                    <select value={filtroContratoResumen} onChange={(e) => { setFiltroContratoResumen(e.target.value); setDocsSeleccionados([]); }}>
+                                        <option value="todos">Todos</option>
+                                        {(contratos || [])
+                                            .filter(c => filtroClienteResumen === 'todos' || String(c.cliente_id) === filtroClienteResumen)
+                                            .sort((a, b) => (a.nombre || '').localeCompare(b.nombre || '', 'es'))
+                                            .map(c => <option key={c.id} value={c.id}>{c.nombre}{filtroClienteResumen === 'todos' && c.cliente_nombre ? ` (${c.cliente_nombre})` : ''}</option>)}
+                                    </select>
+                                </div>
                             </div>
 
                             {cargandoResumen ? <div className="empty-state">Cargando...</div> : (
                                 documentosMensuales.length === 0 ? (
-                                    <div className="empty-state">No hay OT resueltas con visitas registradas en {mesResumen} con este filtro.</div>
+                                    <div className="empty-state">No hay OT con visitas registradas en {mesResumen} con estos filtros.</div>
                                 ) : (
                                     <div className="list" style={{ marginTop: '10px' }}>
-                                        {user.rol === 'admin' && docsSeleccionados.length > 0 && (
+                                        {user.rol === 'admin' && docsElegidos.length > 0 && (
                                             <div className="finalizar-banner" style={{ marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
                                                 <span className="card-text">
-                                                    {docsSeleccionados.length} tarjeta(s) seleccionada(s) — se creará {docsSeleccionados.length === 1 ? 'un albarán' : `un albarán por cada una (${docsSeleccionados.length} albaranes)`}
+                                                    {docsElegidos.length} tarjeta(s) seleccionada(s) — se creará {docsElegidos.length === 1 ? 'un albarán' : `un albarán por cada una (${docsElegidos.length} albaranes)`}
                                                 </span>
                                                 <button className="btn btn-success" disabled={generandoAlbaran} onClick={generarAlbaranDesdeSeleccion}>
-                                                    {generandoAlbaran ? 'Generando...' : (docsSeleccionados.length === 1 ? '📄 Generar albarán' : '📄 Generar albaranes')}
+                                                    {generandoAlbaran ? 'Generando...' : (docsElegidos.length === 1 ? '📄 Generar albarán' : '📄 Generar albaranes')}
                                                 </button>
                                             </div>
                                         )}
