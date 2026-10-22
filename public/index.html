@@ -6482,7 +6482,7 @@
             const [filtroEstadoResumen, setFiltroEstadoResumen] = useState('todas');
             const [filtroClienteResumen, setFiltroClienteResumen] = useState('todos');
             const [filtroContratoResumen, setFiltroContratoResumen] = useState('todos');
-            const [docsSeleccionados, setDocsSeleccionados] = useState([]);
+            const [otsSeleccionadas, setOtsSeleccionadas] = useState([]); // ids de OT elegidas para albaranar
             const [generandoAlbaran, setGenerandoAlbaran] = useState(false);
             const [editandoLineasId, setEditandoLineasId] = useState(null);
             const [lineasEnEdicion, setLineasEnEdicion] = useState([]);
@@ -6533,17 +6533,17 @@
                     }
                     const g = grupos[key];
 
-                    let tecnicosApoyo = [];
-                    try { tecnicosApoyo = o.tecnicos_apoyo ? JSON.parse(o.tecnicos_apoyo) : []; } catch { tecnicosApoyo = []; }
-                    const numTecnicos = 1 + (Array.isArray(tecnicosApoyo) ? tecnicosApoyo.length : 0);
-
-                    // Suma las horas de TODOS los que trabajaron: técnico de cada visita + compañeros registrados
+                    // ----- Detalle de ESTA OT (horas, técnicos y materiales por separado) -----
+                    // Horas = técnico de cada visita + compañeros con horario (ver horasDeVisita)
                     const detallesVisitas = visitasOT.map(v => horasDeVisita(v));
-                    g.horasTotales += detallesVisitas.reduce((sum, d) => sum + d.total, 0);
-                    if (o.tecnico_nombre) g.tecnicos.add(o.tecnico_nombre);
-                    visitasOT.forEach(v => { if (v.tecnico_nombre) g.tecnicos.add(v.tecnico_nombre); });
-                    detallesVisitas.forEach(d => d.companeros.forEach(c => { if (c.nombre) g.tecnicos.add(c.nombre); }));
+                    const horasOT = detallesVisitas.reduce((sum, d) => sum + d.total, 0);
 
+                    const tecnicosOT = new Set();
+                    if (o.tecnico_nombre) tecnicosOT.add(o.tecnico_nombre);
+                    visitasOT.forEach(v => { if (v.tecnico_nombre) tecnicosOT.add(v.tecnico_nombre); });
+                    detallesVisitas.forEach(d => d.companeros.forEach(c => { if (c.nombre) tecnicosOT.add(c.nombre); }));
+
+                    const materialesOT = {};
                     visitasOT.forEach(v => {
                         let mats = [];
                         try { mats = v.materiales_json ? JSON.parse(v.materiales_json) : []; } catch { mats = []; }
@@ -6555,26 +6555,46 @@
                             }
                             if (!descripcion) return;
                             const mk = descripcion.trim().toLowerCase();
-                            if (!g.materiales[mk]) g.materiales[mk] = { descripcion, cantidad: 0 };
-                            g.materiales[mk].cantidad += parseFloat(m.cantidad) || 0;
+                            if (!materialesOT[mk]) materialesOT[mk] = { descripcion, cantidad: 0 };
+                            materialesOT[mk].cantidad += parseFloat(m.cantidad) || 0;
                         });
                     });
+                    const materialesOTLista = Object.values(materialesOT);
 
-                    if (!g.ots.some(x => x.id === o.id)) {
-                        g.ots.push({ id: o.id, albaranada: !!o.albaran_id });
-                        if (o.albaran_id) g.otsAlbaranadas++;
-                    }
+                    // ----- Totales de la tarjeta (suma de todas sus OT) -----
+                    g.horasTotales += horasOT;
+                    tecnicosOT.forEach(t => g.tecnicos.add(t));
+                    materialesOTLista.forEach(m => {
+                        const mk = m.descripcion.trim().toLowerCase();
+                        if (!g.materiales[mk]) g.materiales[mk] = { descripcion: m.descripcion, cantidad: 0 };
+                        g.materiales[mk].cantidad += m.cantidad;
+                    });
+
+                    g.ots.push({ id: o.id, titulo: o.titulo || '(sin título)', albaranada: !!o.albaran_id, horas: horasOT, tecnicos: [...tecnicosOT], materiales: materialesOTLista });
+                    if (o.albaran_id) g.otsAlbaranadas++;
                 }
                 return Object.values(grupos)
                     .map(g => ({ ...g, tecnicos: [...g.tecnicos], materiales: Object.values(g.materiales) }))
                     .sort((a, b) => (a.departamento + a.clienteNombre + a.contratoNombre).localeCompare(b.departamento + b.clienteNombre + b.contratoNombre));
             })();
 
-            const toggleDocSeleccionado = (key) => {
-                setDocsSeleccionados(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]);
+            // Selección por OT. La casilla de cada tarjeta marca/desmarca de golpe todas las OT sin albaranar
+            // de ese cliente/contrato; las casillas de cada OT permiten elegir solo algunas.
+            const idsSeleccionablesDe = (doc) => doc.ots.filter(o => !o.albaranada).map(o => o.id);
+            const toggleOTSeleccionada = (id) => {
+                setOtsSeleccionadas(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+            };
+            const toggleTodasLasOTDeDoc = (doc) => {
+                const ids = idsSeleccionablesDe(doc);
+                const todas = ids.length > 0 && ids.every(id => otsSeleccionadas.includes(id));
+                setOtsSeleccionadas(prev => todas ? prev.filter(id => !ids.includes(id)) : [...new Set([...prev, ...ids])]);
             };
 
-            const docsElegidos = documentosMensuales.filter(d => docsSeleccionados.includes(d.key));
+            // Por cada tarjeta, solo las OT elegidas (y que sigan sin albaranar). Se hará un albarán por tarjeta.
+            const seleccionPorDoc = documentosMensuales
+                .map(doc => ({ doc, otsElegidas: doc.ots.filter(o => !o.albaranada && otsSeleccionadas.includes(o.id)) }))
+                .filter(x => x.otsElegidas.length > 0);
+            const totalOTsElegidas = seleccionPorDoc.reduce((sum, x) => sum + x.otsElegidas.length, 0);
 
             const desasociarOT = async (otId) => {
                 if (!confirm(`¿Quitar la OT ${otId} de su albarán? Quedará sin albaranar de nuevo.`)) return;
@@ -6582,20 +6602,26 @@
                 if (onRefresh) onRefresh();
             };
 
-            // Genera un albarán INDEPENDIENTE por cada tarjeta seleccionada (aunque selecciones varias
-            // a la vez, cada una se convierte en su propio albarán — no se juntan entre sí).
-            const generarAlbaranDesdeUnDocumento = async (doc) => {
-                const otIds = doc.ots.filter(o => !o.albaranada).map(o => o.id);
-                if (otIds.length === 0) {
-                    alert(`Todas las OT de "${doc.clienteNombre} — ${doc.contratoNombre}" ya estaban albaranadas.`);
-                    return null;
-                }
-                const descripcion = `Resumen de ${etiquetaPeriodo} — Técnicos: ${doc.tecnicos.join(', ') || '—'}`;
+            // Genera un albarán INDEPENDIENTE por cada tarjeta que tenga OT elegidas, con las horas y
+            // materiales de ESAS OT únicamente (no de las demás OT de la tarjeta).
+            const generarAlbaranDesdeUnDocumento = async (doc, otsElegidas) => {
+                if (otsElegidas.length === 0) return null;
+                const otIds = otsElegidas.map(o => o.id);
+                const horasTotales = otsElegidas.reduce((sum, o) => sum + o.horas, 0);
+                const tecnicos = [...new Set(otsElegidas.flatMap(o => o.tecnicos))];
+                const materialesAgg = {};
+                otsElegidas.forEach(o => o.materiales.forEach(m => {
+                    const mk = m.descripcion.trim().toLowerCase();
+                    if (!materialesAgg[mk]) materialesAgg[mk] = { descripcion: m.descripcion, cantidad: 0 };
+                    materialesAgg[mk].cantidad += m.cantidad;
+                }));
+
+                const descripcion = `Resumen de ${etiquetaPeriodo} — Técnicos: ${tecnicos.join(', ') || '—'}`;
                 const lineas = [];
-                if (doc.horasTotales > 0) {
-                    lineas.push({ tipo: 'mano_obra', descripcion: `Mano de obra (${doc.tecnicos.join(', ') || 'técnicos'})`, cantidad: parseFloat(doc.horasTotales.toFixed(2)), precio_unitario: '' });
+                if (horasTotales > 0) {
+                    lineas.push({ tipo: 'mano_obra', descripcion: `Mano de obra (${tecnicos.join(', ') || 'técnicos'})`, cantidad: parseFloat(horasTotales.toFixed(2)), precio_unitario: '' });
                 }
-                doc.materiales.forEach(m => lineas.push({ tipo: 'material', descripcion: m.descripcion, cantidad: m.cantidad, precio_unitario: '' }));
+                Object.values(materialesAgg).forEach(m => lineas.push({ tipo: 'material', descripcion: m.descripcion, cantidad: m.cantidad, precio_unitario: '' }));
 
                 const rCrear = await fetch(`${API_URL}/api/albaranes`, {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -6614,15 +6640,15 @@
             };
 
             const generarAlbaranDesdeSeleccion = async () => {
-                if (docsElegidos.length === 0) return;
+                if (seleccionPorDoc.length === 0) return;
                 setGenerandoAlbaran(true);
                 try {
                     let albaranesCreados = 0, otsEnviadas = 0;
-                    for (const doc of docsElegidos) {
-                        const n = await generarAlbaranDesdeUnDocumento(doc);
+                    for (const { doc, otsElegidas } of seleccionPorDoc) {
+                        const n = await generarAlbaranDesdeUnDocumento(doc, otsElegidas);
                         if (n) { albaranesCreados++; otsEnviadas += n; }
                     }
-                    setDocsSeleccionados([]);
+                    setOtsSeleccionadas([]);
                     cargar();
                     if (onRefresh) onRefresh();
                     if (albaranesCreados > 0) {
@@ -6743,7 +6769,7 @@
                                         const v = e.target.value; if (!v) return;
                                         setMesResumen(v);
                                         if (v > mesResumenHasta) setMesResumenHasta(v); // el fin nunca queda antes del inicio
-                                        setDocsSeleccionados([]);
+                                        setOtsSeleccionadas([]);
                                         cargarResumenMensual();
                                     }} />
                                 </div>
@@ -6753,7 +6779,7 @@
                                         const v = e.target.value; if (!v) return;
                                         setMesResumenHasta(v);
                                         if (v < mesResumen) setMesResumen(v);
-                                        setDocsSeleccionados([]);
+                                        setOtsSeleccionadas([]);
                                         cargarResumenMensual();
                                     }} />
                                 </div>
@@ -6774,14 +6800,14 @@
                                 </div>
                                 <div className="ficha-field">
                                     <span className="ficha-field-label">Cliente</span>
-                                    <select value={filtroClienteResumen} onChange={(e) => { setFiltroClienteResumen(e.target.value); setFiltroContratoResumen('todos'); setDocsSeleccionados([]); }}>
+                                    <select value={filtroClienteResumen} onChange={(e) => { setFiltroClienteResumen(e.target.value); setFiltroContratoResumen('todos'); setOtsSeleccionadas([]); }}>
                                         <option value="todos">Todos</option>
                                         {[...clientes].sort((a, b) => (a.nombre || '').localeCompare(b.nombre || '', 'es')).map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
                                     </select>
                                 </div>
                                 <div className="ficha-field">
                                     <span className="ficha-field-label">Contrato / Obra</span>
-                                    <select value={filtroContratoResumen} onChange={(e) => { setFiltroContratoResumen(e.target.value); setDocsSeleccionados([]); }}>
+                                    <select value={filtroContratoResumen} onChange={(e) => { setFiltroContratoResumen(e.target.value); setOtsSeleccionadas([]); }}>
                                         <option value="todos">Todos</option>
                                         {(contratos || [])
                                             .filter(c => filtroClienteResumen === 'todos' || String(c.cliente_id) === filtroClienteResumen)
@@ -6796,13 +6822,13 @@
                                     <div className="empty-state">No hay OT con visitas registradas en {etiquetaPeriodo} con estos filtros.</div>
                                 ) : (
                                     <div className="list" style={{ marginTop: '10px' }}>
-                                        {user.rol === 'admin' && docsElegidos.length > 0 && (
+                                        {user.rol === 'admin' && seleccionPorDoc.length > 0 && (
                                             <div className="finalizar-banner" style={{ marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
                                                 <span className="card-text">
-                                                    {docsElegidos.length} tarjeta(s) seleccionada(s) — se creará {docsElegidos.length === 1 ? 'un albarán' : `un albarán por cada una (${docsElegidos.length} albaranes)`}
+                                                    {totalOTsElegidas} OT seleccionada(s) — se creará {seleccionPorDoc.length === 1 ? 'un albarán' : `un albarán por cada tarjeta (${seleccionPorDoc.length} albaranes)`}
                                                 </span>
                                                 <button className="btn btn-success" disabled={generandoAlbaran} onClick={generarAlbaranDesdeSeleccion}>
-                                                    {generandoAlbaran ? 'Generando...' : (docsElegidos.length === 1 ? '📄 Generar albarán' : '📄 Generar albaranes')}
+                                                    {generandoAlbaran ? 'Generando...' : (seleccionPorDoc.length === 1 ? '📄 Generar albarán' : '📄 Generar albaranes')}
                                                 </button>
                                             </div>
                                         )}
@@ -6810,9 +6836,17 @@
                                             <div key={i} className="list-item">
                                                 <div className="list-item-header">
                                                     <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
-                                                        {user.rol === 'admin' && (
-                                                            <input type="checkbox" checked={docsSeleccionados.includes(doc.key)} onChange={() => toggleDocSeleccionado(doc.key)} style={{ marginTop: '4px' }} />
-                                                        )}
+                                                        {user.rol === 'admin' && (() => {
+                                                            const ids = idsSeleccionablesDe(doc);
+                                                            const nSel = ids.filter(id => otsSeleccionadas.includes(id)).length;
+                                                            const todas = ids.length > 0 && nSel === ids.length;
+                                                            return (
+                                                                <input type="checkbox" disabled={ids.length === 0} checked={todas}
+                                                                    ref={(el) => { if (el) el.indeterminate = nSel > 0 && !todas; }}
+                                                                    title="Marcar / desmarcar todas las OT sin albaranar de este cliente/contrato"
+                                                                    onChange={() => toggleTodasLasOTDeDoc(doc)} style={{ marginTop: '4px' }} />
+                                                            );
+                                                        })()}
                                                         <div>
                                                             <p className="card-title">🏢 {doc.departamento} · 👤 {doc.clienteNombre}</p>
                                                             <p className="card-text">📄 {doc.contratoNombre} — {etiquetaPeriodo}</p>
@@ -6824,22 +6858,36 @@
                                                 </div>
                                                 <div className="readonly-view" style={{ marginTop: '8px' }}>
                                                     <div className="rv-row"><span className="rv-label">Técnicos</span><span className="rv-value">{doc.tecnicos.join(', ') || '—'}</span></div>
-                                                    <div className="rv-row"><span className="rv-label">Horas totales</span><span className="rv-value">{doc.horasTotales.toFixed(2)} h</span></div>
+                                                    <div className="rv-row"><span className="rv-label">Horas totales (todas las OT)</span><span className="rv-value">{doc.horasTotales.toFixed(2)} h</span></div>
                                                 </div>
                                                 <div style={{ marginTop: '6px' }}>
-                                                    <p className="card-text" style={{ fontWeight: 600 }}>OT incluidas</p>
+                                                    <p className="card-text" style={{ fontWeight: 600 }}>OT incluidas{user.rol === 'admin' ? ' (marca las que quieras albaranar)' : ''}</p>
                                                     {doc.ots.map(o => (
-                                                        <div key={o.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px', borderBottom: '1px dashed var(--border)', padding: '3px 0' }}>
-                                                            <span>{o.id} {o.albaranada && <span className="badge" style={{ background: 'var(--bg-accent)', color: 'var(--fill-accent)', fontSize: '10px', marginLeft: '4px' }}>📄 Albaranada</span>}</span>
-                                                            {o.albaranada && user.rol === 'admin' && (
-                                                                <button className="btn btn-secondary" style={{ fontSize: '11px', padding: '3px 8px' }} onClick={() => desasociarOT(o.id)}>Desasociar</button>
-                                                            )}
+                                                        <div key={o.id} style={{ borderBottom: '1px dashed var(--border)', padding: '6px 0' }}>
+                                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
+                                                                <label style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', fontSize: '13px', cursor: (user.rol === 'admin' && !o.albaranada) ? 'pointer' : 'default' }}>
+                                                                    {user.rol === 'admin' && !o.albaranada && (
+                                                                        <input type="checkbox" checked={otsSeleccionadas.includes(o.id)} onChange={() => toggleOTSeleccionada(o.id)} style={{ marginTop: '3px' }} />
+                                                                    )}
+                                                                    <span>
+                                                                        <strong>{o.id}</strong> — {o.titulo}
+                                                                        {o.albaranada && <span className="badge" style={{ background: 'var(--bg-accent)', color: 'var(--fill-accent)', fontSize: '10px', marginLeft: '6px' }}>📄 Albaranada</span>}
+                                                                    </span>
+                                                                </label>
+                                                                {o.albaranada && user.rol === 'admin' && (
+                                                                    <button className="btn btn-secondary" style={{ fontSize: '11px', padding: '3px 8px' }} onClick={() => desasociarOT(o.id)}>Desasociar</button>
+                                                                )}
+                                                            </div>
+                                                            <div style={{ fontSize: '12px', paddingLeft: user.rol === 'admin' && !o.albaranada ? '22px' : '0', marginTop: '2px' }}>
+                                                                <div>👷 {o.horas.toFixed(2)} h · {o.tecnicos.join(', ') || '—'}</div>
+                                                                <div>📦 {o.materiales.length > 0 ? o.materiales.map(m => `${m.descripcion} × ${m.cantidad}`).join(' · ') : 'Sin materiales'}</div>
+                                                            </div>
                                                         </div>
                                                     ))}
                                                 </div>
                                                 {doc.materiales.length > 0 && (
                                                     <div style={{ marginTop: '8px' }}>
-                                                        <p className="card-text" style={{ fontWeight: 600 }}>Materiales</p>
+                                                        <p className="card-text" style={{ fontWeight: 600 }}>Materiales (total de todas las OT)</p>
                                                         {doc.materiales.map((m, j) => (
                                                             <p key={j} className="card-text" style={{ fontSize: '13px', borderBottom: '1px dashed var(--border)', padding: '4px 0' }}>{m.descripcion} × {m.cantidad}</p>
                                                         ))}
