@@ -1879,11 +1879,26 @@ app.put('/api/guardia/:id', (req, res) => {
 // Tablas incluidas, en orden de dependencia (las que no dependen de otras primero).
 const TABLAS_BACKUP = ['usuarios', 'clientes', 'zonas', 'tipos_activo', 'contratos', 'campos_config', 'emplazamientos', 'activos', 'materiales', 'ordenes_trabajo', 'visitas', 'albaranes'];
 
+// Columnas con fotos/vídeos que NO se incluyen en el backup (son muy pesadas y ya se guardan aparte,
+// p. ej. en los grupos de WhatsApp). Ni siquiera se leen de la base de datos al exportar.
+// Al importar, las filas nuevas se crean sin fotos (el valor por defecto de la columna).
+const COLUMNAS_SIN_BACKUP = {
+  activos: ['fotos_json'],
+  visitas: ['fotos_json', 'videos_json']
+};
+
 app.get('/api/backup/export', async (req, res) => {
   try {
-    const resultado = { version: 1, exportado_en: new Date().toISOString() };
+    const resultado = { version: 1, exportado_en: new Date().toISOString(), sin_fotos_ni_videos: true };
     for (const tabla of TABLAS_BACKUP) {
-      resultado[tabla] = await dbAll(`SELECT * FROM ${tabla}`);
+      const excluidas = COLUMNAS_SIN_BACKUP[tabla] || [];
+      let columnas = '*';
+      if (excluidas.length > 0) {
+        const info = await dbAll(`PRAGMA table_info(${tabla})`);
+        const incluidas = info.map(c => c.name).filter(n => !excluidas.includes(n));
+        columnas = incluidas.map(n => `"${n}"`).join(', ');
+      }
+      resultado[tabla] = await dbAll(`SELECT ${columnas} FROM ${tabla}`);
     }
     res.json(resultado);
   } catch (e) {
