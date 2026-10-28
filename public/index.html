@@ -1,7 +1,8 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="es" translate="no">
 <head>
     <meta charset="UTF-8">
+    <meta name="google" content="notranslate">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GMAO - Sistema de Órdenes de Trabajo</title>
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
@@ -1948,7 +1949,7 @@
                                             <span className="ficha-field-label">Activo{otForm.tipo !== 'preventivo' ? ' (opcional)' : ''}</span>
                                             <select value={otForm.activo_id} disabled={!puedeEditarTodo} onChange={(e) => setOtForm({ ...otForm, activo_id: e.target.value })}>
                                                 <option value="">-- Selecciona --</option>
-                                                {activosFiltrados.map(a => <option key={a.id} value={a.id}>{a.nombre} · {a.tipo}</option>)}
+                                                {activosFiltrados.map(a => <option key={a.id} value={a.id}>{`${a.nombre} · ${a.tipo}`}</option>)}
                                             </select>
                                         </div>
                                     </>
@@ -2034,7 +2035,7 @@
                                 <div className="form-group">
                                     <label>Responsable (Admin / Supervisor)</label>
                                     <select value={otForm.responsable_id} onChange={(e) => setOtForm({ ...otForm, responsable_id: parseInt(e.target.value) })}>
-                                        {responsablesDisponibles.map(u => <option key={u.id} value={u.id}>{u.nombre} ({u.rol})</option>)}
+                                        {responsablesDisponibles.map(u => <option key={u.id} value={u.id} label={`${u.nombre} (${u.rol})`}>{`${u.nombre} (${u.rol})`}</option>)}
                                     </select>
                                 </div>
                             )}
@@ -2043,7 +2044,7 @@
                                 <label>Técnico Principal</label>
                                 <select value={otForm.asignado_a || ''} disabled={!puedeEditarTodo} onChange={(e) => setOtForm({ ...otForm, asignado_a: e.target.value ? parseInt(e.target.value) : null })}>
                                     <option value="">-- Sin asignar --</option>
-                                    {tecnicosDisponibles.map(u => <option key={u.id} value={u.id}>{u.nombre} ({u.rol})</option>)}
+                                    {tecnicosDisponibles.map(u => <option key={u.id} value={u.id} label={`${u.nombre} (${u.rol})`}>{`${u.nombre} (${u.rol})`}</option>)}
                                 </select>
                             </div>
 
@@ -2061,7 +2062,7 @@
                                 <select value={otForm.encargado_id || ''} disabled={!esGestor} onChange={(e) => setOtForm({ ...otForm, encargado_id: e.target.value ? parseInt(e.target.value) : null })}>
                                     <option value="">-- Sin encargado --</option>
                                     {usuarios.filter(u => u.activo && (u.rol === 'encargado' || u.rol === 'supervisor')).map(u => (
-                                        <option key={u.id} value={u.id}>{u.nombre}{u.departamento ? ` (${u.departamento})` : ''}</option>
+                                        <option key={u.id} value={u.id} label={`${u.nombre}${u.departamento ? ` (${u.departamento})` : ''}`}>{`${u.nombre}${u.departamento ? ` (${u.departamento})` : ''}`}</option>
                                     ))}
                                 </select>
                                 {esGestor && <p className="lock-note">Se usa para trabajos interempresas: indica qué encargado responde de esta OT, aunque sea de otro departamento.</p>}
@@ -5350,7 +5351,7 @@
                                                                     <div className="planning-manual-form" onClick={(e) => e.stopPropagation()}>
                                                                         <select value={otParaAsignar} onChange={(e) => setOtParaAsignar(e.target.value)}>
                                                                             <option value="">-- Elige una OT --</option>
-                                                                            {otsNoResueltas.map(o => <option key={o.id} value={o.id}>{o.id} — {o.titulo}</option>)}
+                                                                            {otsNoResueltas.map(o => <option key={o.id} value={o.id}>{`${o.id} — ${o.titulo}`}</option>)}
                                                                         </select>
                                                                         {companerosDisponibles.length > 0 && (
                                                                             <div style={{ marginTop: '4px', textAlign: 'left' }}>
@@ -6817,7 +6818,7 @@
                                         {(contratos || [])
                                             .filter(c => filtroClienteResumen === 'todos' || String(c.cliente_id) === filtroClienteResumen)
                                             .sort((a, b) => (a.nombre || '').localeCompare(b.nombre || '', 'es'))
-                                            .map(c => <option key={c.id} value={c.id}>{c.nombre}{filtroClienteResumen === 'todos' && c.cliente_nombre ? ` (${c.cliente_nombre})` : ''}</option>)}
+                                            .map(c => <option key={c.id} value={c.id}>{`${c.nombre}${filtroClienteResumen === 'todos' && c.cliente_nombre ? ` (${c.cliente_nombre})` : ''}`}</option>)}
                                     </select>
                                 </div>
                             </div>
