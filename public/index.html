@@ -74,6 +74,18 @@
         .login-card h1 { font-size: 28px; font-weight: 700; text-align: center; margin-bottom: 0.5rem; color: var(--fill-accent); }
         .login-card p { text-align: center; color: var(--text-secondary); margin-bottom: 2rem; font-size: 14px; }
         .form-group { margin-bottom: 14px; }
+        /* Lista desplegable propia (no usa la ventana nativa del navegador, que en algunos Chrome sale en blanco) */
+        .lista-desplegable { position: relative; }
+        .lista-desplegable-boton { width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; font-family: inherit; background: var(--surface-1); color: var(--text-primary); text-align: left; cursor: pointer; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+        .lista-desplegable-boton:focus { outline: none; border-color: var(--fill-accent); box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1); }
+        .lista-desplegable-boton:disabled { opacity: 0.6; cursor: not-allowed; }
+        .lista-desplegable-panel { position: absolute; left: 0; right: 0; top: calc(100% + 4px); z-index: 60; background: var(--surface-1); color: var(--text-primary); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18); padding: 6px; }
+        .lista-desplegable-panel input { margin-bottom: 6px; }
+        .lista-desplegable-opciones { max-height: 260px; overflow-y: auto; }
+        .lista-desplegable-opcion { padding: 9px 10px; border-radius: 6px; cursor: pointer; font-size: 14px; color: var(--text-primary); }
+        .lista-desplegable-opcion:hover { background: var(--bg-accent); }
+        .lista-desplegable-opcion.activa { font-weight: 600; background: var(--bg-accent); color: var(--fill-accent); }
+        .lista-desplegable-vacia { padding: 9px 10px; font-size: 13px; color: var(--text-secondary); }
         /* Las listas desplegables (técnicos, encargados, clientes...) se pintan con los colores de la app, para que los nombres se lean siempre */
         select option, select optgroup { background-color: var(--surface-1); color: var(--text-primary); }
         select option:disabled { color: var(--text-muted); }
@@ -1157,6 +1169,59 @@
         }
 
         // ===== SELECTOR DE MATERIALES (desde Preciario) =====
+        // Lista desplegable propia: un botón + un panel dibujado por la propia página. Se usa para elegir
+        // personas (técnico, encargado, responsable, compañeros) porque la ventana desplegable nativa de
+        // algunos Chrome sale en blanco. opciones = [{ valor, etiqueta }]. Con más de 8 opciones lleva buscador.
+        function ListaDesplegable({ value, onChange, opciones, disabled, placeholder }) {
+            const [abierto, setAbierto] = useState(false);
+            const [filtro, setFiltro] = useState('');
+            const ref = React.useRef(null);
+
+            useEffect(() => {
+                if (!abierto) return;
+                const fuera = (e) => { if (ref.current && !ref.current.contains(e.target)) setAbierto(false); };
+                const esc = (e) => { if (e.key === 'Escape') setAbierto(false); };
+                document.addEventListener('mousedown', fuera);
+                document.addEventListener('touchstart', fuera);
+                document.addEventListener('keydown', esc);
+                return () => {
+                    document.removeEventListener('mousedown', fuera);
+                    document.removeEventListener('touchstart', fuera);
+                    document.removeEventListener('keydown', esc);
+                };
+            }, [abierto]);
+
+            const norm = (t) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+            const valorActual = (value === null || value === undefined) ? '' : String(value);
+            const actual = opciones.find(o => String(o.valor) === valorActual);
+            const visibles = filtro ? opciones.filter(o => norm(o.etiqueta).includes(norm(filtro))) : opciones;
+
+            return (
+                <div className="lista-desplegable" ref={ref}>
+                    <button type="button" className="lista-desplegable-boton" disabled={disabled} onClick={() => { setAbierto(!abierto); setFiltro(''); }}>
+                        <span>{actual ? actual.etiqueta : (placeholder || '-- Selecciona --')}</span>
+                        <span aria-hidden="true">▾</span>
+                    </button>
+                    {abierto && (
+                        <div className="lista-desplegable-panel">
+                            {opciones.length > 8 && (
+                                <input type="text" placeholder="Buscar..." value={filtro} onChange={(e) => setFiltro(e.target.value)} />
+                            )}
+                            <div className="lista-desplegable-opciones">
+                                {visibles.map(o => (
+                                    <div key={String(o.valor)} className={`lista-desplegable-opcion ${String(o.valor) === valorActual ? 'activa' : ''}`}
+                                         onClick={() => { onChange(o.valor); setAbierto(false); }}>
+                                        {o.etiqueta}
+                                    </div>
+                                ))}
+                                {visibles.length === 0 && <div className="lista-desplegable-vacia">Sin resultados</div>}
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
         function MaterialesPicker({ value, onChange, materiales, clienteId, contratoId, readOnly }) {
             const filas = value && value.length ? value : [{ material_id: '', descripcion: '', cantidad: 1 }];
 
@@ -1286,10 +1351,11 @@
                 <div>
                     {filas.map((f, i) => (
                         <div key={i} className="material-picker-row">
-                            <select style={{ gridColumn: '1 / -1' }} value={f.tecnico_id} onChange={(e) => updateRow(i, 'tecnico_id', e.target.value)}>
-                                <option value="">-- Compañero --</option>
-                                {tecnicosDisponibles.map(u => <option key={u.id} value={u.id}>{u.nombre}</option>)}
-                            </select>
+                            <div style={{ gridColumn: '1 / -1' }}>
+                                <ListaDesplegable value={f.tecnico_id} placeholder="-- Compañero --"
+                                    onChange={(v) => updateRow(i, 'tecnico_id', v === '' ? '' : String(v))}
+                                    opciones={[{ valor: '', etiqueta: '-- Compañero --' }, ...tecnicosDisponibles.map(u => ({ valor: u.id, etiqueta: u.nombre }))]} />
+                            </div>
                             <input type="time" placeholder="Hora inicio" value={f.hora_inicio || ''} onChange={(e) => updateRow(i, 'hora_inicio', e.target.value)} />
                             <input type="time" placeholder="Hora fin" value={f.hora_fin || ''} onChange={(e) => updateRow(i, 'hora_fin', e.target.value)} />
                             {calcularHoras(f.hora_inicio, f.hora_fin) && (
@@ -2034,18 +2100,17 @@
                             {esGestor && (
                                 <div className="form-group">
                                     <label>Responsable (Admin / Supervisor)</label>
-                                    <select value={otForm.responsable_id} onChange={(e) => setOtForm({ ...otForm, responsable_id: parseInt(e.target.value) })}>
-                                        {responsablesDisponibles.map(u => <option key={u.id} value={u.id} label={`${u.nombre} (${u.rol})`}>{`${u.nombre} (${u.rol})`}</option>)}
-                                    </select>
+                                    <ListaDesplegable value={otForm.responsable_id}
+                                        onChange={(v) => setOtForm({ ...otForm, responsable_id: parseInt(v) })}
+                                        opciones={responsablesDisponibles.map(u => ({ valor: u.id, etiqueta: `${u.nombre} (${u.rol})` }))} />
                                 </div>
                             )}
 
                             <div className={`form-group ${!puedeEditarTodo ? 'field-locked' : ''}`}>
                                 <label>Técnico Principal</label>
-                                <select value={otForm.asignado_a || ''} disabled={!puedeEditarTodo} onChange={(e) => setOtForm({ ...otForm, asignado_a: e.target.value ? parseInt(e.target.value) : null })}>
-                                    <option value="">-- Sin asignar --</option>
-                                    {tecnicosDisponibles.map(u => <option key={u.id} value={u.id} label={`${u.nombre} (${u.rol})`}>{`${u.nombre} (${u.rol})`}</option>)}
-                                </select>
+                                <ListaDesplegable value={otForm.asignado_a} disabled={!puedeEditarTodo}
+                                    onChange={(v) => setOtForm({ ...otForm, asignado_a: v ? parseInt(v) : null })}
+                                    opciones={[{ valor: '', etiqueta: '-- Sin asignar --' }, ...tecnicosDisponibles.map(u => ({ valor: u.id, etiqueta: `${u.nombre} (${u.rol})` }))]} />
                             </div>
 
                             <div className={`form-group ${!esGestor ? 'field-locked' : ''}`}>
@@ -2059,12 +2124,9 @@
 
                             <div className={`form-group ${!esGestor ? 'field-locked' : ''}`}>
                                 <label>Encargado</label>
-                                <select value={otForm.encargado_id || ''} disabled={!esGestor} onChange={(e) => setOtForm({ ...otForm, encargado_id: e.target.value ? parseInt(e.target.value) : null })}>
-                                    <option value="">-- Sin encargado --</option>
-                                    {usuarios.filter(u => u.activo && (u.rol === 'encargado' || u.rol === 'supervisor')).map(u => (
-                                        <option key={u.id} value={u.id} label={`${u.nombre}${u.departamento ? ` (${u.departamento})` : ''}`}>{`${u.nombre}${u.departamento ? ` (${u.departamento})` : ''}`}</option>
-                                    ))}
-                                </select>
+                                <ListaDesplegable value={otForm.encargado_id} disabled={!esGestor}
+                                    onChange={(v) => setOtForm({ ...otForm, encargado_id: v ? parseInt(v) : null })}
+                                    opciones={[{ valor: '', etiqueta: '-- Sin encargado --' }, ...usuarios.filter(u => u.activo && (u.rol === 'encargado' || u.rol === 'supervisor')).map(u => ({ valor: u.id, etiqueta: `${u.nombre}${u.departamento ? ` (${u.departamento})` : ''}` }))]} />
                                 {esGestor && <p className="lock-note">Se usa para trabajos interempresas: indica qué encargado responde de esta OT, aunque sea de otro departamento.</p>}
                             </div>
 
