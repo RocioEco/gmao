@@ -12,6 +12,7 @@
         * { margin: 0; padding: 0; box-sizing: border-box; }
         :root { color-scheme: light dark; }
         body.light-theme {
+            color-scheme: light;
             --surface-0: #f8f9fa;
             --surface-1: #ffffff;
             --surface-2: #f0f2f5;
@@ -37,6 +38,7 @@
             --header-text: #ffffff;
         }
         body.dark-theme {
+            color-scheme: dark;
             --surface-0: #0d1117;
             --surface-1: #161b22;
             --surface-2: #21262d;
@@ -71,6 +73,9 @@
         .login-card h1 { font-size: 28px; font-weight: 700; text-align: center; margin-bottom: 0.5rem; color: var(--fill-accent); }
         .login-card p { text-align: center; color: var(--text-secondary); margin-bottom: 2rem; font-size: 14px; }
         .form-group { margin-bottom: 14px; }
+        /* Las listas desplegables (técnicos, encargados, clientes...) se pintan con los colores de la app, para que los nombres se lean siempre */
+        select option, select optgroup { background-color: var(--surface-1); color: var(--text-primary); }
+        select option:disabled { color: var(--text-muted); }
         .form-group label { display: block; font-size: 13px; margin-bottom: 6px; color: var(--text-primary); font-weight: 500; }
         input, select, textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; font-family: inherit; background: var(--surface-1); color: var(--text-primary); }
         input:focus, select:focus, textarea:focus { outline: none; border-color: var(--fill-accent); box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1); }
