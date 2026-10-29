@@ -74,18 +74,24 @@
         .login-card h1 { font-size: 28px; font-weight: 700; text-align: center; margin-bottom: 0.5rem; color: var(--fill-accent); }
         .login-card p { text-align: center; color: var(--text-secondary); margin-bottom: 2rem; font-size: 14px; }
         .form-group { margin-bottom: 14px; }
-        /* Lista desplegable propia (no usa la ventana nativa del navegador, que en algunos Chrome sale en blanco) */
+        /* Lista desplegable propia (no usa la ventana nativa del navegador, que en algunos Chrome sale en blanco).
+           El panel es "fixed" para que no lo recorte ningún contenedor con scroll (calendario, tarjetas...). */
         .lista-desplegable { position: relative; }
         .lista-desplegable-boton { width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; font-family: inherit; background: var(--surface-1); color: var(--text-primary); text-align: left; cursor: pointer; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+        .lista-desplegable-boton > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .lista-desplegable-boton:focus { outline: none; border-color: var(--fill-accent); box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1); }
         .lista-desplegable-boton:disabled { opacity: 0.6; cursor: not-allowed; }
-        .lista-desplegable-panel { position: absolute; left: 0; right: 0; top: calc(100% + 4px); z-index: 60; background: var(--surface-1); color: var(--text-primary); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18); padding: 6px; }
-        .lista-desplegable-panel input { margin-bottom: 6px; }
-        .lista-desplegable-opciones { max-height: 260px; overflow-y: auto; }
+        .lista-desplegable-boton.select-disabled { background: var(--bg-accent); }
+        .lista-desplegable-panel { position: fixed; z-index: 500; display: flex; flex-direction: column; background: var(--surface-1); color: var(--text-primary); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22); padding: 6px; }
+        .lista-desplegable-panel input { margin-bottom: 6px; flex-shrink: 0; }
+        .lista-desplegable-opciones { overflow-y: auto; min-height: 0; flex: 1; }
         .lista-desplegable-opcion { padding: 9px 10px; border-radius: 6px; cursor: pointer; font-size: 14px; color: var(--text-primary); }
         .lista-desplegable-opcion:hover { background: var(--bg-accent); }
         .lista-desplegable-opcion.activa { font-weight: 600; background: var(--bg-accent); color: var(--fill-accent); }
+        .lista-desplegable-opcion.deshabilitada { color: var(--text-muted); cursor: not-allowed; }
+        .lista-desplegable-grupo { padding: 8px 10px 4px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; color: var(--text-secondary); }
         .lista-desplegable-vacia { padding: 9px 10px; font-size: 13px; color: var(--text-secondary); }
+        .planning-manual-form .lista-desplegable-boton { font-size: 11px; padding: 3px 6px; }
         /* Las listas desplegables (técnicos, encargados, clientes...) se pintan con los colores de la app, para que los nombres se lean siempre */
         select option, select optgroup { background-color: var(--surface-1); color: var(--text-primary); }
         select option:disabled { color: var(--text-muted); }
@@ -317,9 +323,24 @@
         /* ===== IMPRESIÓN / PDF DE ÓRDENES DE TRABAJO ===== */
         .printable-ot { display: none; }
         @media print {
-            body * { visibility: hidden; }
-            .printable-ot, .printable-ot * { visibility: visible; }
-            .printable-ot { display: block; position: absolute; left: 0; top: 0; width: 100%; padding: 20px; color: #000; background: #fff; }
+            /* Solo cuando se imprime un DOCUMENTO (OT, albarán, factura) se oculta el resto de la pantalla.
+               El Calendario y el listado de OT tienen sus propias reglas y se imprimen tal cual. */
+            body.imprimiendo-doc * { visibility: hidden; }
+            body.imprimiendo-doc .printable-ot, body.imprimiendo-doc .printable-ot * { visibility: visible; }
+            body.imprimiendo-doc .printable-ot { display: block; position: absolute; left: 0; top: 0; width: 100%; padding: 20px; color: #000; background: #fff; }
+            .doc-cabecera { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; border-bottom: 2px solid #333; padding-bottom: 8px; font-size: 14px; }
+            .doc-logo { height: 42px; }
+            .doc-titulo { font-size: 22px; margin: 10px 0 8px; }
+            .doc-datos { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 24px; font-size: 12px; margin-bottom: 10px; }
+            .doc-tabla { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px; }
+            .doc-tabla th { background: #eee; text-align: left; }
+            .doc-tabla th, .doc-tabla td { border: 1px solid #999; padding: 5px 6px; }
+            .doc-num { text-align: right; white-space: nowrap; }
+            .doc-totales { margin-left: auto; width: 55%; margin-top: 12px; font-size: 13px; }
+            .doc-totales div { display: flex; justify-content: space-between; padding: 3px 0; border-bottom: 1px dashed #ccc; }
+            .doc-totales .doc-total-final { font-weight: 700; font-size: 15px; border-top: 2px solid #333; border-bottom: none; }
+            .doc-ots { margin-top: 14px; font-size: 11px; color: #333; }
+            .doc-pie { margin-top: 18px; font-size: 11px; color: #444; }
             .print-header h1 { font-size: 20px; margin: 0 0 4px; }
             .print-header p { font-size: 13px; color: #333; margin: 0 0 12px; }
             .print-section-title { font-size: 15px; font-weight: 700; margin: 16px 0 6px; border-bottom: 2px solid #333; padding-bottom: 4px; }
@@ -969,10 +990,10 @@
                                                 {readOnly ? (
                                                     <p className="card-text">{(data[sectionKey] || {})[f.key] || '—'}</p>
                                                 ) : f.type === 'select' ? (
-                                                    <select value={(data[sectionKey] || {})[f.key] || ''} onChange={(e) => updateSection(sectionKey, { ...(data[sectionKey] || {}), [f.key]: e.target.value })}>
+                                                    <Select value={(data[sectionKey] || {})[f.key] || ''} onChange={(e) => updateSection(sectionKey, { ...(data[sectionKey] || {}), [f.key]: e.target.value })}>
                                                         <option value="">-- Selecciona --</option>
                                                         {f.options.map(o => <option key={o} value={o}>{o}</option>)}
-                                                    </select>
+                                                    </Select>
                                                 ) : (
                                                     <input type="text" value={(data[sectionKey] || {})[f.key] || ''} onChange={(e) => updateSection(sectionKey, { ...(data[sectionKey] || {}), [f.key]: e.target.value })} />
                                                 )}
@@ -1169,56 +1190,114 @@
         }
 
         // ===== SELECTOR DE MATERIALES (desde Preciario) =====
-        // Lista desplegable propia: un botón + un panel dibujado por la propia página. Se usa para elegir
-        // personas (técnico, encargado, responsable, compañeros) porque la ventana desplegable nativa de
-        // algunos Chrome sale en blanco. opciones = [{ valor, etiqueta }]. Con más de 8 opciones lleva buscador.
-        function ListaDesplegable({ value, onChange, opciones, disabled, placeholder }) {
+        // Lista desplegable propia: un botón + un panel dibujado por la propia página (no la ventana nativa del
+        // navegador, que en algunos Chrome sale en blanco). opciones = [{ valor, etiqueta, deshabilitada }] y
+        // también admite separadores { grupo: true, etiqueta }. Con más de 8 opciones lleva buscador.
+        function ListaDesplegable({ value, onChange, opciones, disabled, placeholder, className, style }) {
             const [abierto, setAbierto] = useState(false);
             const [filtro, setFiltro] = useState('');
+            const [pos, setPos] = useState(null);
             const ref = React.useRef(null);
+            const botonRef = React.useRef(null);
 
             useEffect(() => {
                 if (!abierto) return;
                 const fuera = (e) => { if (ref.current && !ref.current.contains(e.target)) setAbierto(false); };
                 const esc = (e) => { if (e.key === 'Escape') setAbierto(false); };
+                // Si la página se desplaza por detrás, se cierra (salvo el scroll de la propia lista)
+                const scroll = (e) => { if (ref.current && ref.current.contains(e.target)) return; setAbierto(false); };
                 document.addEventListener('mousedown', fuera);
                 document.addEventListener('touchstart', fuera);
                 document.addEventListener('keydown', esc);
+                window.addEventListener('scroll', scroll, true);
                 return () => {
                     document.removeEventListener('mousedown', fuera);
                     document.removeEventListener('touchstart', fuera);
                     document.removeEventListener('keydown', esc);
+                    window.removeEventListener('scroll', scroll, true);
                 };
             }, [abierto]);
 
+            const abrir = () => {
+                if (abierto) { setAbierto(false); return; }
+                const r = botonRef.current.getBoundingClientRect();
+                const abajo = window.innerHeight - r.bottom - 8;
+                const arriba = r.top - 8;
+                const haciaArriba = abajo < 220 && arriba > abajo;
+                const ancho = Math.max(r.width, 200);
+                const izq = Math.max(8, Math.min(r.left, window.innerWidth - ancho - 8));
+                setPos({
+                    left: izq, width: ancho,
+                    top: haciaArriba ? undefined : r.bottom + 4,
+                    bottom: haciaArriba ? window.innerHeight - r.top + 4 : undefined,
+                    maxHeight: Math.max(160, Math.min(340, (haciaArriba ? arriba : abajo) - 4))
+                });
+                setFiltro('');
+                setAbierto(true);
+            };
+
             const norm = (t) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
             const valorActual = (value === null || value === undefined) ? '' : String(value);
-            const actual = opciones.find(o => String(o.valor) === valorActual);
-            const visibles = filtro ? opciones.filter(o => norm(o.etiqueta).includes(norm(filtro))) : opciones;
+            const elegibles = opciones.filter(o => !o.grupo);
+            const actual = elegibles.find(o => String(o.valor) === valorActual) || (valorActual === '' || !placeholder ? elegibles[0] : null);
+            const visibles = filtro ? opciones.filter(o => !o.grupo && norm(o.etiqueta).includes(norm(filtro))) : opciones;
 
             return (
-                <div className="lista-desplegable" ref={ref}>
-                    <button type="button" className="lista-desplegable-boton" disabled={disabled} onClick={() => { setAbierto(!abierto); setFiltro(''); }}>
+                <div className="lista-desplegable" ref={ref} style={style}>
+                    <button type="button" ref={botonRef} className={`lista-desplegable-boton ${className || ''}`} disabled={disabled} onClick={abrir}>
                         <span>{actual ? actual.etiqueta : (placeholder || '-- Selecciona --')}</span>
                         <span aria-hidden="true">▾</span>
                     </button>
-                    {abierto && (
-                        <div className="lista-desplegable-panel">
-                            {opciones.length > 8 && (
+                    {abierto && pos && (
+                        <div className="lista-desplegable-panel" style={{ left: pos.left, width: pos.width, top: pos.top, bottom: pos.bottom, maxHeight: pos.maxHeight }}>
+                            {elegibles.length > 8 && (
                                 <input type="text" placeholder="Buscar..." value={filtro} onChange={(e) => setFiltro(e.target.value)} />
                             )}
                             <div className="lista-desplegable-opciones">
-                                {visibles.map(o => (
-                                    <div key={String(o.valor)} className={`lista-desplegable-opcion ${String(o.valor) === valorActual ? 'activa' : ''}`}
-                                         onClick={() => { onChange(o.valor); setAbierto(false); }}>
+                                {visibles.map((o, i) => o.grupo ? (
+                                    <div key={`g${i}`} className="lista-desplegable-grupo">{o.etiqueta}</div>
+                                ) : (
+                                    <div key={`o${i}`} className={`lista-desplegable-opcion ${String(o.valor) === valorActual ? 'activa' : ''} ${o.deshabilitada ? 'deshabilitada' : ''}`}
+                                         onClick={() => { if (o.deshabilitada) return; onChange(o.valor); setAbierto(false); }}>
                                         {o.etiqueta}
                                     </div>
                                 ))}
-                                {visibles.length === 0 && <div className="lista-desplegable-vacia">Sin resultados</div>}
+                                {visibles.filter(o => !o.grupo).length === 0 && <div className="lista-desplegable-vacia">Sin resultados</div>}
                             </div>
                         </div>
                     )}
                 </div>
+            );
+        }
+
+        // Sustituto del desplegable nativo: se usa igual (con option y optgroup dentro) pero dibuja la lista propia.
+        // Su onChange recibe un objeto con target.value (texto), como el desplegable nativo.
+        function Select({ value, onChange, disabled, className, style, children }) {
+            const opciones = [];
+            const texto = (c) => {
+                if (c === null || c === undefined || typeof c === 'boolean') return '';
+                if (Array.isArray(c)) return c.map(texto).join('');
+                if (typeof c === 'object') return texto(c.props && c.props.children);
+                return String(c);
+            };
+            const recorrer = (nodos) => {
+                React.Children.forEach(nodos, (n) => {
+                    if (!n || !n.type) return;
+                    if (n.type === 'option') {
+                        const et = n.props.label !== undefined ? n.props.label : texto(n.props.children);
+                        opciones.push({ valor: n.props.value !== undefined ? n.props.value : et, etiqueta: et, deshabilitada: !!n.props.disabled });
+                    } else if (n.type === 'optgroup') {
+                        opciones.push({ grupo: true, etiqueta: n.props.label });
+                        recorrer(n.props.children);
+                    } else if (n.type === React.Fragment) {
+                        recorrer(n.props.children);
+                    }
+                });
+            };
+            recorrer(children);
+            return (
+                <ListaDesplegable value={value} disabled={disabled} className={className} style={style} opciones={opciones}
+                    onChange={(v) => { if (onChange) onChange({ target: { value: String(v) }, currentTarget: { value: String(v) } }); }} />
             );
         }
 
@@ -1281,14 +1360,14 @@
                 <div>
                     {filas.map((f, i) => (
                         <div key={i} className="material-picker-row">
-                            <select value={f.material_id} onChange={(e) => updateRow(i, 'material_id', e.target.value)}>
+                            <Select value={f.material_id} onChange={(e) => updateRow(i, 'material_id', e.target.value)}>
                                 <option value="">-- Material del preciario (opcional) --</option>
                                 {materialesPorCategoria.map(g => (
                                     <optgroup key={g.categoria} label={g.categoria}>
                                         {g.items.map(m => <option key={m.id} value={m.id}>{m.descripcion}</option>)}
                                     </optgroup>
                                 ))}
-                            </select>
+                            </Select>
                             <input type="number" min="0" placeholder="Cantidad" value={f.cantidad} onChange={(e) => updateRow(i, 'cantidad', e.target.value)} />
                             <input style={{ gridColumn: '1 / -1' }} type="text" placeholder="Descripción (si no está en el preciario)" value={f.descripcion} onChange={(e) => updateRow(i, 'descripcion', e.target.value)} />
                             {filas.length > 1 && <div style={{ gridColumn: '1 / -1' }}><button className="btn-remove-row" onClick={() => removeRow(i)}>Quitar</button></div>}
@@ -1451,27 +1530,27 @@
                             <>
                                 <div className="form-group">
                                     <label>¿Se utilizaron EPIs para realizar los trabajos?</label>
-                                    <select value={seguridad.epis} onChange={(e) => onChange({ ...data, seguridad: { ...seguridad, epis: e.target.value } })}>
+                                    <Select value={seguridad.epis} onChange={(e) => onChange({ ...data, seguridad: { ...seguridad, epis: e.target.value } })}>
                                         <option value="">-- Selecciona --</option>
                                         <option value="SI">SI</option>
                                         <option value="NO">NO</option>
-                                    </select>
+                                    </Select>
                                 </div>
                                 <div className="form-group">
                                     <label>¿La maquinaria y equipos se encontraban en buen estado?</label>
-                                    <select value={seguridad.maquinariaBuenEstado} onChange={(e) => onChange({ ...data, seguridad: { ...seguridad, maquinariaBuenEstado: e.target.value } })}>
+                                    <Select value={seguridad.maquinariaBuenEstado} onChange={(e) => onChange({ ...data, seguridad: { ...seguridad, maquinariaBuenEstado: e.target.value } })}>
                                         <option value="">-- Selecciona --</option>
                                         <option value="SI">SI</option>
                                         <option value="NO">NO</option>
-                                    </select>
+                                    </Select>
                                 </div>
                                 <div className="form-group">
                                     <label>¿Han sido necesarios medios de elevación?</label>
-                                    <select value={seguridad.mediosElevacion} onChange={(e) => onChange({ ...data, seguridad: { ...seguridad, mediosElevacion: e.target.value } })}>
+                                    <Select value={seguridad.mediosElevacion} onChange={(e) => onChange({ ...data, seguridad: { ...seguridad, mediosElevacion: e.target.value } })}>
                                         <option value="">-- Selecciona --</option>
                                         <option value="SI">SI</option>
                                         <option value="NO">NO</option>
-                                    </select>
+                                    </Select>
                                 </div>
                                 {seguridad.mediosElevacion === 'SI' && (
                                     <div className="form-group">
@@ -1784,17 +1863,17 @@
                         <div className="ficha-grid">
                             <div className="ficha-field">
                                 <span className="ficha-field-label">Cliente</span>
-                                <select value={filtroClienteOt} onChange={(e) => { setFiltroClienteOt(e.target.value); setFiltroContratoOt('todos'); }}>
+                                <Select value={filtroClienteOt} onChange={(e) => { setFiltroClienteOt(e.target.value); setFiltroContratoOt('todos'); }}>
                                     <option value="todos">Todos</option>
                                     {clientes.map(c => <option key={c.id} value={String(c.id)}>{c.nombre}</option>)}
-                                </select>
+                                </Select>
                             </div>
                             <div className="ficha-field">
                                 <span className="ficha-field-label">Contrato</span>
-                                <select value={filtroContratoOt} onChange={(e) => setFiltroContratoOt(e.target.value)}>
+                                <Select value={filtroContratoOt} onChange={(e) => setFiltroContratoOt(e.target.value)}>
                                     <option value="todos">Todos</option>
                                     {contratosDelFiltro.map(c => <option key={c.id} value={String(c.id)}>{c.nombre}</option>)}
-                                </select>
+                                </Select>
                             </div>
                         </div>
 
@@ -1920,7 +1999,7 @@
                             {esGestor ? (
                                 <div className={`form-group ${!puedeEditarTodo ? 'field-locked' : ''}`}>
                                     <label>Tipo</label>
-                                    <select value={otForm.tipo} disabled={!puedeEditarTodo} onChange={(e) => setOtForm({ ...otForm, tipo: e.target.value, activo_id: '' })}>
+                                    <Select value={otForm.tipo} disabled={!puedeEditarTodo} onChange={(e) => setOtForm({ ...otForm, tipo: e.target.value, activo_id: '' })}>
                                         {otForm.departamento === 'Corvelec' ? (
                                             <>
                                                 <option value="correctivo">Correctiva</option>
@@ -1938,7 +2017,7 @@
                                                 <option value="formacion">Formación</option>
                                             </>
                                         )}
-                                    </select>
+                                    </Select>
                                     {otForm.departamento === 'Corvelec' && <p className="lock-note">Corvelec solo trabaja con Obra y Correctivo.</p>}
                                 </div>
                             ) : otForm.tipo === 'guardia' ? (
@@ -1963,19 +2042,19 @@
                             <div className="ficha-grid">
                                 <div className={`ficha-field ${!puedeEditarTodo ? 'field-locked' : ''}`}>
                                     <span className="ficha-field-label">Cliente{otForm.tipo === 'guardia' ? ' (opcional)' : ''}</span>
-                                    <select value={otForm.cliente_id} disabled={!puedeEditarTodo} onChange={(e) => { setOtForm({ ...otForm, cliente_id: e.target.value, contrato_id: '' }); setSelectedCliente(e.target.value); }}>
+                                    <Select value={otForm.cliente_id} disabled={!puedeEditarTodo} onChange={(e) => { setOtForm({ ...otForm, cliente_id: e.target.value, contrato_id: '' }); setSelectedCliente(e.target.value); }}>
                                         <option value="">-- Selecciona --</option>
                                         {clientes.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-                                    </select>
+                                    </Select>
                                 </div>
                                 {otForm.departamento === 'Corvelec' ? (
                                     <div className={`ficha-field ${!puedeEditarTodo ? 'field-locked' : ''}`}>
                                         <span className="ficha-field-label">Obra</span>
                                         <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                                            <select style={{ flex: 1 }} value={otForm.contrato_id} disabled={!puedeEditarTodo || !otForm.cliente_id} onChange={(e) => setOtForm({ ...otForm, contrato_id: e.target.value })}>
+                                            <Select style={{ flex: 1 }} value={otForm.contrato_id} disabled={!puedeEditarTodo || !otForm.cliente_id} onChange={(e) => setOtForm({ ...otForm, contrato_id: e.target.value })}>
                                                 <option value="">-- Selecciona --</option>
                                                 {contratosFiltrados.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-                                            </select>
+                                            </Select>
                                             {puedeEditarTodo && otForm.cliente_id && (
                                                 <QuickAddInline label="Obra" fields={[{ key: 'nombre', placeholder: 'Nombre de la obra' }]} onCreate={async (values) => {
                                                     const r = await fetch(`${API_URL}/api/contratos`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cliente_id: otForm.cliente_id, nombre: values.nombre }) });
@@ -1991,44 +2070,44 @@
                                     <>
                                         <div className={`ficha-field ${!puedeEditarTodo ? 'field-locked' : ''}`}>
                                             <span className="ficha-field-label">Contrato</span>
-                                            <select value={otForm.contrato_id} disabled={!puedeEditarTodo || !otForm.cliente_id} onChange={(e) => setOtForm({ ...otForm, contrato_id: e.target.value })}>
+                                            <Select value={otForm.contrato_id} disabled={!puedeEditarTodo || !otForm.cliente_id} onChange={(e) => setOtForm({ ...otForm, contrato_id: e.target.value })}>
                                                 <option value="">-- Selecciona --</option>
                                                 {contratosFiltrados.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-                                            </select>
+                                            </Select>
                                         </div>
                                         <div className={`ficha-field ${!puedeEditarTodo ? 'field-locked' : ''}`}>
                                             <span className="ficha-field-label">Zona</span>
-                                            <select value={selectedZonaOt} disabled={!puedeEditarTodo} onChange={(e) => { setSelectedZonaOt(e.target.value); setOtForm({ ...otForm, emplazamiento_id: '', activo_id: '' }); }}>
+                                            <Select value={selectedZonaOt} disabled={!puedeEditarTodo} onChange={(e) => { setSelectedZonaOt(e.target.value); setOtForm({ ...otForm, emplazamiento_id: '', activo_id: '' }); }}>
                                                 <option value="">-- Selecciona --</option>
                                                 {(zonas || []).map(z => <option key={z.id} value={z.id}>{z.nombre}</option>)}
-                                            </select>
+                                            </Select>
                                         </div>
 
                                         <div className={`ficha-field ${!puedeEditarTodo ? 'field-locked' : ''}`}>
                                             <span className="ficha-field-label">Emplazamiento</span>
-                                            <select value={otForm.emplazamiento_id} disabled={!puedeEditarTodo} onChange={(e) => setOtForm({ ...otForm, emplazamiento_id: e.target.value, activo_id: '' })}>
+                                            <Select value={otForm.emplazamiento_id} disabled={!puedeEditarTodo} onChange={(e) => setOtForm({ ...otForm, emplazamiento_id: e.target.value, activo_id: '' })}>
                                                 <option value="">-- Selecciona --</option>
                                                 {emplazamientosFiltradosOt.map(e => <option key={e.id} value={e.id}>{e.nombre}</option>)}
-                                            </select>
+                                            </Select>
                                         </div>
                                         <div className={`ficha-field ${!puedeEditarTodo ? 'field-locked' : ''}`}>
                                             <span className="ficha-field-label">Activo{otForm.tipo !== 'preventivo' ? ' (opcional)' : ''}</span>
-                                            <select value={otForm.activo_id} disabled={!puedeEditarTodo} onChange={(e) => setOtForm({ ...otForm, activo_id: e.target.value })}>
+                                            <Select value={otForm.activo_id} disabled={!puedeEditarTodo} onChange={(e) => setOtForm({ ...otForm, activo_id: e.target.value })}>
                                                 <option value="">-- Selecciona --</option>
                                                 {activosFiltrados.map(a => <option key={a.id} value={a.id}>{`${a.nombre} · ${a.tipo}`}</option>)}
-                                            </select>
+                                            </Select>
                                         </div>
                                     </>
                                 )}
                                 <div className="ficha-field">
                                     <span className="ficha-field-label">Estado</span>
-                                    <select value={otForm.estado} onChange={(e) => setOtForm({ ...otForm, estado: e.target.value })}>
+                                    <Select value={otForm.estado} onChange={(e) => setOtForm({ ...otForm, estado: e.target.value })}>
                                         <option value="pendiente">Pendiente</option>
                                         <option value="abierta">Asignada / Abierta</option>
                                         <option value="en_curso">En curso</option>
                                         <option value="resuelta">Resuelta</option>
                                         <option value="cancelada">Cancelada</option>
-                                    </select>
+                                    </Select>
                                 </div>
 
                                 <div className="ficha-field">
@@ -2089,12 +2168,12 @@
 
                             <div className={`form-group ${!puedeEditarTodo ? 'field-locked' : ''}`}>
                                 <label>Prioridad</label>
-                                <select value={otForm.prioridad} disabled={!puedeEditarTodo} onChange={(e) => setOtForm({ ...otForm, prioridad: e.target.value })}>
+                                <Select value={otForm.prioridad} disabled={!puedeEditarTodo} onChange={(e) => setOtForm({ ...otForm, prioridad: e.target.value })}>
                                     <option value="baja">Baja</option>
                                     <option value="media">Media</option>
                                     <option value="alta">Alta</option>
                                     <option value="urgente">Urgente</option>
-                                </select>
+                                </Select>
                             </div>
 
                             {esGestor && (
@@ -2115,10 +2194,10 @@
 
                             <div className={`form-group ${!esGestor ? 'field-locked' : ''}`}>
                                 <label>Departamento</label>
-                                <select value={otForm.departamento || 'Facilities'} disabled={!esGestor} onChange={(e) => setOtForm({ ...otForm, departamento: e.target.value })}>
+                                <Select value={otForm.departamento || 'Facilities'} disabled={!esGestor} onChange={(e) => setOtForm({ ...otForm, departamento: e.target.value })}>
                                     <option value="Facilities">Facilities</option>
                                     <option value="Corvelec">Corvelec</option>
-                                </select>
+                                </Select>
                                 {esGestor && <p className="lock-note">Puedes asignar esta OT al otro departamento aunque el técnico sea del suyo propio.</p>}
                             </div>
 
@@ -2296,7 +2375,7 @@
                                                 <button className="btn btn-crear" onClick={() => asignarmeOt(otSeleccionada)}>Asignarme para Gestionar</button>
                                             )}
                                             {esGestor && otSeleccionada.tipo === 'guardia' && <button className="btn btn-success" onClick={() => abrirConvertirGuardia(otSeleccionada)}>Convertir a Correctivo</button>}
-                                            {['preventivo', 'correctivo', 'obra'].includes(otSeleccionada.tipo) && <button className="btn btn-secondary" onClick={() => window.print()}>🖨️ Imprimir PDF</button>}
+                                            {['preventivo', 'correctivo', 'obra'].includes(otSeleccionada.tipo) && <button className="btn btn-secondary" onClick={() => imprimirDocumento()}>🖨️ Imprimir PDF</button>}
                                             {esGestor && <button className="btn btn-danger" onClick={() => eliminarOt(otSeleccionada.id)}>Eliminar OT</button>}
                                         </div>
                                     </div>
@@ -2368,7 +2447,9 @@
                             <div className="print-section-title">Visitas ({visitas.length})</div>
                             {visitas.length === 0 && <p className="print-json-item">No hay visitas registradas.</p>}
                             {visitas.map(v => {
-                                let checklist = {}, mats = [], fotos = [], medio = [], seg = {}, desp = [];
+                                let checklist = {}, mats = [], fotos = [], medio = [], seg = {}, desp = [], companerosV = [];
+                                try { companerosV = v.companeros_json ? JSON.parse(v.companeros_json) : []; } catch {}
+                                companerosV = (Array.isArray(companerosV) ? companerosV : []).filter(c => c && c.nombre);
                                 try { checklist = v.checklist_json ? JSON.parse(v.checklist_json) : {}; } catch {}
                                 try { mats = v.materiales_json ? JSON.parse(v.materiales_json) : []; } catch {}
                                 try { fotos = v.fotos_json ? JSON.parse(v.fotos_json) : []; } catch {}
@@ -2379,6 +2460,15 @@
                                     <div key={v.id} className="print-visita">
                                         <p style={{ fontWeight: 700, fontSize: '13px', margin: '0 0 4px' }}>📅 Visita del {v.fecha} — {v.finalizado ? 'Finalizada' : 'En curso'}</p>
                                         <p className="print-json-item">Técnico: {v.tecnico_nombre || '—'} {v.hora_inicio && `· ${v.hora_inicio}${v.hora_fin ? '-' + v.hora_fin : ''}`}</p>
+                                        {companerosV.length > 0 && (
+                                            <div>
+                                                <p className="print-json-key">👷 Compañeros / técnicos de apoyo</p>
+                                                {companerosV.map((c, i) => {
+                                                    const h = (c.hora_inicio && c.hora_fin) ? horasEntreHoras(c.hora_inicio, c.hora_fin) : null;
+                                                    return <p key={i} className="print-json-item">• {c.nombre} {h !== null ? `— ${c.hora_inicio} a ${c.hora_fin} (${h.toFixed(2)} h)` : '(sin horario)'}</p>;
+                                                })}
+                                            </div>
+                                        )}
                                         {v.descripcion && <p className="print-json-item"><strong>Trabajos realizados:</strong> {v.descripcion}</p>}
                                         {v.trabajos_pendientes && <p className="print-json-item"><strong>Trabajos pendientes:</strong> {v.trabajos_pendientes}</p>}
 
@@ -2458,9 +2548,9 @@
                             </div>
                             <div className="form-group">
                                 <label>Técnico</label>
-                                <select value={visitaForm.tecnico_id} onChange={(e) => setVisitaForm({ ...visitaForm, tecnico_id: parseInt(e.target.value) })}>
+                                <Select value={visitaForm.tecnico_id} onChange={(e) => setVisitaForm({ ...visitaForm, tecnico_id: parseInt(e.target.value) })}>
                                     {tecnicosDisponibles.map(u => <option key={u.id} value={u.id}>{u.nombre}</option>)}
-                                </select>
+                                </Select>
                             </div>
                             <div className="ficha-grid">
                                 <div className="ficha-field">
@@ -2651,6 +2741,18 @@
         }
 
         // ===== HELPERS EXCEL (SheetJS) =====
+        // Imprime un DOCUMENTO (OT, albarán, factura): oculta el resto de la pantalla solo durante la impresión.
+        function imprimirDocumento(alTerminar) {
+            document.body.classList.add('imprimiendo-doc');
+            const quitar = () => {
+                document.body.classList.remove('imprimiendo-doc');
+                window.removeEventListener('afterprint', quitar);
+                if (alTerminar) alTerminar();
+            };
+            window.addEventListener('afterprint', quitar);
+            setTimeout(() => window.print(), 50);
+        }
+
         // ===== Horas de una visita =====
         // Cuentan SOLO:
         //   - las horas del técnico que cubre la visita (su hora de inicio y fin), y
@@ -3121,20 +3223,20 @@
                         <div className="ficha-field">
                             <span className="ficha-field-label">Tipo Activo</span>
                             <div className="field-with-add">
-                                <select value={formData.tipo} onChange={(e) => setFormData({ ...formData, tipo: e.target.value })}>
+                                <Select value={formData.tipo} onChange={(e) => setFormData({ ...formData, tipo: e.target.value })}>
                                     <option value="">-- Selecciona tipo --</option>
                                     {tiposActivo.map(t => <option key={t.id} value={t.nombre}>{t.nombre}</option>)}
-                                </select>
+                                </Select>
                                 <QuickAddInline label="Tipo de Activo" onCreate={crearTipoRapido} fields={[{ key: 'nombre', placeholder: 'Nombre del tipo *' }]} />
                             </div>
                         </div>
                         <div className="ficha-field">
                             <span className="ficha-field-label">Zona</span>
                             <div className="field-with-add">
-                                <select value={selectedZona} onChange={(e) => { setSelectedZona(e.target.value); setFormData({ ...formData, emplazamiento_id: '' }); }}>
+                                <Select value={selectedZona} onChange={(e) => { setSelectedZona(e.target.value); setFormData({ ...formData, emplazamiento_id: '' }); }}>
                                     <option value="">-- Selecciona --</option>
                                     {(zonas || []).map(z => <option key={z.id} value={z.id}>{z.nombre}</option>)}
-                                </select>
+                                </Select>
                                 <QuickAddInline label="Zona" onCreate={crearZonaRapida} fields={[{ key: 'nombre', placeholder: 'Nombre de la zona *' }]} />
                             </div>
                         </div>
@@ -3142,10 +3244,10 @@
                         <div className="ficha-field">
                             <span className="ficha-field-label">Cliente</span>
                             <div className="field-with-add">
-                                <select value={selectedCliente} onChange={(e) => { setSelectedCliente(e.target.value); setFormData({ ...formData, contrato_id: '' }); }}>
+                                <Select value={selectedCliente} onChange={(e) => { setSelectedCliente(e.target.value); setFormData({ ...formData, contrato_id: '' }); }}>
                                     <option value="">-- Selecciona --</option>
                                     {clientes.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-                                </select>
+                                </Select>
                                 <QuickAddInline label="Cliente" onCreate={crearClienteRapido} fields={[
                                     { key: 'nombre', placeholder: 'Nombre del cliente *' },
                                     { key: 'contacto', placeholder: 'Contacto (email)' },
@@ -3156,10 +3258,10 @@
                         <div className="ficha-field">
                             <span className="ficha-field-label">Contrato</span>
                             <div className="field-with-add">
-                                <select value={formData.contrato_id} disabled={!selectedCliente} className={!selectedCliente ? 'select-disabled' : ''} onChange={(e) => setFormData({ ...formData, contrato_id: e.target.value })}>
+                                <Select value={formData.contrato_id} disabled={!selectedCliente} className={!selectedCliente ? 'select-disabled' : ''} onChange={(e) => setFormData({ ...formData, contrato_id: e.target.value })}>
                                     <option value="">-- Selecciona --</option>
                                     {contratosFiltrados.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-                                </select>
+                                </Select>
                                 {selectedCliente && (
                                     <QuickAddInline label="Contrato" onCreate={crearContratoRapido} fields={[
                                         { key: 'nombre', placeholder: 'Nombre del contrato *' },
@@ -3171,10 +3273,10 @@
                         <div className="ficha-field">
                             <span className="ficha-field-label">Emplazamiento</span>
                             <div className="field-with-add">
-                                <select value={formData.emplazamiento_id} onChange={(e) => cambiarEmplazamiento(e.target.value)}>
+                                <Select value={formData.emplazamiento_id} onChange={(e) => cambiarEmplazamiento(e.target.value)}>
                                     <option value="">-- Selecciona --</option>
                                     {emplazamientosFiltrados.map(e => <option key={e.id} value={e.id}>{e.nombre}</option>)}
-                                </select>
+                                </Select>
                                 {selectedZona && (
                                     <QuickAddInline label="Emplazamiento" onCreate={crearEmplazamientoRapido} fields={[
                                         { key: 'nombre', placeholder: 'Nombre del emplazamiento *' },
@@ -3315,10 +3417,10 @@
                         <div className="card" ref={formRef} style={{ marginBottom: '1rem' }}>
                             <div className="form-group">
                                 <label>Zona</label>
-                                <select value={formData.zona_id} onChange={(e) => setFormData({ ...formData, zona_id: e.target.value })}>
+                                <Select value={formData.zona_id} onChange={(e) => setFormData({ ...formData, zona_id: e.target.value })}>
                                     <option value="">-- Selecciona una zona --</option>
                                     {zonas.map(z => <option key={z.id} value={z.id}>{z.nombre}</option>)}
-                                </select>
+                                </Select>
                             </div>
                             <div className="form-group">
                                 <label>Nombre del Emplazamiento</label>
@@ -3373,10 +3475,10 @@
                                         <div className="quickadd-box" ref={formRef} style={{ marginTop: '10px' }}>
                                             <div className="form-group">
                                                 <label>Zona</label>
-                                                <select value={formData.zona_id} onChange={(ev) => setFormData({ ...formData, zona_id: ev.target.value })}>
+                                                <Select value={formData.zona_id} onChange={(ev) => setFormData({ ...formData, zona_id: ev.target.value })}>
                                                     <option value="">-- Selecciona una zona --</option>
                                                     {zonas.map(z => <option key={z.id} value={z.id}>{z.nombre}</option>)}
-                                                </select>
+                                                </Select>
                                             </div>
                                             <div className="form-group">
                                                 <label>Nombre del Emplazamiento</label>
@@ -3553,11 +3655,11 @@
                     {fields.map((f, i) => (
                         <div key={i} className="dyn-row">
                             <input placeholder="Etiqueta del campo" value={f.label} onChange={(e) => updateField(i, { label: e.target.value })} />
-                            <select value={f.type} onChange={(e) => updateField(i, { type: e.target.value })}>
+                            <Select value={f.type} onChange={(e) => updateField(i, { type: e.target.value })}>
                                 <option value="text">Texto</option>
                                 <option value="select">Lista desplegable</option>
                                 <option value="date">Fecha</option>
-                            </select>
+                            </Select>
                             {f.type === 'select' && (
                                 <input placeholder="Opciones separadas por coma" value={(f.options || []).join(', ')} onChange={(e) => updateField(i, { options: e.target.value.split(',').map(s => s.trim()).filter(Boolean) })} />
                             )}
@@ -3692,12 +3794,12 @@
 
                         <div className="quickadd-box">
                             <p className="card-text" style={{ fontWeight: 600, marginBottom: '6px' }}>+ Añadir nueva sección</p>
-                            <select value={nuevoTipoSeccion} onChange={(e) => setNuevoTipoSeccion(e.target.value)}>
+                            <Select value={nuevoTipoSeccion} onChange={(e) => setNuevoTipoSeccion(e.target.value)}>
                                 <option value="fields">Campos de datos (ej: fabricante, modelo...)</option>
                                 <option value="inspection">Inspección (grupos de ítems Correcto/Incorrecto/N-A)</option>
                                 <option value="grid">Cuadro (filas × columnas, ej: barreras, racks...)</option>
                                 <option value="textarea">Texto libre / Observaciones</option>
-                            </select>
+                            </Select>
                             <button className="btn-add-row" onClick={addSeccion}>+ Añadir sección</button>
                         </div>
 
@@ -4184,11 +4286,11 @@
                         <div className="card" ref={formRef} style={{ marginBottom: '1rem' }}>
                             <div className="form-group">
                                 <label>Cliente</label>
-                                <select value={formData.cliente_id} onChange={(e) => setFormData({ ...formData, cliente_id: parseInt(e.target.value) })}>
+                                <Select value={formData.cliente_id} onChange={(e) => setFormData({ ...formData, cliente_id: parseInt(e.target.value) })}>
                                     {clientes.map(c => (
                                         <option key={c.id} value={c.id}>{c.nombre}</option>
                                     ))}
-                                </select>
+                                </Select>
                             </div>
                             <div className="form-group">
                                 <label>Nombre del Contrato</label>
@@ -4346,10 +4448,10 @@
                                         {readOnly ? (
                                             <span className="ficha-field-value">{val || '—'}</span>
                                         ) : campo.tipo === 'select' ? (
-                                            <select value={val} onChange={(e) => setValue(campo, e.target.value)}>
+                                            <Select value={val} onChange={(e) => setValue(campo, e.target.value)}>
                                                 <option value="">-- Selecciona --</option>
                                                 {opciones.map(o => <option key={o} value={o}>{o}</option>)}
-                                            </select>
+                                            </Select>
                                         ) : campo.tipo === 'radio' ? (
                                             <div style={{ display: 'flex', gap: '10px', marginTop: '4px' }}>
                                                 <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px' }}>
@@ -4495,14 +4597,14 @@
                     <div className="quickadd-box" style={{ marginTop: '12px' }}>
                         <p className="card-text" style={{ fontWeight: 600, marginBottom: '6px' }}>+ Añadir Campo Nuevo</p>
                         <input type="text" placeholder="Etiqueta (ej: Nº de Serie)" value={nuevaEtiqueta} onChange={(e) => setNuevaEtiqueta(e.target.value)} />
-                        <select value={nuevoTipo} onChange={(e) => setNuevoTipo(e.target.value)}>
+                        <Select value={nuevoTipo} onChange={(e) => setNuevoTipo(e.target.value)}>
                             <option value="text">Texto</option>
                             <option value="number">Número</option>
                             <option value="date">Fecha</option>
                             <option value="textarea">Texto largo</option>
                             <option value="select">Lista desplegable</option>
                             <option value="radio">Radio (Sí/No)</option>
-                        </select>
+                        </Select>
                         {nuevoTipo === 'select' && <input type="text" placeholder="Opciones separadas por coma" value={nuevasOpciones} onChange={(e) => setNuevasOpciones(e.target.value)} />}
                         {entidad === 'activo' && tiposActivo && tiposActivo.length > 0 && (
                             <div style={{ marginTop: '6px' }}>
@@ -4678,10 +4780,10 @@
                             </div>
                             <div className={`form-group ${user.rol === 'encargado' ? 'field-locked' : ''}`}>
                                 <label>Departamento</label>
-                                <select value={formData.departamento || 'Facilities'} disabled={user.rol === 'encargado'} onChange={(e) => setFormData({ ...formData, departamento: e.target.value })}>
+                                <Select value={formData.departamento || 'Facilities'} disabled={user.rol === 'encargado'} onChange={(e) => setFormData({ ...formData, departamento: e.target.value })}>
                                     <option value="Facilities">Facilities</option>
                                     <option value="Corvelec">Corvelec</option>
-                                </select>
+                                </Select>
                             </div>
                             <DynamicExtraFields entidad="cliente" camposConfig={camposConfig} formData={formData} setFormData={setFormData} />
                             <div className="btn-group">
@@ -5035,12 +5137,12 @@
 
                             <div className="form-group">
                                 <label>Rol</label>
-                                <select value={formData.rol} onChange={(e) => setFormData({ ...formData, rol: e.target.value })}>
+                                <Select value={formData.rol} onChange={(e) => setFormData({ ...formData, rol: e.target.value })}>
                                     {user.rol === 'admin' && <option value="admin">Administrador</option>}
                                     <option value="supervisor">Supervisor</option>
                                     <option value="encargado">Encargado</option>
                                     <option value="tecnico">Técnico</option>
-                                </select>
+                                </Select>
                                 {formData.rol === 'supervisor' && <p className="lock-note">El Supervisor tiene acceso a todas las OT, de ambos departamentos.</p>}
                                 {formData.rol === 'encargado' && <p className="lock-note">El Encargado solo tiene acceso a las OT de su propio departamento.</p>}
                             </div>
@@ -5048,10 +5150,10 @@
                             {formData.rol !== 'admin' && (
                                 <div className="form-group">
                                     <label>Departamento</label>
-                                    <select value={formData.departamento || 'Facilities'} onChange={(e) => setFormData({ ...formData, departamento: e.target.value })}>
+                                    <Select value={formData.departamento || 'Facilities'} onChange={(e) => setFormData({ ...formData, departamento: e.target.value })}>
                                         <option value="Facilities">Facilities</option>
                                         <option value="Corvelec">Corvelec</option>
-                                    </select>
+                                    </Select>
                                 </div>
                             )}
 
@@ -5304,10 +5406,10 @@
                                 </div>
                                 <div className="ficha-field">
                                     <span className="ficha-field-label">Departamento</span>
-                                    <select value={deptoExternoNuevo} onChange={(e) => setDeptoExternoNuevo(e.target.value)}>
+                                    <Select value={deptoExternoNuevo} onChange={(e) => setDeptoExternoNuevo(e.target.value)}>
                                         <option value="Facilities">Facilities</option>
                                         <option value="Corvelec">Corvelec</option>
-                                    </select>
+                                    </Select>
                                 </div>
                             </div>
                             <div className="btn-group">
@@ -5368,11 +5470,11 @@
                                                                 {(user.rol === 'admin' || user.rol === 'supervisor' || user.rol === 'encargado') && (
                                                                     celdaEstaAbierta ? (
                                                                         <div className="planning-manual-form" onClick={(e) => e.stopPropagation()}>
-                                                                            <select value={formManual.categoria} onChange={(e) => setFormManual({ ...formManual, categoria: e.target.value })}>
+                                                                            <Select value={formManual.categoria} onChange={(e) => setFormManual({ ...formManual, categoria: e.target.value })}>
                                                                                 <option value="OBRA">Obra</option>
                                                                                 <option value="MANTENIMIENTO">Mantenimiento</option>
                                                                                 <option value="OTROS">Otros</option>
-                                                                            </select>
+                                                                            </Select>
                                                                             <input type="text" placeholder="Descripción" value={formManual.descripcion} onChange={(e) => setFormManual({ ...formManual, descripcion: e.target.value })} />
                                                                             <div style={{ display: 'flex', gap: '4px', marginTop: '4px' }}>
                                                                                 <button className="btn btn-success" style={{ fontSize: '10px', padding: '3px 6px' }} onClick={() => añadirTrabajoManual(t.id, fechaStr, dep)}>Añadir</button>
@@ -5411,10 +5513,10 @@
                                                             {esGestorCalendario && (
                                                                 celdaOTEstaAbierta ? (
                                                                     <div className="planning-manual-form" onClick={(e) => e.stopPropagation()}>
-                                                                        <select value={otParaAsignar} onChange={(e) => setOtParaAsignar(e.target.value)}>
+                                                                        <Select value={otParaAsignar} onChange={(e) => setOtParaAsignar(e.target.value)}>
                                                                             <option value="">-- Elige una OT --</option>
                                                                             {otsNoResueltas.map(o => <option key={o.id} value={o.id}>{`${o.id} — ${o.titulo}`}</option>)}
-                                                                        </select>
+                                                                        </Select>
                                                                         {companerosDisponibles.length > 0 && (
                                                                             <div style={{ marginTop: '4px', textAlign: 'left' }}>
                                                                                 <span style={{ fontSize: '10px', fontWeight: 600 }}>Compañeros (opcional):</span>
@@ -5556,10 +5658,10 @@
                     {!importando && importMsg && <div className="import-summary">✅ Importación terminada — {importMsg}</div>}
 
                     <div className="form-group">
-                        <select value={filtroTecnico} onChange={(e) => setFiltroTecnico(e.target.value)}>
+                        <Select value={filtroTecnico} onChange={(e) => setFiltroTecnico(e.target.value)}>
                             <option value="todos">Todos los trabajadores</option>
                             {tecnicos.map(u => <option key={u.id} value={u.id}>{u.nombre}</option>)}
-                        </select>
+                        </Select>
                     </div>
 
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
@@ -5869,20 +5971,20 @@
                         <div className="ficha-field">
                             <span className="ficha-field-label">Tipo Activo</span>
                             <div className="field-with-add">
-                                <select value={formData.tipo} onChange={(e) => setFormData({ ...formData, tipo: e.target.value })}>
+                                <Select value={formData.tipo} onChange={(e) => setFormData({ ...formData, tipo: e.target.value })}>
                                     <option value="">-- Selecciona tipo --</option>
                                     {tiposActivo.map(t => <option key={t.id} value={t.nombre}>{t.nombre}</option>)}
-                                </select>
+                                </Select>
                                 <QuickAddInline label="Tipo de Activo" onCreate={crearTipoRapido} fields={[{ key: 'nombre', placeholder: 'Nombre del tipo *' }]} />
                             </div>
                         </div>
                         <div className="ficha-field">
                             <span className="ficha-field-label">Emplazamiento</span>
                             <div className="field-with-add">
-                                <select value={formData.emplazamiento_id} onChange={(e) => setFormData({ ...formData, emplazamiento_id: e.target.value })}>
+                                <Select value={formData.emplazamiento_id} onChange={(e) => setFormData({ ...formData, emplazamiento_id: e.target.value })}>
                                     <option value="">-- Aún sin decidir --</option>
                                     {emplazamientosFiltrados.map(e => <option key={e.id} value={e.id}>{e.nombre}</option>)}
-                                </select>
+                                </Select>
                                 {selectedZona && (
                                     <QuickAddInline label="Emplazamiento" onCreate={crearEmplazamientoRapido} fields={[
                                         { key: 'nombre', placeholder: 'Nombre del emplazamiento *' },
@@ -5895,20 +5997,20 @@
                         <div className="ficha-field">
                             <span className="ficha-field-label">Zona</span>
                             <div className="field-with-add">
-                                <select value={selectedZona} onChange={(e) => { setSelectedZona(e.target.value); setFormData({ ...formData, emplazamiento_id: '' }); }}>
+                                <Select value={selectedZona} onChange={(e) => { setSelectedZona(e.target.value); setFormData({ ...formData, emplazamiento_id: '' }); }}>
                                     <option value="">-- Selecciona --</option>
                                     {(zonas || []).map(z => <option key={z.id} value={z.id}>{z.nombre}</option>)}
-                                </select>
+                                </Select>
                                 <QuickAddInline label="Zona" onCreate={crearZonaRapida} fields={[{ key: 'nombre', placeholder: 'Nombre de la zona *' }]} />
                             </div>
                         </div>
                         <div className="ficha-field">
                             <span className="ficha-field-label">Cliente</span>
                             <div className="field-with-add">
-                                <select value={selectedCliente} onChange={(e) => { setSelectedCliente(e.target.value); setFormData({ ...formData, contrato_id: '' }); }}>
+                                <Select value={selectedCliente} onChange={(e) => { setSelectedCliente(e.target.value); setFormData({ ...formData, contrato_id: '' }); }}>
                                     <option value="">-- Selecciona --</option>
                                     {clientes.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-                                </select>
+                                </Select>
                                 <QuickAddInline label="Cliente" onCreate={crearClienteRapido} fields={[
                                     { key: 'nombre', placeholder: 'Nombre del cliente *' },
                                     { key: 'contacto', placeholder: 'Contacto (email)' },
@@ -5919,10 +6021,10 @@
                         <div className="ficha-field">
                             <span className="ficha-field-label">Contrato</span>
                             <div className="field-with-add">
-                                <select value={formData.contrato_id} disabled={!selectedCliente} className={!selectedCliente ? 'select-disabled' : ''} onChange={(e) => setFormData({ ...formData, contrato_id: e.target.value })}>
+                                <Select value={formData.contrato_id} disabled={!selectedCliente} className={!selectedCliente ? 'select-disabled' : ''} onChange={(e) => setFormData({ ...formData, contrato_id: e.target.value })}>
                                     <option value="">-- Selecciona --</option>
                                     {contratosFiltrados.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-                                </select>
+                                </Select>
                                 {selectedCliente && (
                                     <QuickAddInline label="Contrato" onCreate={crearContratoRapido} fields={[
                                         { key: 'nombre', placeholder: 'Nombre del contrato *' },
@@ -6075,19 +6177,19 @@
                         {(user.rol === 'admin' || user.rol === 'supervisor') && (
                             <div className="ficha-field">
                                 <span className="ficha-field-label">Departamento</span>
-                                <select value={filtroDepartamento} onChange={(e) => setFiltroDepartamento(e.target.value)}>
+                                <Select value={filtroDepartamento} onChange={(e) => setFiltroDepartamento(e.target.value)}>
                                     <option value="todos">Todos</option>
                                     <option value="Facilities">Facilities</option>
                                     <option value="Corvelec">Corvelec</option>
-                                </select>
+                                </Select>
                             </div>
                         )}
                         <div className="ficha-field">
                             <span className="ficha-field-label">Cliente</span>
-                            <select value={filtroCliente} onChange={(e) => setFiltroCliente(e.target.value)}>
+                            <Select value={filtroCliente} onChange={(e) => setFiltroCliente(e.target.value)}>
                                 <option value="todos">Todos</option>
                                 {clientesVisibles.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-                            </select>
+                            </Select>
                         </div>
                         <div className="ficha-field">
                             <span className="ficha-field-label">Desde</span>
@@ -6099,14 +6201,14 @@
                         </div>
                         <div className="ficha-field">
                             <span className="ficha-field-label">Estado</span>
-                            <select value={filtroEstadoObras} onChange={(e) => setFiltroEstadoObras(e.target.value)}>
+                            <Select value={filtroEstadoObras} onChange={(e) => setFiltroEstadoObras(e.target.value)}>
                                 <option value="todos">Todos</option>
                                 <option value="pendiente">Pendiente</option>
                                 <option value="abierta">Asignada / Abierta</option>
                                 <option value="en_curso">En curso</option>
                                 <option value="resuelta">Resuelta</option>
                                 <option value="cancelada">Cancelada</option>
-                            </select>
+                            </Select>
                         </div>
                     </div>
 
@@ -6171,6 +6273,11 @@
             const [filtroFacturada, setFiltroFacturada] = useState('todas');
             const [dandoPrecioA, setDandoPrecioA] = useState(null); // { otId, descripcion }
             const [nuevoPrecioForm, setNuevoPrecioForm] = useState({ precio: '', costo: '', generico: false });
+            const [albaranesFact, setAlbaranesFact] = useState([]);
+
+            useEffect(() => {
+                fetch(`${API_URL}/api/albaranes`).then(r => r.json()).then(d => { if (Array.isArray(d)) setAlbaranesFact(d); }).catch(() => {});
+            }, []);
 
             useEffect(() => {
                 fetch(`${API_URL}/api/visitas`)
@@ -6291,6 +6398,10 @@
                 .filter(Boolean);
 
             const granTotal = filasOT.reduce((sum, f) => sum + f.total, 0);
+
+            // Albaranes a los que pertenecen las OT mostradas (cada uno una sola vez)
+            const idsAlbaranesOT = new Set(filasOT.map(f => f.ot.albaran_id).filter(Boolean));
+            const albaranesDeLasOT = albaranesFact.filter(a => idsAlbaranesOT.has(a.id));
             const granCoste = filasOT.reduce((sum, f) => sum + f.coste, 0);
 
             const toggleSeleccion = (id) => {
@@ -6368,10 +6479,10 @@
                     <div className="ficha-grid">
                         <div className="ficha-field">
                             <span className="ficha-field-label">Cliente</span>
-                            <select value={filtroCliente} onChange={(e) => setFiltroCliente(e.target.value)}>
+                            <Select value={filtroCliente} onChange={(e) => setFiltroCliente(e.target.value)}>
                                 <option value="todos">Todos</option>
                                 {clientes.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-                            </select>
+                            </Select>
                         </div>
                         <div className="ficha-field">
                             <span className="ficha-field-label">Desde</span>
@@ -6383,11 +6494,11 @@
                         </div>
                         <div className="ficha-field">
                             <span className="ficha-field-label">Facturación</span>
-                            <select value={filtroFacturada} onChange={(e) => setFiltroFacturada(e.target.value)}>
+                            <Select value={filtroFacturada} onChange={(e) => setFiltroFacturada(e.target.value)}>
                                 <option value="todas">Todas</option>
                                 <option value="facturadas">Facturadas</option>
                                 <option value="no_facturadas">No facturadas</option>
-                            </select>
+                            </Select>
                         </div>
                     </div>
 
@@ -6517,6 +6628,36 @@
                             <p className="card-text">Margen: {(granTotal - granCoste).toFixed(2)} €</p>
                         </div>
                     )}
+
+                    {albaranesDeLasOT.length > 0 && (
+                        <div className="card" style={{ marginTop: '1rem' }}>
+                            <p className="card-title">📄 Albaranes de estas OT</p>
+                            <p className="lock-note">Aquí sí aparecen el material y la mano de obra añadidos a mano en el albarán, que no salen en las tarjetas de arriba (esas se calculan solo con las visitas). La factura se imprime desde Albaranes → 🧾 Factura.</p>
+                            {albaranesDeLasOT.map(a => {
+                                let lineas = [];
+                                try { lineas = a.lineas_json ? JSON.parse(a.lineas_json) : []; } catch { lineas = []; }
+                                const totalAlb = lineas.length > 0 ? lineas.reduce((sum, l) => sum + ((parseFloat(l.cantidad) || 0) * (parseFloat(l.precio_unitario) || 0)), 0) : (parseFloat(a.importe) || 0);
+                                return (
+                                    <div key={a.id} className="list-item" style={{ marginTop: '8px' }}>
+                                        <div className="list-item-header">
+                                            <div>
+                                                <p className="card-title">Albarán Nº {a.id} — {a.cliente_nombre || '—'}</p>
+                                                <p className="card-text">{a.obra || '—'}</p>
+                                            </div>
+                                            <span className="badge" style={{ background: a.facturado ? '#d1fae5' : 'var(--bg-accent)', color: a.facturado ? '#065f46' : 'var(--fill-accent)' }}>{a.facturado ? 'Facturado' : (a.estado === 'final' ? 'Pendiente de facturar' : 'Provisional')}</span>
+                                        </div>
+                                        {lineas.map((l, i) => (
+                                            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', borderBottom: '1px dashed var(--border)', padding: '4px 0' }}>
+                                                <span>{l.tipo === 'mano_obra' ? '👷' : '📦'} {l.descripcion} × {l.cantidad}</span>
+                                                <span>{l.precio_unitario !== '' && l.precio_unitario != null ? `${((parseFloat(l.cantidad) || 0) * (parseFloat(l.precio_unitario) || 0)).toFixed(2)} €` : '⚠️ Sin precio'}</span>
+                                            </div>
+                                        ))}
+                                        <p className="card-text" style={{ textAlign: 'right', fontWeight: 600, marginTop: '4px' }}>Total albarán: {totalAlb.toFixed(2)} €</p>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
                 </div>
             );
         }
@@ -6555,6 +6696,14 @@
             const [editandoLineasId, setEditandoLineasId] = useState(null);
             const [lineasEnEdicion, setLineasEnEdicion] = useState([]);
             const [guardandoLineas, setGuardandoLineas] = useState(false);
+            const [docImprimir, setDocImprimir] = useState(null);   // { albaran, tipo: 'albaran' | 'factura', factura }
+            const [facturaForm, setFacturaForm] = useState(null);   // { id, numero, fecha, iva } mientras se prepara una factura
+
+            // Cuando el documento ya está en pantalla (oculto), se lanza la impresión
+            useEffect(() => {
+                if (!docImprimir) return;
+                imprimirDocumento(() => setDocImprimir(null));
+            }, [docImprimir]);
 
             const cargarResumenMensual = () => {
                 setCargandoResumen(true);
@@ -6853,35 +7002,35 @@
                                 </div>
                                 <div className="ficha-field">
                                     <span className="ficha-field-label">Departamento</span>
-                                    <select value={filtroDeptoResumen} onChange={(e) => setFiltroDeptoResumen(e.target.value)}>
+                                    <Select value={filtroDeptoResumen} onChange={(e) => setFiltroDeptoResumen(e.target.value)}>
                                         <option value="todos">Todos</option>
                                         <option value="Facilities">Facilities</option>
                                         <option value="Corvelec">Corvelec</option>
-                                    </select>
+                                    </Select>
                                 </div>
                                 <div className="ficha-field">
                                     <span className="ficha-field-label">OT incluidas</span>
-                                    <select value={filtroEstadoResumen} onChange={(e) => setFiltroEstadoResumen(e.target.value)}>
+                                    <Select value={filtroEstadoResumen} onChange={(e) => setFiltroEstadoResumen(e.target.value)}>
                                         <option value="todas">Todas (finalizadas o no)</option>
                                         <option value="resuelta">Solo finalizadas</option>
-                                    </select>
+                                    </Select>
                                 </div>
                                 <div className="ficha-field">
                                     <span className="ficha-field-label">Cliente</span>
-                                    <select value={filtroClienteResumen} onChange={(e) => { setFiltroClienteResumen(e.target.value); setFiltroContratoResumen('todos'); setOtsSeleccionadas([]); }}>
+                                    <Select value={filtroClienteResumen} onChange={(e) => { setFiltroClienteResumen(e.target.value); setFiltroContratoResumen('todos'); setOtsSeleccionadas([]); }}>
                                         <option value="todos">Todos</option>
                                         {[...clientes].sort((a, b) => (a.nombre || '').localeCompare(b.nombre || '', 'es')).map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-                                    </select>
+                                    </Select>
                                 </div>
                                 <div className="ficha-field">
                                     <span className="ficha-field-label">Contrato / Obra</span>
-                                    <select value={filtroContratoResumen} onChange={(e) => { setFiltroContratoResumen(e.target.value); setOtsSeleccionadas([]); }}>
+                                    <Select value={filtroContratoResumen} onChange={(e) => { setFiltroContratoResumen(e.target.value); setOtsSeleccionadas([]); }}>
                                         <option value="todos">Todos</option>
                                         {(contratos || [])
                                             .filter(c => filtroClienteResumen === 'todos' || String(c.cliente_id) === filtroClienteResumen)
                                             .sort((a, b) => (a.nombre || '').localeCompare(b.nombre || '', 'es'))
                                             .map(c => <option key={c.id} value={c.id}>{`${c.nombre}${filtroClienteResumen === 'todos' && c.cliente_nombre ? ` (${c.cliente_nombre})` : ''}`}</option>)}
-                                    </select>
+                                    </Select>
                                 </div>
                             </div>
 
@@ -6975,10 +7124,10 @@
                         <div className="card" style={{ marginBottom: '1rem' }}>
                             <div className="form-group">
                                 <label>Cliente</label>
-                                <select value={formNuevo.cliente_id} onChange={(e) => setFormNuevo({ ...formNuevo, cliente_id: e.target.value })}>
+                                <Select value={formNuevo.cliente_id} onChange={(e) => setFormNuevo({ ...formNuevo, cliente_id: e.target.value })}>
                                     <option value="">-- Selecciona --</option>
                                     {clientes.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-                                </select>
+                                </Select>
                             </div>
                             <div className="form-group"><label>Obra</label><input type="text" placeholder="Ej: Estación Avilés" value={formNuevo.obra} onChange={(e) => setFormNuevo({ ...formNuevo, obra: e.target.value })} /></div>
                             <div className="form-group"><label>Departamento</label><input type="text" placeholder="Ej: Mantenimiento" value={formNuevo.departamento} onChange={(e) => setFormNuevo({ ...formNuevo, departamento: e.target.value })} /></div>
@@ -7104,8 +7253,30 @@
                                                 <button className="btn btn-success" onClick={() => toggleFacturado(a, true)}>📤 Enviar a facturar</button>
                                             )
                                         )}
+                                        {a.estado === 'final' && (
+                                            <>
+                                                <button className="btn btn-secondary" onClick={() => setDocImprimir({ albaran: a, tipo: 'albaran' })}>🖨️ Imprimir albarán</button>
+                                                <button className="btn btn-secondary" onClick={() => setFacturaForm(facturaForm && facturaForm.id === a.id ? null : { id: a.id, numero: '', fecha: new Date().toISOString().slice(0, 10), iva: '21' })}>
+                                                    {facturaForm && facturaForm.id === a.id ? 'Cerrar factura' : '🧾 Factura'}
+                                                </button>
+                                            </>
+                                        )}
                                         <button className="btn btn-danger" onClick={() => eliminar(a.id)}>Eliminar</button>
                                     </div>
+
+                                    {facturaForm && facturaForm.id === a.id && (
+                                        <div className="quickadd-box" style={{ marginTop: '10px' }}>
+                                            <p className="card-text" style={{ fontWeight: 600 }}>Factura de este albarán (con todas sus líneas, también las añadidas a mano)</p>
+                                            <div className="ficha-grid">
+                                                <div className="ficha-field"><span className="ficha-field-label">Nº de factura</span><input type="text" placeholder="Ej: 2026-0123" value={facturaForm.numero} onChange={(e) => setFacturaForm({ ...facturaForm, numero: e.target.value })} /></div>
+                                                <div className="ficha-field"><span className="ficha-field-label">Fecha</span><input type="date" value={facturaForm.fecha} onChange={(e) => setFacturaForm({ ...facturaForm, fecha: e.target.value })} /></div>
+                                                <div className="ficha-field"><span className="ficha-field-label">IVA (%)</span><input type="number" step="0.01" min="0" value={facturaForm.iva} onChange={(e) => setFacturaForm({ ...facturaForm, iva: e.target.value })} /></div>
+                                            </div>
+                                            <div className="btn-group">
+                                                <button className="btn btn-success" onClick={() => setDocImprimir({ albaran: a, tipo: 'factura', factura: { ...facturaForm } })}>🖨️ Imprimir factura</button>
+                                            </div>
+                                        </div>
+                                    )}
 
                                     {completandoId === a.id && (
                                         <div className="quickadd-box" style={{ marginTop: '10px' }}>
@@ -7122,6 +7293,85 @@
                             ))}
                         </div>
                     )}
+
+                    {docImprimir && <DocumentoImprimible albaran={docImprimir.albaran} tipo={docImprimir.tipo} factura={docImprimir.factura} ordenes={ordenes} clientes={clientes} />}
+                </div>
+            );
+        }
+
+        // Documento imprimible de un ALBARÁN o de una FACTURA, a partir de las líneas del albarán
+        // (mano de obra + materiales, incluidos los añadidos a mano). Solo se ve al imprimir.
+        function DocumentoImprimible({ albaran, tipo, factura, ordenes, clientes }) {
+            const a = albaran;
+            const esFactura = tipo === 'factura';
+            let lineas = [];
+            try { lineas = a.lineas_json ? JSON.parse(a.lineas_json) : []; } catch { lineas = []; }
+            // Albarán sin líneas (creado a mano, solo con importe): una única línea con su descripción
+            if (lineas.length === 0) lineas = [{ tipo: 'otro', descripcion: a.descripcion || a.obra || 'Trabajos realizados', cantidad: 1, precio_unitario: a.importe != null ? a.importe : '' }];
+            const importeLinea = (l) => (parseFloat(l.cantidad) || 0) * (parseFloat(l.precio_unitario) || 0);
+            const base = lineas.reduce((sum, l) => sum + importeLinea(l), 0);
+            const ivaPct = esFactura ? (parseFloat(factura && factura.iva) || 0) : 0;
+            const cuotaIva = base * ivaPct / 100;
+            const eur = (n) => Number(n).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
+            const cant = (n) => Number(n).toLocaleString('es-ES', { maximumFractionDigits: 2 });
+            const fechaES = (iso) => iso ? String(iso).slice(0, 10).split('-').reverse().join('/') : '—';
+            const cliente = (clientes || []).find(c => c.id === a.cliente_id);
+            const ots = (ordenes || []).filter(o => o.albaran_id === a.id);
+            const empresa = (typeof NOMBRES_DEPARTAMENTO_PLANNING !== 'undefined' && NOMBRES_DEPARTAMENTO_PLANNING[a.departamento]) || 'ECOCOMPUTER S.L.';
+            const logoEl = document.querySelector('.header-logo img');
+            const logo = logoEl ? logoEl.src : null;
+
+            return (
+                <div className="printable-ot">
+                    <div className="doc-cabecera">
+                        {logo && <img className="doc-logo" src={logo} />}
+                        <strong>{empresa}</strong>
+                    </div>
+                    <h1 className="doc-titulo">{esFactura ? `FACTURA${factura && factura.numero ? ` Nº ${factura.numero}` : ''}` : `ALBARÁN Nº ${a.id}`}</h1>
+
+                    <div className="doc-datos">
+                        <div><strong>Fecha:</strong> {fechaES(esFactura ? (factura && factura.fecha) : a.fecha)}</div>
+                        <div><strong>Cliente:</strong> {(cliente && cliente.nombre) || a.cliente_nombre || '—'}</div>
+                        <div><strong>Obra / Contrato:</strong> {a.obra || '—'}</div>
+                        <div><strong>Departamento:</strong> {a.departamento || '—'}</div>
+                        {esFactura && <div><strong>Albarán de origen:</strong> Nº {a.id} ({fechaES(a.fecha)})</div>}
+                        {a.descripcion && <div style={{ gridColumn: '1 / -1' }}><strong>Concepto:</strong> {a.descripcion}</div>}
+                    </div>
+
+                    <table className="doc-tabla">
+                        <thead>
+                            <tr><th>Concepto</th><th className="doc-num">Cantidad</th><th className="doc-num">Precio unidad</th><th className="doc-num">Importe</th></tr>
+                        </thead>
+                        <tbody>
+                            {lineas.map((l, i) => (
+                                <tr key={i}>
+                                    <td>{l.tipo === 'mano_obra' ? '👷 ' : l.tipo === 'material' ? '📦 ' : ''}{l.descripcion || '—'}</td>
+                                    <td className="doc-num">{cant(l.cantidad || 0)}{l.tipo === 'mano_obra' ? ' h' : ''}</td>
+                                    <td className="doc-num">{l.precio_unitario !== '' && l.precio_unitario != null ? eur(l.precio_unitario) : '—'}</td>
+                                    <td className="doc-num">{l.precio_unitario !== '' && l.precio_unitario != null ? eur(importeLinea(l)) : '—'}</td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+
+                    <div className="doc-totales">
+                        {esFactura ? (
+                            <>
+                                <div><span>Base imponible</span><span>{eur(base)}</span></div>
+                                <div><span>IVA ({cant(ivaPct)} %)</span><span>{eur(cuotaIva)}</span></div>
+                                <div className="doc-total-final"><span>TOTAL FACTURA</span><span>{eur(base + cuotaIva)}</span></div>
+                            </>
+                        ) : (
+                            <div className="doc-total-final"><span>TOTAL (sin IVA)</span><span>{eur(base)}</span></div>
+                        )}
+                    </div>
+
+                    {ots.length > 0 && (
+                        <div className="doc-ots">
+                            <strong>Órdenes de trabajo incluidas:</strong> {ots.map(o => `${o.id} — ${o.titulo}`).join(' · ')}
+                        </div>
+                    )}
+                    {!esFactura && <div className="doc-pie">Recibí conforme: ______________________________ &nbsp;&nbsp; Fecha: ____ / ____ / ________</div>}
                 </div>
             );
         }
@@ -7187,17 +7437,17 @@
                 <>
                     <div className="form-group">
                         <label>Cliente</label>
-                        <select value={formData.cliente_id} onChange={(e) => setFormData({ ...formData, cliente_id: e.target.value, contrato_id: '' })}>
+                        <Select value={formData.cliente_id} onChange={(e) => setFormData({ ...formData, cliente_id: e.target.value, contrato_id: '' })}>
                             <option value="">-- Sin cliente específico --</option>
                             {clientes.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-                        </select>
+                        </Select>
                     </div>
                     <div className="form-group">
                         <label>Contrato (opcional)</label>
-                        <select value={formData.contrato_id} disabled={!formData.cliente_id} className={!formData.cliente_id ? 'select-disabled' : ''} onChange={(e) => setFormData({ ...formData, contrato_id: e.target.value })}>
+                        <Select value={formData.contrato_id} disabled={!formData.cliente_id} className={!formData.cliente_id ? 'select-disabled' : ''} onChange={(e) => setFormData({ ...formData, contrato_id: e.target.value })}>
                             <option value="">-- Todos los contratos de este cliente --</option>
                             {contratosDelFormulario.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-                        </select>
+                        </Select>
                         {!formData.cliente_id && <p className="lock-note">Selecciona primero un cliente para poder limitar a un contrato concreto.</p>}
                     </div>
                     <div className="form-group"><label>Tipo / Categoría</label><input type="text" placeholder="Ej: Accesorios Puertas" value={formData.tipo} onChange={(e) => setFormData({ ...formData, tipo: e.target.value })} /></div>
@@ -7344,16 +7594,16 @@
                         <input type="text" placeholder="🔍 Buscar material..." value={search} onChange={(e) => setSearch(e.target.value)} />
                     </div>
                     <div className="form-group">
-                        <select value={filtroCliente} onChange={(e) => { setFiltroCliente(e.target.value); setFiltroContrato('todos'); }}>
+                        <Select value={filtroCliente} onChange={(e) => { setFiltroCliente(e.target.value); setFiltroContrato('todos'); }}>
                             <option value="todos">Todos los clientes</option>
                             {clientes.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-                        </select>
+                        </Select>
                     </div>
                     <div className="form-group">
-                        <select value={filtroContrato} onChange={(e) => setFiltroContrato(e.target.value)}>
+                        <Select value={filtroContrato} onChange={(e) => setFiltroContrato(e.target.value)}>
                             <option value="todos">Todos los contratos</option>
                             {contratosDelFiltro.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-                        </select>
+                        </Select>
                     </div>
 
                     {showForm && !editingId && (
